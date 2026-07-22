@@ -3,7 +3,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import get_client_ip, get_current_user, get_ruc_lookup_provider
+from app.core.dependencies import get_client_ip, get_current_user, get_ruc_lookup_provider, verify_csrf
 from app.db.session import get_db
 from app.domain.ruc_lookup.provider import RucLookupProvider
 from app.models.user import User
@@ -41,7 +41,8 @@ def list_clients(
         limit=limit,
         offset=offset,
     )
-    return {"items": items, "total": total, "limit": limit, "offset": offset}
+    out_items = client_service.to_client_list_out(db, current_user.tenant_id, items)
+    return {"items": out_items, "total": total, "limit": limit, "offset": offset}
 
 
 @router.post("", response_model=ClientOut, status_code=status.HTTP_201_CREATED)
@@ -50,6 +51,7 @@ def create_client(
     request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _csrf: None = Depends(verify_csrf),
 ) -> ClientOut:
     try:
         client = client_service.create_client(
@@ -62,7 +64,7 @@ def create_client(
         )
         db.commit()
         db.refresh(client)
-        return client
+        return client_service.to_client_out(db, current_user.tenant_id, client)
     except InvalidRucError as exc:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
@@ -113,7 +115,8 @@ def get_client(
     current_user: User = Depends(get_current_user),
 ) -> ClientOut:
     try:
-        return client_service.get_client(db, current_user.tenant_id, client_id)
+        client = client_service.get_client(db, current_user.tenant_id, client_id)
+        return client_service.to_client_out(db, current_user.tenant_id, client)
     except ClientNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
@@ -125,6 +128,7 @@ def update_client(
     request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _csrf: None = Depends(verify_csrf),
 ) -> ClientOut:
     try:
         client = client_service.update_client(
@@ -138,7 +142,7 @@ def update_client(
         )
         db.commit()
         db.refresh(client)
-        return client
+        return client_service.to_client_out(db, current_user.tenant_id, client)
     except ClientNotFoundError as exc:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
@@ -157,6 +161,7 @@ def change_client_status(
     request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _csrf: None = Depends(verify_csrf),
 ) -> ClientOut:
     try:
         client = client_service.change_status(
@@ -171,7 +176,7 @@ def change_client_status(
         )
         db.commit()
         db.refresh(client)
-        return client
+        return client_service.to_client_out(db, current_user.tenant_id, client)
     except ClientNotFoundError as exc:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc

@@ -8,15 +8,17 @@ Documentación base, arquitectura, modelo de amenazas, modelo de datos, estructu
 
 ## Fase 1 — Núcleo operativo (en curso)
 
-**Bloque 1 ✅ (esta entrega):** autenticación local, gestión de contribuyentes (CRUD), validación de RUC, proveedor de consulta de RUC simulado, catálogo de obligaciones, asignación de obligaciones por cliente, auditoría básica, datos ficticios, pruebas.
+**Bloque 1 ✅:** autenticación local, gestión de contribuyentes (CRUD), validación de RUC, proveedor de consulta de RUC simulado, catálogo de obligaciones, asignación de obligaciones por cliente, auditoría básica, datos ficticios, pruebas.
+
+**Bloque 2 ✅ (esta entrega):**
+- Endurecimiento de autenticación y sesiones: bloqueo temporal por intentos fallidos con backoff progresivo y mitigación de enumeración por tiempo (ADR-0009), CSRF double-submit cookie (ADR-0010), expiración por inactividad/absoluta, rotación de sesión, límite de sesiones concurrentes, vista de sesiones activas, revocación al cambiar contraseña, UI de advertencia de inactividad.
+- Motor de cronogramas tributarios versionado: fuentes/versiones/entradas/excepciones/historial de aprobación/importación de CSV con vista previa y diffs (ADR-0011, ADR-0012, ADR-0014, ADR-0015), categorías tributarias del cliente con vigencia histórica desacopladas de `tax_regime` (ADR-0013), vista previa de vencimiento por cliente/obligación/periodo (sin generación de declaraciones ni eventos de calendario todavía).
 
 **Bloques siguientes (pendientes):**
-- Motor de cronogramas tributarios versionado (importación CSV, aprobación humana, generación de vencimientos).
-- Control de declaraciones por contribuyente/obligación/periodo (estados, transiciones).
+- Control de declaraciones por contribuyente/obligación/periodo (estados, transiciones), generadas a partir de una versión de cronograma `APPROVED`.
 - Control documental mensual (lista de documentos requeridos por cliente).
 - Honorarios profesionales (facturación, cobranza, reportes).
 - Panel principal, matriz mensual, reportes CSV/Excel.
-- Bloqueo de cuenta por intentos fallidos e inactividad.
 
 ## Fase 2 — Google y comunicaciones (pendiente)
 

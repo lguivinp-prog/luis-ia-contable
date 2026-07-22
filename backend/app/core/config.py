@@ -24,6 +24,21 @@ class Settings(BaseSettings):
 
     backend_port: int = 8000
 
+    # ---- Bloqueo de login por intentos fallidos (ADR-0009) ----
+    login_max_attempts: int = 5
+    login_attempt_window_minutes: int = 15
+    login_lockout_duration_minutes: int = 15
+    login_lockout_max_minutes: int = 60
+
+    # ---- Seguridad de sesiones ----
+    session_inactivity_timeout_minutes: int = 30
+    session_inactivity_warning_seconds: int = 60
+    session_max_concurrent: int = 5
+
+    # ---- Motor de cronogramas: limites de importacion CSV ----
+    tax_schedule_csv_max_bytes: int = 2_000_000
+    tax_schedule_csv_max_rows: int = 5000
+
 
 @lru_cache
 def get_settings() -> Settings:

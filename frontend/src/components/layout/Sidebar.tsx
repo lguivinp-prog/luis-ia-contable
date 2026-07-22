@@ -3,7 +3,12 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-const NAV_ITEMS = [{ href: "/clients", label: "Contribuyentes" }];
+const NAV_ITEMS = [
+  { href: "/clients", label: "Contribuyentes" },
+  { href: "/tax-categories", label: "Categorías tributarias" },
+  { href: "/tax-schedules", label: "Cronogramas tributarios" },
+  { href: "/security", label: "Seguridad" },
+];
 
 export function Sidebar() {
   const pathname = usePathname();

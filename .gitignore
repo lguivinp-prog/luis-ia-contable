@@ -35,6 +35,9 @@ frontend/next-env.d.ts
 
 # Docker / DB
 postgres_data/
+*.dump
+*.sqlite
+*.sqlite3
 
 # Backups (contain real data once in use, never commit)
 backups/*

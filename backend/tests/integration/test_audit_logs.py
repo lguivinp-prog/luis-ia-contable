@@ -68,12 +68,8 @@ def test_obligation_assignment_lifecycle_is_audited(auth_client, db_session, obl
     assert "CLIENT_OBLIGATION_REMOVE" in actions
 
 
-def test_login_and_logout_are_audited(client, admin_user, db_session) -> None:
-    client.post(
-        "/api/v1/auth/login",
-        json={"email": admin_user.email, "password": "TestPassword123!"},
-    )
-    client.post("/api/v1/auth/logout")
+def test_login_and_logout_are_audited(auth_client, db_session) -> None:
+    auth_client.post("/api/v1/auth/logout")
 
     actions = _actions(db_session)
     assert "LOGIN_SUCCESS" in actions

@@ -39,7 +39,6 @@ export interface ClientBase {
   legal_representative_doc: string | null;
   contact_person: string | null;
   whatsapp_number: string | null;
-  is_good_taxpayer: boolean;
   monthly_fee: string | null;
   payment_day: number | null;
   onboarding_date: string | null;
@@ -55,6 +54,9 @@ export interface Client extends ClientBase {
   last_verified_at: string | null;
   created_at: string;
   updated_at: string;
+  // Calculado dinámicamente por el backend desde client_tax_categories
+  // (ver ADR-0013); no se envía en creación/edición.
+  is_good_taxpayer: boolean;
 }
 
 export interface ClientListResponse {

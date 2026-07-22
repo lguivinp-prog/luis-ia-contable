@@ -26,6 +26,12 @@ export default function LoginPage() {
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         setError("Correo o contraseña incorrectos.");
+      } else if (err instanceof ApiError && err.status === 429) {
+        setError(
+          typeof err.detail === "string"
+            ? err.detail
+            : "Demasiados intentos. Intenta nuevamente más tarde."
+        );
       } else {
         setError("No se pudo iniciar sesión. Intenta nuevamente.");
       }

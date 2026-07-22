@@ -2,7 +2,7 @@ import uuid
 from datetime import date, datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.client import (
     FiscalAddressCondition,
@@ -38,7 +38,6 @@ class ClientBase(BaseModel):
     legal_representative_doc: str | None = None
     contact_person: str | None = None
     whatsapp_number: str | None = None
-    is_good_taxpayer: bool = False
     monthly_fee: Decimal | None = None
     payment_day: int | None = Field(default=None, ge=1, le=31)
     onboarding_date: date | None = None
@@ -47,11 +46,15 @@ class ClientBase(BaseModel):
 
 
 class ClientCreate(ClientBase):
-    pass
+    # `is_good_taxpayer` es un campo heredado del Bloque 1 que ya no se
+    # acepta en la entrada: se calcula dinamicamente desde
+    # `client_tax_categories` (ver ADR-0013). extra="forbid" hace que enviarlo
+    # produzca un 422 explicito en vez de ser ignorado en silencio.
+    model_config = ConfigDict(extra="forbid")
 
 
 class ClientUpdate(ClientBase):
-    pass
+    model_config = ConfigDict(extra="forbid")
 
 
 class ClientStatusUpdate(BaseModel):
@@ -67,8 +70,12 @@ class ClientOut(ClientBase):
     last_verified_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    # Calculado dinamicamente a la fecha de referencia "hoy" desde
+    # `client_tax_categories` (ver ADR-0013); la columna `clients.is_good_taxpayer`
+    # heredada del Bloque 1 nunca se lee para poblar este campo.
+    is_good_taxpayer: bool
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ClientListOut(BaseModel):

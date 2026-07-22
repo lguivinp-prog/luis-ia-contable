@@ -1,4 +1,5 @@
 import uuid
+from datetime import date
 
 from sqlalchemy.orm import Session
 
@@ -6,8 +7,8 @@ from app.domain.ruc_lookup.provider import RucLookupProvider, RucLookupResult
 from app.models.audit_log import AuditAction
 from app.models.client import Client
 from app.repositories import client_repository
-from app.schemas.client import ClientCreate, ClientUpdate
-from app.services import audit_service
+from app.schemas.client import ClientCreate, ClientOut, ClientUpdate
+from app.services import audit_service, tax_category_service
 from app.services.ruc_validator import validate_ruc
 
 
@@ -26,6 +27,30 @@ _ENUM_FIELDS = {
     "tax_regime",
     "issuance_system",
 }
+
+
+def to_client_out(db: Session, tenant_id: uuid.UUID, client: Client) -> ClientOut:
+    """Serializa un `Client` calculando `is_good_taxpayer` dinamicamente a la
+    fecha de hoy (ver ADR-0013); la columna heredada del mismo nombre en el
+    modelo ORM nunca se usa para poblar este campo."""
+    is_good_taxpayer = tax_category_service.is_client_in_category(
+        db, tenant_id, client.id, tax_category_service.BUEN_CONTRIBUYENTE_CODE, date.today()
+    )
+    return ClientOut.model_validate(client).model_copy(update={"is_good_taxpayer": is_good_taxpayer})
+
+
+def to_client_list_out(db: Session, tenant_id: uuid.UUID, clients: list[Client]) -> list[ClientOut]:
+    """Version batched (un solo query, sin N+1) de `to_client_out` para listados."""
+    reference_date = date.today()
+    good_taxpayer_map = tax_category_service.compute_good_taxpayer_map(
+        db, tenant_id, [c.id for c in clients], reference_date
+    )
+    return [
+        ClientOut.model_validate(c).model_copy(
+            update={"is_good_taxpayer": good_taxpayer_map.get(c.id, False)}
+        )
+        for c in clients
+    ]
 
 
 def get_client(db: Session, tenant_id: uuid.UUID, client_id: uuid.UUID) -> Client:

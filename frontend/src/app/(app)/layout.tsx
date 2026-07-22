@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import { Header } from "@/components/layout/Header";
 import { Sidebar } from "@/components/layout/Sidebar";
+import { InactivityGuard } from "@/components/security/InactivityGuard";
 import { fetchCurrentUser } from "@/lib/auth";
 import type { User } from "@/lib/types/auth";
 
@@ -25,6 +26,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <Sidebar />
         <main style={{ flex: 1, padding: "1.5rem" }}>{children}</main>
       </div>
+      <InactivityGuard />
     </div>
   );
 }

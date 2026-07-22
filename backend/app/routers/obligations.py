@@ -3,7 +3,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import get_client_ip, get_current_user
+from app.core.dependencies import get_client_ip, get_current_user, verify_csrf
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.obligation import (
@@ -66,6 +66,7 @@ def assign_obligation(
     request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _csrf: None = Depends(verify_csrf),
 ) -> ClientObligationOut:
     try:
         client_service.get_client(db, current_user.tenant_id, client_id)
@@ -103,6 +104,7 @@ def update_client_obligation(
     request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _csrf: None = Depends(verify_csrf),
 ) -> ClientObligationOut:
     try:
         client_obligation = obligation_service.update_client_obligation(
@@ -133,6 +135,7 @@ def remove_client_obligation(
     request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _csrf: None = Depends(verify_csrf),
 ) -> None:
     try:
         obligation_service.remove_client_obligation(

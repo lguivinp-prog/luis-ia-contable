@@ -2,7 +2,7 @@
 
 Aplicación peruana de control contable, tributario, documental y de honorarios profesionales para un contador independiente. Arquitectura local-first (Windows 11 + Docker), preparada para evolucionar a una plataforma multiusuario y multidespacho.
 
-> **Estado actual:** Fase 0 (fundamentos) + primer bloque de Fase 1 (núcleo operativo: autenticación, contribuyentes, catálogo de obligaciones). Ver [docs/ROADMAP.md](docs/ROADMAP.md) para el detalle de fases.
+> **Estado actual:** Fase 0 (fundamentos) + Fase 1, Bloques 1 y 2 (núcleo operativo: autenticación endurecida con bloqueo de intentos fallidos y CSRF, contribuyentes, catálogo de obligaciones, categorías tributarias del cliente, motor de cronogramas tributarios versionado). Ver [docs/ROADMAP.md](docs/ROADMAP.md) para el detalle de fases.
 
 ## Qué es y qué NO es
 
@@ -60,6 +60,7 @@ Instrucciones completas y solución de problemas en [docs/WINDOWS_INSTALLATION.m
 | `scripts/test.ps1` | Corre linters y pruebas automatizadas (backend y frontend) |
 | `scripts/reset-dev.ps1` | Reinicia el entorno de desarrollo desde cero (destructivo, pide confirmación) |
 | `scripts/logs.ps1` | Muestra logs de los servicios |
+| `scripts/unlock-login.ps1` | Desbloqueo administrativo de una cuenta bloqueada por intentos fallidos (ver ADR-0009) |
 
 ## Documentación
 

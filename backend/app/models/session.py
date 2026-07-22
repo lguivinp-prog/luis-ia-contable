@@ -20,6 +20,10 @@ class Session(Base, UUIDPrimaryKeyMixin):
         UUID(as_uuid=True), ForeignKey("users.id"), nullable=False
     )
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    # Hash SHA-256 del token CSRF (double-submit cookie, ver ADR-0010). Se
+    # rota en cada login nuevo; queda inservible en cuanto la sesion se
+    # revoca, ya que get_current_session deja de aceptarla.
+    csrf_token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

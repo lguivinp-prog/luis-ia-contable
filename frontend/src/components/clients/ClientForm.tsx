@@ -60,7 +60,6 @@ const DEFAULT_VALUES: ClientBase = {
   legal_representative_doc: null,
   contact_person: null,
   whatsapp_number: null,
-  is_good_taxpayer: false,
   monthly_fee: null,
   payment_day: null,
   onboarding_date: null,
