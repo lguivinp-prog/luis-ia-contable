@@ -1,0 +1,22 @@
+{
+  "name": "Luis IA Contable",
+  "short_name": "Luis IA Contable",
+  "description": "Control contable, tributario, documental y de honorarios para un contador independiente peruano.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f7f8fa",
+  "theme_color": "#1d4e89",
+  "lang": "es-PE",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
