@@ -1,0 +1,47 @@
+# Politica de finales de linea explicita (diagnostico: core.autocrlf=true a
+# nivel de sistema, sin .gitattributes, producia falsos "modified" en
+# git status para archivos cuyo contenido es byte-identico al confirmado --
+# ver informe de la entrega correctiva del Bloque 3 para el diagnostico completo).
+#
+# Regla general: git detecta binario/texto automaticamente y normaliza texto
+# a LF en el repositorio.
+* text=auto eol=lf
+
+# Codigo y datos: siempre LF, nunca autodeteccion.
+*.py text eol=lf
+*.pyi text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.js text eol=lf
+*.jsx text eol=lf
+*.mjs text eol=lf
+*.cjs text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.toml text eol=lf
+*.cfg text eol=lf
+*.ini text eol=lf
+*.sql text eol=lf
+*.sh text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+Dockerfile text eol=lf
+*.dockerignore text eol=lf
+.env.example text eol=lf
+.gitignore text eol=lf
+
+# Scripts de PowerShell: tambien LF (ya almacenados asi en el repositorio;
+# PowerShell 5.1/7 en Windows los ejecuta sin problema, y mantenerlos en LF
+# evita renormalizar 12 archivos sin necesidad real).
+*.ps1 text eol=lf
+
+# Binarios: nunca tocar, nunca diff de texto.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
