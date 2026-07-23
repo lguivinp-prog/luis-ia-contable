@@ -17,6 +17,21 @@ def get_catalog_item(db: Session, obligation_id: uuid.UUID) -> ObligationCatalog
     return db.get(ObligationCatalog, obligation_id)
 
 
+def list_all_client_obligations_for_tenant(
+    db: Session, tenant_id: uuid.UUID
+) -> list[ClientObligation]:
+    """Todas las asignaciones reales cliente-obligacion de un tenant (ver
+    "Generacion desde asignaciones reales" -- nunca un producto cartesiano
+    cliente x catalogo global)."""
+    return list(
+        db.execute(
+            select(ClientObligation).where(ClientObligation.tenant_id == tenant_id)
+        )
+        .scalars()
+        .all()
+    )
+
+
 def list_client_obligations(
     db: Session, tenant_id: uuid.UUID, client_id: uuid.UUID
 ) -> list[ClientObligation]:
@@ -30,6 +45,16 @@ def list_client_obligations(
         .scalars()
         .all()
     )
+
+
+def get_client_obligation_by_id(
+    db: Session, tenant_id: uuid.UUID, client_obligation_id: uuid.UUID
+) -> ClientObligation | None:
+    return db.execute(
+        select(ClientObligation).where(
+            ClientObligation.tenant_id == tenant_id, ClientObligation.id == client_obligation_id
+        )
+    ).scalar_one_or_none()
 
 
 def get_client_obligation(

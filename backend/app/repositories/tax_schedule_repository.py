@@ -41,6 +41,23 @@ def create_source(db: Session, source: TaxScheduleSource) -> TaxScheduleSource:
     return source
 
 
+def get_active_source_for_obligation(
+    db: Session, tenant_id: uuid.UUID, obligation_id: uuid.UUID
+) -> TaxScheduleSource | None:
+    """Fuente activa de un cronograma para una obligacion (ver Bloque 3,
+    generacion masiva). Si existiera mas de una fuente activa para la misma
+    obligacion, se toma la primera por nombre -- caso no usado en 3.1."""
+    return db.execute(
+        select(TaxScheduleSource)
+        .where(
+            TaxScheduleSource.tenant_id == tenant_id,
+            TaxScheduleSource.obligation_id == obligation_id,
+            TaxScheduleSource.is_active.is_(True),
+        )
+        .order_by(TaxScheduleSource.name)
+    ).scalars().first()
+
+
 # --- versions ---
 
 

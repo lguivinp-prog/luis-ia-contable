@@ -3,7 +3,18 @@ from fastapi import FastAPI
 from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.core.security import get_dummy_password_hash
-from app.routers import auth, clients, health, obligations, tax_categories, tax_schedules
+from app.routers import (
+    auth,
+    clients,
+    dashboard,
+    declaration_generation,
+    declarations,
+    health,
+    obligations,
+    tax_categories,
+    tax_periods,
+    tax_schedules,
+)
 
 settings = get_settings()
 configure_logging(settings.log_level)
@@ -28,3 +39,7 @@ app.include_router(clients.router)
 app.include_router(obligations.router)
 app.include_router(tax_categories.router)
 app.include_router(tax_schedules.router)
+app.include_router(tax_periods.router)
+app.include_router(declarations.router)
+app.include_router(declaration_generation.router)
+app.include_router(dashboard.router)

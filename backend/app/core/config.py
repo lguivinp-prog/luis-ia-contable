@@ -39,6 +39,12 @@ class Settings(BaseSettings):
     tax_schedule_csv_max_bytes: int = 2_000_000
     tax_schedule_csv_max_rows: int = 5000
 
+    # ---- Ciclo operativo (Bloque 3): cierre con impuesto/documentos pendientes ----
+    # Deshabilitado durante 3.1 porque tax_assessments/declaration_document_items
+    # todavia no existen (ver "Cierre de declaraciones durante 3.1"). Se habilita
+    # explicitamente al aprobar 3.2.
+    allow_close_with_pending_tax: bool = False
+
 
 @lru_cache
 def get_settings() -> Settings:

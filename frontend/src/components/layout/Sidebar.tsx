@@ -7,6 +7,9 @@ const NAV_ITEMS = [
   { href: "/clients", label: "Contribuyentes" },
   { href: "/tax-categories", label: "Categorías tributarias" },
   { href: "/tax-schedules", label: "Cronogramas tributarios" },
+  { href: "/tax-periods", label: "Periodos tributarios" },
+  { href: "/dashboard", label: "Tablero mensual" },
+  { href: "/declarations/generate", label: "Generar declaraciones" },
   { href: "/security", label: "Seguridad" },
 ];
 

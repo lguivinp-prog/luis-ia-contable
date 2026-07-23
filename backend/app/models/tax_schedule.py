@@ -52,6 +52,11 @@ class TaxScheduleSource(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     comparten el mismo cronograma."""
 
     __tablename__ = "tax_schedule_sources"
+    __table_args__ = (
+        # Auxiliar para FK compuesta (id, tenant_id) desde Bloque 3 (ver
+        # ADR-0025).
+        sa.UniqueConstraint("id", "tenant_id", name="uq_tax_schedule_sources_id_tenant"),
+    )
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False
@@ -85,6 +90,12 @@ class TaxScheduleVersion(Base, UUIDPrimaryKeyMixin, TimestampMixin):
             sa.text("COALESCE(scope_category_code, '')"),
             unique=True,
             postgresql_where=sa.text("status = 'APPROVED'"),
+        ),
+        # Auxiliar para FK compuesta (id, tenant_id, source_id) desde
+        # Bloque 3 (ver ADR-0025): declarations.schedule_version_id valida
+        # que la version pertenece a la fuente indicada.
+        sa.UniqueConstraint(
+            "id", "tenant_id", "source_id", name="uq_tax_schedule_versions_id_tenant_source"
         ),
     )
 
@@ -134,6 +145,11 @@ class TaxScheduleEntry(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __tablename__ = "tax_schedule_entries"
     __table_args__ = (
         CheckConstraint(_DIGITS_RANGE_CHECK, name="ck_tax_schedule_entries_digits_range"),
+        # Auxiliar para FK compuesta (id, tenant_id, version_id) desde
+        # Bloque 3 (ver ADR-0025).
+        sa.UniqueConstraint(
+            "id", "tenant_id", "version_id", name="uq_tax_schedule_entries_id_tenant_version"
+        ),
     )
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(
@@ -162,6 +178,11 @@ class TaxScheduleException(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __tablename__ = "tax_schedule_exceptions"
     __table_args__ = (
         CheckConstraint(_DIGITS_RANGE_CHECK, name="ck_tax_schedule_exceptions_digits_range"),
+        # Auxiliar para FK compuesta (id, tenant_id, version_id) desde
+        # Bloque 3 (ver ADR-0025).
+        sa.UniqueConstraint(
+            "id", "tenant_id", "version_id", name="uq_tax_schedule_exceptions_id_tenant_version"
+        ),
     )
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(

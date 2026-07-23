@@ -72,6 +72,10 @@ class Client(Base, UUIDPrimaryKeyMixin, TimestampMixin):
             "payment_day IS NULL OR (payment_day BETWEEN 1 AND 31)",
             name="ck_clients_payment_day_range",
         ),
+        # Auxiliar para FKs compuestas (id, tenant_id) desde Bloque 3 (ver
+        # ADR-0025): declarations.client_id valida que el cliente pertenece
+        # al mismo tenant, no solo que existe.
+        UniqueConstraint("id", "tenant_id", name="uq_clients_id_tenant"),
     )
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(

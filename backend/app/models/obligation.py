@@ -25,6 +25,13 @@ class ClientObligation(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __tablename__ = "client_obligations"
     __table_args__ = (
         UniqueConstraint("client_id", "obligation_id", name="uq_client_obligation"),
+        # Auxiliar para FKs compuestas (id, tenant_id, client_id) desde
+        # Bloque 3 (ver ADR-0025): declarations.client_obligation_id valida
+        # que la obligacion asignada pertenece al MISMO cliente y tenant de
+        # la declaracion, no solo al mismo tenant.
+        UniqueConstraint(
+            "id", "tenant_id", "client_id", name="uq_client_obligations_id_tenant_client"
+        ),
     )
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(
