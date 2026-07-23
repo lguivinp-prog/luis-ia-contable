@@ -39,6 +39,30 @@ Ejecutadas contra una base de datos PostgreSQL real de pruebas (`TEST_DATABASE_U
 | `test_tax_schedule_import.py` | CSV válido con y sin cronograma previo, encabezados faltantes, fecha/dígitos/categoría inválidos, filas duplicadas, extensión no `.csv`, archivo sobredimensionado, confirmación crea versión+entradas, doble confirmación rechazada, rechazo de importación, diff contra versión aprobada previa |
 | `test_tax_schedule_concurrency.py` | El índice único parcial impide dos versiones `APPROVED` del mismo alcance a nivel de base de datos; alcances distintos sí pueden coexistir aprobados; una carrera de aprobación simulada se traduce a `ConcurrentApprovalConflictError` sin corromper el estado |
 | `test_tax_schedule_misc_endpoints.py` | Fuente/versión no encontradas (404), exportación de entradas a CSV, comparación de versiones, historial de aprobación vacío en una versión nueva, vista previa de vencimiento (cliente inexistente, sin versión aprobada, éxito con `demo_disclaimer`) |
+| `test_tax_periods_canonicity.py` | Cada rama del `CHECK` de canonicidad (`MONTHLY`/`ANNUAL`/`SPECIAL`), apertura/cierre de periodo |
+| `test_declaration_state_machine.py` | Historial de nacimiento (5 tablas, `audit_correlation_id` compartido), regresiones de flujo auditadas, transición inválida rechazada, conflicto de `row_version`, corrección requiere fecha de presentación, cierre normal bloqueado en 3.1 (antes de existir Dominios A-C), override deshabilitado por defecto, estado terminal `NOT_APPLICABLE`, cancelación con motivo |
+| `test_declaration_generation.py` | Vista previa, detección de `STALE` por checksum, confirmación idempotente, clasificación por ítem, `SAVEPOINT` por ítem no revierte el lote completo |
+| `test_declaration_risk.py` | `compute_risk_status` vs. `risk_status_sql_expression`: paridad para los 11 valores (incluidos `CLOSED_WITH_PENDING`/`PENDING_TAX`/`PENDING_DOCUMENTS` de Bloque 3.2) |
+| `test_declarations_multitenant_integrity.py` | FKs compuestas rechazan cruces de tenant en cada tabla nueva de 3.1 |
+| `test_declaration_documents.py` / `test_declaration_documents_api.py` | Catálogo sistema/personalizado con rechazo cross-tenant, sincronización idempotente, cruce entre clientes rechazado por SQL directo, ítems históricos conservados tras desactivar una asignación, sincronización administrativa por periodo, cambio de estado + recálculo de `document_status`, flujo HTTP completo con auditoría y CSRF |
+| `test_tax_assessments.py` / `test_tax_assessments_payments_api.py` | Determinación inicial (4 filas en una transacción), corrección que aumenta/reduce/genera exceso, historial condicional (ADR-0039), `UNIQUE(sequence_number)`, flujo HTTP completo |
+| `test_tax_payments.py` | Pago parcial/total, idempotencia (reenvío igual/payload distinto), sobrepago (rechazo/motivo faltante/éxito), anulación con historial, rollback atómico forzado tras fallo de historial/auditoría |
+| `test_tax_payment_concurrency.py` | Concurrencia real con **dos conexiones/hilos independientes** sincronizados con `threading.Event` (nunca solo `sleep`): el segundo pago espera el bloqueo real del primero, suma final correcta sin pérdida |
+| `test_professional_fees.py` / `test_professional_fees_api.py` | Acuerdo sin/con solapamiento, `supersede`/`cancel` cierran vigencia real y permiten un acuerdo posterior, cargo idempotente, emisión con/sin `due_date`, pago con historial de nacimiento/anulación, idempotencia y sobrepago de honorarios, recibo con límite agregado y rechazo de número reutilizado, independencia impuesto/honorario (2 pruebas), flujo HTTP completo |
+| `test_professional_fee_risk_sql_parity.py` | Paridad Python/SQL de `compute_fee_collection_risk` (5 valores) y cambio de riesgo con el paso del tiempo sin alterar el `status` persistido (`frozen_clock`) |
+| `test_declaration_close_full.py` | Cierre normal exitoso con las tres precondiciones cumplidas, cierre normal rechazado con documentos pendientes, cierre excepcional exitoso (flag + admin + motivo), rechazo 403 a un usuario no-admin |
+| `test_dashboard.py` | Riesgo extendido visible en el tablero; un cliente con múltiples documentos/pagos/cargos en el mismo periodo produce **una sola fila por declaración** con importes agregados correctos |
+| `test_reports_api.py` | Los 10 tipos de reporte en CSV/Excel, límite de filas configurable con truncamiento, auditoría por exportación, CSRF, tipo de reporte desconocido (422) |
+
+## Pruebas unitarias adicionales (Bloque 3.2)
+
+| Archivo | Cubre |
+|---|---|
+| `test_declaration_document_status.py` | `compute_document_status`: 7 combinaciones de estado de ítems |
+| `test_tax_payment_status.py` | `compute_tax_payment_status`: 6 combinaciones de monto/saldo; fórmula de determinación con `Decimal` |
+| `test_professional_fee_charge_status.py` | `compute_charge_payment_status`: 4 combinaciones |
+| `test_professional_fee_risk.py` | `compute_fee_collection_risk`: 7 combinaciones de vencimiento/estado/saldo |
+| `test_report_service.py` | Sanitización CSV contra fórmula, Excel con hojas "Datos"/"Metadatos" |
 
 ## Pruebas de arranque (smoke)
 

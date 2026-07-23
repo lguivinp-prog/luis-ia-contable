@@ -66,3 +66,15 @@ def verify_csrf(
 
 def get_client_ip(request: Request) -> str | None:
     return request.client.host if request.client else None
+
+
+def ensure_admin_role(user: User) -> None:
+    """Verificacion de rol de una sola posicion (ver "Cierre operativo
+    completo" del plan): el RBAC real queda para una fase futura -- por
+    ahora solo distingue `admin` del resto para gatear el cierre con
+    pendientes (`force_close_with_pending`)."""
+    if user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Esta accion requiere rol de administrador",
+        )

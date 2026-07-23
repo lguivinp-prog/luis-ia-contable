@@ -64,11 +64,23 @@ export default function ClientDetailPage() {
           <h1 style={{ fontSize: "1.4rem" }}>{client.business_name}</h1>
           <p style={{ color: "var(--muted)" }}>RUC {client.ruc}</p>
         </div>
-        <Link href={`/clients/${client.id}/obligations`}>
-          <Button variant="secondary" type="button">
-            Ver obligaciones
-          </Button>
-        </Link>
+        <div style={{ display: "flex", gap: "0.5rem" }}>
+          <Link href={`/clients/${client.id}/obligations`}>
+            <Button variant="secondary" type="button">
+              Ver obligaciones
+            </Button>
+          </Link>
+          <Link href={`/clients/${client.id}/documents`}>
+            <Button variant="secondary" type="button">
+              Requisitos documentales
+            </Button>
+          </Link>
+          <Link href={`/clients/${client.id}/fees`}>
+            <Button variant="secondary" type="button">
+              Honorarios
+            </Button>
+          </Link>
+        </div>
       </div>
 
       <section className="surface-card" style={{ padding: "1.25rem" }}>

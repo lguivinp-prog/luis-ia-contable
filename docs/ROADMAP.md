@@ -14,11 +14,21 @@ Documentación base, arquitectura, modelo de amenazas, modelo de datos, estructu
 - Endurecimiento de autenticación y sesiones: bloqueo temporal por intentos fallidos con backoff progresivo y mitigación de enumeración por tiempo (ADR-0009), CSRF double-submit cookie (ADR-0010), expiración por inactividad/absoluta, rotación de sesión, límite de sesiones concurrentes, vista de sesiones activas, revocación al cambiar contraseña, UI de advertencia de inactividad.
 - Motor de cronogramas tributarios versionado: fuentes/versiones/entradas/excepciones/historial de aprobación/importación de CSV con vista previa y diffs (ADR-0011, ADR-0012, ADR-0014, ADR-0015), categorías tributarias del cliente con vigencia histórica desacopladas de `tax_regime` (ADR-0013), vista previa de vencimiento por cliente/obligación/periodo (sin generación de declaraciones ni eventos de calendario todavía).
 
+**Bloque 3.1 ✅:** periodos tributarios canónicos (`tax_periods`, apertura/cierre), `declarations` con snapshot versionado del cronograma resuelto y 5 tablas de historial (estado, vencimiento, asignación, presentación, reapertura), máquina de estados de flujo/presentación con regresiones auditadas, generación masiva idempotente con detección de vista previa obsoleta (`STALE`), tablero mensual básico.
+
+**Bloque 3.2 ✅ (esta entrega):**
+- **Control documental**: catálogo de requisitos híbrido sistema/tenant (ADR-0033), asignación por cliente con vigencia real y vínculo opcional a una obligación concreta (ADR-0034), sincronización idempotente de ítems por declaración —individual y masiva por periodo, sin backfill destructivo— (ADR-0035), integridad cruzada cliente/declaración/requisito vía FKs compuestas (ADR-0036).
+- **Determinación y pagos tributarios**: determinación versionada con correcciones (ADR-0038/0039), saldo siempre contra la determinación vigente (ADR-0040), idempotencia de pagos (ADR-0041), concurrencia real con `SELECT ... FOR UPDATE` (ADR-0042), sobrepago con confirmación explícita (ADR-0043).
+- **Honorarios profesionales**: acuerdos con vigencia real y ciclo de vida explícito de `supersede`/`cancel` (ADR-0044), cargos con estado persistido separado del riesgo de cobranza calculado en vivo (ADR-0045), recibos con regla de importe agregado (ADR-0046) — dominio completamente independiente del tributario (raíz de bloqueo propia, sin importar `declaration_service`).
+- **Cierre operativo completo**: cierre normal (tres precondiciones: presentación/documentos/impuesto) y cierre excepcional con pendientes, gateado por `settings.allow_close_with_pending_tax` + rol admin + motivo explícito (ADR-0047).
+- **Tablero y riesgo extendidos**: `computed_risk_status` con 3 valores nuevos (`CLOSED_WITH_PENDING`/`PENDING_TAX`/`PENDING_DOCUMENTS`), agregados de impuestos (1:1 por declaración) y honorarios (por cliente/periodo, repetidos nunca multiplicados) sin duplicar filas del tablero (ADR-0048).
+- **Reportes**: exportación CSV/Excel de 10 tipos de datos, sanitizada contra *CSV formula injection*, límite de filas configurable, `openpyxl` como dependencia declarativa (ADR-0049).
+- Frontend completo para las pantallas anteriores (pestañas de declaración, honorarios por cliente, tablero extendido, reportes).
+
 **Bloques siguientes (pendientes):**
-- Control de declaraciones por contribuyente/obligación/periodo (estados, transiciones), generadas a partir de una versión de cronograma `APPROVED`.
-- Control documental mensual (lista de documentos requeridos por cliente).
-- Honorarios profesionales (facturación, cobranza, reportes).
-- Panel principal, matriz mensual, reportes CSV/Excel.
+- RBAC real (roles/permisos más allá del gateo de una sola posición usado para el cierre excepcional).
+- Rectificatorias tributarias completas.
+- Almacenamiento real de archivos para documentos (hoy solo metadatos validados, nunca una ruta o URL real).
 
 ## Fase 2 — Google y comunicaciones (pendiente)
 

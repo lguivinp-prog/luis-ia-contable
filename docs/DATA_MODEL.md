@@ -59,7 +59,7 @@
 | user_agent | VARCHAR(255) NULL | |
 | created_at | TIMESTAMPTZ NOT NULL | |
 
-Acciones auditadas: `LOGIN_SUCCESS`, `LOGOUT`, `PASSWORD_CHANGED`, `SESSION_REVOKED`, `SESSION_REVOKED_ALL_OTHERS`, `CLIENT_CREATE`, `CLIENT_UPDATE`, `CLIENT_STATUS_CHANGE`, `CLIENT_OBLIGATION_ASSIGN`, `CLIENT_OBLIGATION_UPDATE`, `CLIENT_OBLIGATION_REMOVE`, `RUC_LOOKUP_QUERY`, `TAX_CATEGORY_ASSIGN`, `TAX_CATEGORY_REMOVE`, `TAX_SCHEDULE_SOURCE_CREATE`, `TAX_SCHEDULE_IMPORT_RUN_CREATE`, `TAX_SCHEDULE_IMPORT_CONFIRM`, `TAX_SCHEDULE_IMPORT_REJECT`, `TAX_SCHEDULE_SUBMIT_FOR_REVIEW`, `TAX_SCHEDULE_APPROVE`, `TAX_SCHEDULE_REJECT`, `TAX_SCHEDULE_CANCEL`, `TAX_SCHEDULE_PREVIEW_QUERY`.
+Acciones auditadas: `LOGIN_SUCCESS`, `LOGOUT`, `PASSWORD_CHANGED`, `SESSION_REVOKED`, `SESSION_REVOKED_ALL_OTHERS`, `CLIENT_CREATE`, `CLIENT_UPDATE`, `CLIENT_STATUS_CHANGE`, `CLIENT_OBLIGATION_ASSIGN`, `CLIENT_OBLIGATION_UPDATE`, `CLIENT_OBLIGATION_REMOVE`, `RUC_LOOKUP_QUERY`, `TAX_CATEGORY_ASSIGN`, `TAX_CATEGORY_REMOVE`, `TAX_SCHEDULE_SOURCE_CREATE`, `TAX_SCHEDULE_IMPORT_RUN_CREATE`, `TAX_SCHEDULE_IMPORT_CONFIRM`, `TAX_SCHEDULE_IMPORT_REJECT`, `TAX_SCHEDULE_SUBMIT_FOR_REVIEW`, `TAX_SCHEDULE_APPROVE`, `TAX_SCHEDULE_REJECT`, `TAX_SCHEDULE_CANCEL`, `TAX_SCHEDULE_PREVIEW_QUERY`, `TAX_PERIOD_CREATE`, `TAX_PERIOD_CLOSE`, `TAX_PERIOD_REOPEN`, `DECLARATION_CREATE`, `DECLARATION_WORKFLOW_CHANGE`, `DECLARATION_ASSIGN`, `DECLARATION_FILE`, `DECLARATION_FILING_CORRECT`, `DECLARATION_RECALCULATE`, `DECLARATION_REOPEN`, `DECLARATION_CLOSE`, `DECLARATION_CANCEL`, `DECLARATION_GENERATION_PREVIEW`, `DECLARATION_GENERATION_ITEM_EXCLUDE`, `DECLARATION_GENERATION_CONFIRM`, `DECLARATION_GENERATION_REFRESH_PREVIEW`, `DECLARATION_GENERATION_CANCEL` (Bloque 3.1), y desde Bloque 3.2: `DOCUMENT_CATALOG_CREATE`, `DOCUMENT_REQUIREMENT_ASSIGN`, `DOCUMENT_ITEM_STATUS_CHANGE`, `DOCUMENT_REQUIREMENTS_SYNC`, `TAX_ASSESSMENT_CREATE`, `TAX_ASSESSMENT_CORRECT`, `TAX_PAYMENT_CREATE`, `TAX_PAYMENT_VOID`, `TAX_PAYMENT_OVERPAYMENT_CONFIRM`, `FEE_AGREEMENT_CREATE`, `FEE_AGREEMENT_SUPERSEDE`, `FEE_AGREEMENT_CANCEL`, `FEE_CHARGE_CREATE`, `FEE_PAYMENT_CREATE`, `FEE_PAYMENT_VOID`, `FEE_RECEIPT_ISSUE`, `FEE_RECEIPT_VOID`, `DECLARATION_CLOSE_WITH_OVERRIDE`, `REPORT_EXPORT`.
 
 **Nota importante (ver ADR-0009):** ningún fallo de login (exista o no la cuenta) escribe en `audit_logs` — esa información vive exclusivamente en `login_attempts` y `security_events`, para no filtrar por auditoría lo que la mitigación de enumeración por tiempo oculta en la respuesta HTTP.
 
@@ -243,6 +243,89 @@ Nunca se borran filas: el conteo de bloqueo es "fallos consecutivos desde el úl
 | validation_errors, diff_summary | JSONB NULL | errores estructurales y diferencias vs. la versión `APPROVED` previa del mismo scope |
 | created_at, created_by | | |
 
+## Bloque 3.1 — Ciclo operativo (periodos, declaraciones, generación masiva)
+
+### `tax_periods`
+| Columna | Tipo | Notas |
+|---|---|---|
+| id, tenant_id | | |
+| period_type | VARCHAR(20) NOT NULL | `MONTHLY`, `ANNUAL`, `SPECIAL` |
+| fiscal_year | SMALLINT NOT NULL | |
+| month | SMALLINT NULL | `NULL` para `ANNUAL`/`SPECIAL` |
+| canonical_code | VARCHAR(20) NOT NULL | `UNIQUE(tenant_id, canonical_code)` |
+| schedule_tax_period_code | VARCHAR(7) NULL | vínculo hacia `tax_schedule_entries.tax_period` |
+| display_name, description | | |
+| start_date, end_date | DATE NOT NULL | |
+| is_open | BOOLEAN NOT NULL DEFAULT true | cerrar bloquea toda mutación de declaraciones del periodo |
+| created_at, updated_at | | |
+
+`tax_period_status_history`: `from_is_open`/`to_is_open`, `actor_user_id`, `reason`, `created_at`.
+
+### `declarations`
+| Columna | Tipo | Notas |
+|---|---|---|
+| id, tenant_id | | |
+| client_id | UUID | FK compuesta `(client_id, tenant_id) → clients(id, tenant_id)` |
+| client_obligation_id | UUID | FK compuesta `(client_obligation_id, tenant_id, client_id) → client_obligations(id, tenant_id, client_id)` |
+| tax_period_id | UUID | FK compuesta `(tax_period_id, tenant_id) → tax_periods(id, tenant_id)` |
+| assigned_user_id | UUID NULL | |
+| workflow_status | VARCHAR(30) | `PENDING`→`DOCUMENTS_REQUESTED`→…→`READY_TO_FILE`→`CLOSED`, más `NOT_APPLICABLE`/`CANCELLED` terminales |
+| filing_status | VARCHAR(20) | `NOT_FILED`/`READY`/`FILED`/`FAILED`/`NOT_REQUIRED` |
+| tax_payment_status | VARCHAR(20) | `NOT_DETERMINED`/`NO_TAX_DUE`/`CREDIT_BALANCE`/`PAYMENT_PENDING`/`PARTIALLY_PAID`/`PAID`/`NOT_APPLICABLE` (`PAYMENT_PENDING` agregado en 3.2, ver ADR-0038) |
+| document_status | VARCHAR(20) | `NOT_CONFIGURED`/`PENDING`/`PARTIAL`/`OBSERVED`/`COMPLETE`/`NOT_APPLICABLE` |
+| initial_effective_due_date | DATE NOT NULL | nunca cambia tras la creación |
+| current_original_due_date, current_effective_due_date | DATE NOT NULL | se actualizan en cada recálculo |
+| schedule_source_id, schedule_version_id, schedule_rule_type, schedule_entry_id, schedule_exception_id | | snapshot de la regla de cronograma resuelta |
+| schedule_snapshot | JSONB NOT NULL | copia versionada (`schedule_snapshot_schema_version`) de la resolución completa |
+| presentation_date, order_number, filing_reference | | se completan al presentar |
+| closed_at, closed_by, closed_with_pending, close_override_reason | | ver ADR-0047 |
+| cancelled_at, cancellation_reason | | |
+| row_version | INTEGER NOT NULL DEFAULT 1 | bloqueo optimista para transiciones de ciclo de vida general |
+| | | `UNIQUE(id, tenant_id)`, `UNIQUE(id, tenant_id, client_id)` (ver ADR-0036), `UNIQUE(tenant_id, client_id, client_obligation_id, tax_period_id)` |
+
+5 tablas de historial (`declaration_status_history`, `declaration_due_date_history`, `declaration_assignment_history`, `filing_history`, `declaration_reopen_history`) registran cada transición con `actor_user_id`/`reason`/`origin`/`audit_correlation_id`; la creación de una declaración escribe una fila de nacimiento en las 4 primeras en una sola transacción.
+
+### `declaration_generation_runs` / `declaration_generation_run_items`
+Ejecución masiva de generación por periodo: `status` (`PENDING`/`PREVIEWED`/`STALE`/`CANCELLED`/`COMPLETED`/`COMPLETED_WITH_ERRORS`/`FAILED`), `preview_checksum` (detecta cambios de datos entre la previsualización y la confirmación → `STALE`), `stale_diff`/`validation_errors` JSONB. Cada ítem clasifica el resultado por cliente/obligación (`APTO`, `YA_EXISTENTE`, `CLIENTE_INACTIVO`, `OBLIGACION_INACTIVA`, `SIN_CRONOGRAMA`, `AMBIGUO`, `SIN_REGLA_APLICABLE`, `ERROR_INESPERADO`) y se confirma dentro de un `SAVEPOINT` propio (un fallo en un ítem no revierte el resto del lote).
+
+## Bloque 3.2 — Control documental, impuestos, honorarios, reportes
+
+### Control documental (ADR-0033 a ADR-0036)
+
+**`document_requirement_catalog`**: catálogo híbrido sistema/tenant (`is_system`, `tenant_id NULL` para filas de sistema, FK real hacia `tenants`). Ver ADR-0033.
+
+**`client_document_requirements`**: asignación de un requisito a un cliente, con vigencia (`valid_from`/`valid_until`/`validity_range` generada), `client_obligation_id NULL` = requisito general o FK compuesta hacia la obligación asignada concreta (ADR-0034), `EXCLUDE USING gist` que impide solapamientos del mismo requisito/obligación/periodicidad para el mismo cliente.
+
+**`declaration_document_items`**: materialización real por declaración. `client_id` propio + dos FKs compuestas idénticas en esa columna hacia `declarations` y `client_document_requirements` (ADR-0036, impide cruces entre clientes). `status` (7 valores: `NOT_REQUESTED`/`REQUESTED`/`PARTIAL`/`RECEIVED`/`OBSERVED`/`ACCEPTED`/`NOT_APPLICABLE`), `file_metadata JSONB` validado (`DocumentFileMetadataV1`, `extra=forbid`, nunca una ruta/URL real). `UNIQUE(tenant_id, declaration_id, client_document_requirement_id)` sostiene la idempotencia de la sincronización (ADR-0035).
+
+**`document_item_status_history`**: historial de cambios de estado de cada ítem.
+
+### Determinación y pagos tributarios (ADR-0038 a ADR-0043)
+
+**`tax_assessments`**: `assessment_type` (`ORIGINAL`/`CORRECTION`), `sequence_number`, `gross_tax_amount`/`credits_applied`/`total_payable`/`remaining_credit` (`NUMERIC(14,2)`, fórmula fija por `CHECK`), `is_current` (único parcial por declaración). Ver ADR-0038.
+
+**`tax_assessment_history`**: par `previous_assessment_snapshot`/`new_assessment_snapshot` (JSONB, nunca vacíos).
+
+**`tax_payments`**: `declaration_id`, `assessment_id` (referencia histórica, nunca usada para calcular saldo — ADR-0040), `amount`, `payment_method`, campos de sobrepago (`overpayment_confirmed`/`overpayment_reason`/`overpayment_amount`/`confirmed_by`/`confirmed_at`, ADR-0043) y de anulación (`is_voided`/`voided_at`/`voided_by`/`void_reason`), `created_by`, `idempotency_key UUID NOT NULL` + `UNIQUE(tenant_id, idempotency_key)` (ADR-0041).
+
+**`tax_payment_history`**: nacimiento (`NULL→ACTIVE`) y anulación (`ACTIVE→VOIDED`) de cada pago.
+
+### Honorarios profesionales (ADR-0044 a ADR-0046)
+
+**`professional_fee_agreements`**: `service_type`, `amount`, `status` (`ACTIVE`/`SUPERSEDED`/`CANCELLED`), vigencia real (`valid_from`/`valid_until`/`validity_range`), `EXCLUDE USING gist` por `(tenant_id, client_id, service_type, validity_range)`. `supersede`/`cancel` cierran `valid_until` de verdad (ADR-0044), nunca solo cambian `status`.
+
+**`professional_fee_agreement_history`**: par `from_status/to_status` + `from_valid_until/to_valid_until`.
+
+**`professional_fee_charges`**: `agreement_id`, `tax_period_id`, `amount`, `status` (6 valores, sin `OVERDUE` persistido — ADR-0045), `due_date`, `issued_at`. `UNIQUE(tenant_id, agreement_id, tax_period_id)` (idempotencia de generación de cargos).
+
+**`professional_fee_charge_status_history`**: ciclo de vida del cargo como documento.
+
+**`professional_fee_payments`**: mismo patrón que `tax_payments` mutatis mutandis (sobrepago, anulación, `idempotency_key`), pero bloquea `professional_fee_charges` `FOR UPDATE`, **nunca** `declarations` (ADR-0042).
+
+**`professional_fee_payment_history`**: nacimiento/anulación de cada pago (tabla separada de `professional_fee_charge_status_history` — ADR-0045).
+
+**`professional_receipts`**: `charge_id`, `issued_by` (FK compuesta hacia `users`), `receipt_type`/`number` (`UNIQUE(tenant_id, receipt_type, number)`), `status` (`ISSUED`/`VOIDED`) con `CHECK` de coherencia; la suma de recibos `ISSUED` de un cargo nunca puede exceder su `amount` (ADR-0046, validado en servicio).
+
 ## Diagrama de relaciones (esta entrega)
 
 ```
@@ -254,10 +337,29 @@ tenants 1──n login_attempts, security_events
 tenants 1──n tax_schedule_sources 1──n tax_schedule_versions 1──n tax_schedule_entries/exceptions
 tax_schedule_versions 1──n tax_schedule_approval_history
 tax_schedule_sources 1──n tax_schedule_import_runs 1──1 tax_schedule_versions (al confirmarse)
+
+tenants 1──n tax_periods
+clients 1──n declarations n──1 client_obligations, n──1 tax_periods
+declarations 1──n {declaration_status_history, declaration_due_date_history,
+                   declaration_assignment_history, filing_history, declaration_reopen_history}
+tax_periods 1──n declaration_generation_runs 1──n declaration_generation_run_items
+
+document_requirement_catalog 1──n client_document_requirements n──1 client_obligations (opcional)
+declarations 1──n declaration_document_items n──1 client_document_requirements (mismo client_id en ambas FKs)
+declaration_document_items 1──n document_item_status_history
+
+declarations 1──n tax_assessments 1──n tax_assessment_history
+declarations 1──n tax_payments n──1 tax_assessments (referencia historica)
+tax_payments 1──n tax_payment_history
+
+clients 1──n professional_fee_agreements 1──n professional_fee_agreement_history
+professional_fee_agreements 1──n professional_fee_charges 1──n professional_fee_charge_status_history
+professional_fee_charges 1──n professional_fee_payments 1──n professional_fee_payment_history
+professional_fee_charges 1──n professional_receipts
 ```
 
 ## Entidades planificadas para fases futuras (no implementadas aún)
 
-`client_contacts`, `client_tax_profiles`, `client_credentials` (bóveda real), `client_settings`, `tax_periods`, `declarations`, `declaration_status_history`, `tax_assessments`, `tax_payments`, `document_requirements`, `document_requests`, `documents`, `professional_fee_agreements`, `professional_fee_charges`, `professional_fee_payments`, `receipts`, `communications`, `communication_templates`, `notifications`, `notification_deadlines`, `cases`, `tasks`, `calendar_events`, `drive_folders`, `email_messages`, `integration_accounts`, `integration_sync_runs`, `automation_jobs`, `backup_runs`, `ai_prompt_templates`, `ai_analysis_results`, `system_settings`, `roles`, `user_roles`.
+`client_contacts`, `client_tax_profiles`, `client_credentials` (bóveda real), `client_settings`, `communications`, `communication_templates`, `notifications`, `notification_deadlines`, `cases`, `tasks`, `calendar_events`, `drive_folders`, `email_messages`, `integration_accounts`, `integration_sync_runs`, `automation_jobs`, `backup_runs`, `ai_prompt_templates`, `ai_analysis_results`, `system_settings`, `roles`, `user_roles` (RBAC real — ver deuda técnica).
 
 Estas tablas se diseñarán en detalle y se migrarán en los bloques de Fase 1 posteriores y en las Fases 2–6, siguiendo las mismas convenciones (`tenant_id`, sin `float` para montos, timestamps con zona horaria, historial de estados donde aplique).

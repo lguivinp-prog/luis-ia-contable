@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from app.core import clock
-from app.core.dependencies import get_client_ip, get_current_user, verify_csrf
+from app.core.dependencies import ensure_admin_role, get_client_ip, get_current_user, verify_csrf
 from app.db.session import get_db
 from app.models.audit_log import AuditAction
 from app.models.declaration import Declaration
@@ -445,6 +445,8 @@ def close_declaration(
     _csrf: None = Depends(verify_csrf),
 ) -> DeclarationOut:
     try:
+        if payload.force_close_with_pending:
+            ensure_admin_role(current_user)
         declaration = declaration_service.close(
             db,
             current_user.tenant_id,

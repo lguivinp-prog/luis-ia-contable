@@ -10,6 +10,7 @@ const NAV_ITEMS = [
   { href: "/tax-periods", label: "Periodos tributarios" },
   { href: "/dashboard", label: "Tablero mensual" },
   { href: "/declarations/generate", label: "Generar declaraciones" },
+  { href: "/reports", label: "Reportes" },
   { href: "/security", label: "Seguridad" },
 ];
 

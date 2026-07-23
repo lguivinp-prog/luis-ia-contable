@@ -50,6 +50,14 @@ En esta entrega, las columnas `sol_username_encrypted`, `sol_password_encrypted`
 - Para habilitarlo en el futuro se requiere: autenticación reforzada, HTTPS local o canal privado equivalente, restricción de firewall al perfil de red privada, ausencia de reenvío de puertos del router, bloqueo por intentos fallidos, sesiones con vencimiento corto, y opción de desactivación inmediata.
 - La base de datos **nunca** se expone directamente a la red; solo el backend accede a Postgres.
 
+## Autorización de una sola posición (Bloque 3.2, ADR-0047)
+
+El sistema no implementa RBAC completo todavía (ver deuda técnica). La única verificación de rol existente es `app.core.dependencies.ensure_admin_role`, usada exclusivamente para gatear el **cierre operativo excepcional** de una declaración (`force_close_with_pending=true`, `routers/declarations.py::close_declaration`): un usuario sin `role == 'admin'` recibe `403` aunque el interruptor global `settings.allow_close_with_pending_tax` esté habilitado. Esta verificación se hace en el **router**, no en el servicio de dominio, porque depende de quién realiza la llamada HTTP — una decisión de autorización, no una regla de negocio pura.
+
+## Exportación de reportes: sanitización CSV y límites (Bloque 3.2, ADR-0049)
+
+`POST /api/v1/reports/export` sanea cada celda de un CSV con `sanitize_csv_cell` (`app/services/csv_utils.py`) para neutralizar *CSV formula injection* (celdas que empiecen con `=`, `+`, `-`, `@`, tab o retorno de carro reciben un apóstrofe antepuesto, evitando que Excel/Sheets las interprete como fórmula al abrir el archivo). El número de filas exportables está acotado por `settings.report_export_max_rows` (configurable, por defecto 20 000) para evitar exportaciones descontroladamente grandes. Tanto CSV como Excel se generan enteramente en memoria (`io.StringIO`/`io.BytesIO`), nunca como archivo temporal en disco. Cada exportación se audita (`REPORT_EXPORT`, con tipo de reporte, formato, conteo de filas y si se truncó).
+
 ## Auditoría
 
 Toda acción sensible genera una fila en `audit_logs` (usuario, acción, entidad afectada, IP, user agent, timestamp). Los metadatos nunca incluyen el valor de un secreto. Ver [DATA_MODEL.md](DATA_MODEL.md) para la lista de acciones auditadas en esta entrega.

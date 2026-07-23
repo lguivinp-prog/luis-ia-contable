@@ -46,11 +46,56 @@ export const RISK_STATUS_SEMAPHORE: Record<string, SemaphoreEntry> = {
   CANCELLED: { label: "Cancelada", color: "gris" },
   NOT_APPLICABLE: { label: "No aplica", color: "gris" },
   CLOSED: { label: "Cerrada", color: "verde" },
+  CLOSED_WITH_PENDING: { label: "Cerrada con pendientes", color: "naranja" },
   ON_TRACK: { label: "En curso", color: "verde" },
+  PENDING_TAX: { label: "Impuesto pendiente", color: "naranja" },
+  PENDING_DOCUMENTS: { label: "Documentos pendientes", color: "naranja" },
   UPCOMING: { label: "Próxima", color: "amarillo" },
   DUE_TODAY: { label: "Vence hoy", color: "naranja" },
   OVERDUE: { label: "Vencida", color: "rojo" },
   CRITICAL: { label: "Crítica", color: "rojo" },
+};
+
+export const TAX_PAYMENT_STATUS_SEMAPHORE: Record<string, SemaphoreEntry> = {
+  NOT_DETERMINED: { label: "Sin determinar", color: "gris" },
+  NO_TAX_DUE: { label: "Sin impuesto", color: "verde" },
+  CREDIT_BALANCE: { label: "Saldo a favor", color: "verde" },
+  PAYMENT_PENDING: { label: "Pago pendiente", color: "amarillo" },
+  PARTIALLY_PAID: { label: "Pago parcial", color: "naranja" },
+  PAID: { label: "Pagado", color: "verde" },
+  NOT_APPLICABLE: { label: "No aplica", color: "gris" },
+};
+
+export const DOCUMENT_STATUS_SEMAPHORE: Record<string, SemaphoreEntry> = {
+  NOT_CONFIGURED: { label: "Sin configurar", color: "gris" },
+  PENDING: { label: "Pendiente", color: "amarillo" },
+  PARTIAL: { label: "Parcial", color: "naranja" },
+  OBSERVED: { label: "Observado", color: "rojo" },
+  COMPLETE: { label: "Completo", color: "verde" },
+  NOT_APPLICABLE: { label: "No aplica", color: "gris" },
+};
+
+export const FEE_AGREEMENT_STATUS_SEMAPHORE: Record<string, SemaphoreEntry> = {
+  ACTIVE: { label: "Activo", color: "verde" },
+  SUPERSEDED: { label: "Reemplazado", color: "gris" },
+  CANCELLED: { label: "Cancelado", color: "rojo" },
+};
+
+export const FEE_CHARGE_STATUS_SEMAPHORE: Record<string, SemaphoreEntry> = {
+  PENDING_ISSUANCE: { label: "Sin emitir", color: "gris" },
+  ISSUED: { label: "Emitido", color: "amarillo" },
+  PAYMENT_PENDING: { label: "Pago pendiente", color: "amarillo" },
+  PARTIALLY_PAID: { label: "Pago parcial", color: "naranja" },
+  PAID: { label: "Pagado", color: "verde" },
+  CANCELLED: { label: "Cancelado", color: "rojo" },
+};
+
+export const FEE_COLLECTION_RISK_SEMAPHORE: Record<string, SemaphoreEntry> = {
+  ON_TRACK: { label: "En curso", color: "verde" },
+  DUE_TODAY: { label: "Vence hoy", color: "naranja" },
+  OVERDUE: { label: "Vencido", color: "rojo" },
+  PAID: { label: "Pagado", color: "verde" },
+  CANCELLED: { label: "Cancelado", color: "gris" },
 };
 
 export const TAX_PERIOD_TYPE_LABEL: Record<string, string> = {

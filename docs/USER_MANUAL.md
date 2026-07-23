@@ -1,6 +1,6 @@
 # Manual de uso — Luis IA Contable
 
-> Cubre las pantallas implementadas en Fase 1, Bloques 1 y 2 (verificadas en navegador). Se ampliará en cada fase siguiente.
+> Cubre las pantallas implementadas en Fase 1, Bloques 1, 2 y 3 (verificadas en navegador). Se ampliará en cada fase siguiente.
 
 ## Inicio de sesión
 
@@ -38,9 +38,58 @@ Lista de referencia (Formulario 621, PLAME, SIRE-RVIE, SIRE-RCE, Renta Anual 710
 - **Historial de aprobación** y **descarga de entradas en CSV** disponibles en el detalle de cada versión.
 - **Vista previa de vencimiento**: selecciona un contribuyente, una fuente y un periodo tributario para ver qué regla se aplicó (excepción o entrada), el último dígito del RUC, la categoría exigida (si corresponde), la fecha resultante, si hubo prórroga, y advertencias. Esta pantalla **no genera declaraciones ni eventos de calendario**.
 
+## Periodos tributarios (`/tax-periods`)
+
+Lista y crea periodos canónicos (mensual/anual/especial) por año fiscal. Un periodo se cierra o reabre desde su detalle; **ninguna declaración de un periodo cerrado admite mutaciones** (workflow, presentación, documentos, determinación o pago de impuestos, cargos de honorarios nuevos) — el sistema lo indica explícitamente en cada pantalla afectada.
+
+## Generar declaraciones (`/declarations/generate`)
+
+Selecciona un periodo tributario abierto para previsualizar qué declaraciones se generarían (por cliente/obligación activa), excluir ítems puntuales, y confirmar la generación masiva. Si los datos subyacentes cambiaron entre la vista previa y la confirmación, el sistema detiene la operación como "desactualizada" (`STALE`) y exige refrescar la vista previa antes de confirmar — nunca genera declaraciones sobre datos obsoletos.
+
+## Declaración — detalle (`/declarations/[id]`)
+
+### Resumen
+Vencimientos (inicial y vigente), versión de concurrencia, y el cambio de estado de flujo disponible según el estado actual (algunas regresiones piden un motivo explícito).
+
+### Documentos
+Lista los requisitos documentales ya materializados para esta declaración (nombre, si es general del cliente o vinculado a una obligación específica, estado, fechas, observaciones), el `document_status` derivado, y el botón **"Sincronizar requisitos"** — puede presionarse cuantas veces se quiera sin duplicar nada; muestra cuántos ítems se crearon y cuántos ya existían. Cada ítem tiene un selector de nuevo estado (solicitado, recibido, parcial, observado, aceptado, no aplica, etc.) con un botón "Aplicar".
+
+**Sincronización administrativa por periodo (declaraciones generadas antes de existir control documental):** si una declaración ya existente nunca recibió requisitos porque se generó antes de asignarlos al cliente, no hace falta ninguna migración — basta con asignar el requisito al cliente y luego presionar "Sincronizar requisitos" en la declaración (o, para todo un periodo a la vez, un administrador puede invocar `POST /api/v1/tax-periods/{id}/documents/sync-requirements`, que recorre todas las declaraciones del periodo sin afectar el resto si una falla individualmente).
+
+### Impuestos
+**Determinación tributaria**: si la declaración no tiene determinación, un formulario permite registrar la primera (impuesto bruto + créditos aplicados); el sistema calcula automáticamente el total por pagar y el saldo a favor — nunca se ingresan directamente. Una vez determinada, el mismo formulario se convierte en "Registrar corrección", que exige un motivo explícito y una confirmación adicional antes de enviarse; el historial completo de determinaciones queda visible debajo.
+
+**Pagos tributarios**: muestra el saldo tributario actual y permite registrar un pago (monto, fecha, método, número de operación, referencia). Si el pago excede el saldo pendiente, el sistema pide confirmar explícitamente el sobrepago e indicar el motivo antes de reintentar. Cada pago listado muestra qué determinación estaba vigente cuando se registró, y puede anularse indicando un motivo (nunca se elimina). Un reenvío accidental del mismo formulario (doble clic) nunca duplica el pago.
+
+### Cierre
+Muestra las tres precondiciones del cierre normal (presentación, documentos, impuesto) con su estado. El botón de cierre normal solo se habilita si las tres están cumplidas. Si falta alguna y el usuario tiene rol de administrador, aparece la opción "Cerrar con pendientes (excepcional)", que exige un motivo explícito y una confirmación reforzada; una vez cerrada, la declaración muestra visiblemente si el cierre fue normal o con pendientes.
+
+### Historial
+Registro completo de cambios de estado y de vencimiento con motivo, actor y fecha.
+
+## Honorarios profesionales (`/clients/[id]/fees`)
+
+Desde la ficha del contribuyente, botón "Honorarios":
+
+- **Acuerdos**: crea un acuerdo por tipo de servicio y monto, con vigencia desde/hasta. Un acuerdo activo puede **superarse** (renegociar la tarifa) o **cancelarse**, ambas acciones piden motivo y cierran realmente la vigencia — permitiendo crear inmediatamente un acuerdo nuevo no solapado del mismo tipo de servicio.
+- **Cargos**: dentro de un acuerdo, genera un cargo para un periodo tributario (monto opcional distinto al del acuerdo, vencimiento opcional). Generar el mismo cargo dos veces para el mismo periodo es rechazado. Un cargo se **emite** indicando su fecha de vencimiento (o dejándola vacía si no aplica seguimiento de cobranza).
+- **Pagos y recibos**: dentro del detalle de un cargo emitido, se registran pagos (con las mismas reglas de sobrepago/anulación que los pagos tributarios) y se emiten recibos (pueden ser parciales, pero su suma nunca puede exceder el monto del cargo). El **riesgo de cobranza** (en curso / vence hoy / vencido / pagado / cancelado) se muestra en vivo, calculado a partir de la fecha de vencimiento y el saldo actual — no es un valor guardado, cambia automáticamente con el paso de los días.
+
+## Requisitos documentales del cliente (`/clients/[id]/documents`)
+
+Crea tipos de documento personalizados para el tenant y los asigna al cliente (general o vinculado a una obligación concreta), con periodicidad y vigencia.
+
+## Tablero mensual (`/dashboard`)
+
+Una fila por declaración (nunca se duplica aunque tenga varios documentos, pagos o cargos de honorarios). Columnas: flujo, presentación, documentos (con conteo de faltantes), impuesto (determinado/pagado), honorarios (cargos, saldo, peor riesgo de cobranza), riesgo general de la declaración, y si el cierre fue normal o con pendientes. Filtros por periodo, estado tributario, estado documental y cierre con pendientes.
+
+## Reportes (`/reports`)
+
+Exporta datos del tenant (declaraciones, documentos, determinaciones, pagos tributarios, acuerdos/cargos/pagos/recibos de honorarios, contribuyentes, registro de auditoría) en CSV o Excel. Cada exportación queda registrada en el historial de auditoría; el número de filas exportables tiene un límite configurable por el equipo técnico.
+
 ## Qué todavía no hace el sistema
 
-Esta versión no genera declaraciones a partir de los cronogramas, ni gestiona honorarios, documentos, notificaciones, ni integraciones con Google/Gmail/WhatsApp/SUNAT Operaciones en Línea. Ver [ROADMAP.md](ROADMAP.md).
+Esta versión no gestiona notificaciones, ni integraciones con Google/Gmail/WhatsApp/SUNAT Operaciones en Línea, ni presenta declaraciones o realiza pagos reales. Los documentos solo guardan metadatos validados (nunca un archivo real ni una ruta/URL). Ver [ROADMAP.md](ROADMAP.md).
 
 ## Cerrar sesión
 

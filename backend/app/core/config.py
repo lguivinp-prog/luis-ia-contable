@@ -39,11 +39,16 @@ class Settings(BaseSettings):
     tax_schedule_csv_max_bytes: int = 2_000_000
     tax_schedule_csv_max_rows: int = 5000
 
-    # ---- Ciclo operativo (Bloque 3): cierre con impuesto/documentos pendientes ----
-    # Deshabilitado durante 3.1 porque tax_assessments/declaration_document_items
-    # todavia no existen (ver "Cierre de declaraciones durante 3.1"). Se habilita
-    # explicitamente al aprobar 3.2.
+    # ---- Ciclo operativo (Bloque 3.2): cierre con impuesto/documentos pendientes ----
+    # Interruptor global deliberadamente en False por defecto (ver "Cierre
+    # operativo completo" del plan / supuesto 1): el cierre normal ya
+    # funciona sin este flag; habilitarlo solo permite que, ADEMAS, un
+    # admin pueda forzar un cierre excepcional con `force_close_with_pending`
+    # + motivo explicito por cada llamada (ver ADR-0047/Dominio D).
     allow_close_with_pending_tax: bool = False
+
+    # ---- Reportes (Bloque 3.2) ----
+    report_export_max_rows: int = 20000
 
 
 @lru_cache

@@ -53,6 +53,7 @@ class TaxPaymentStatus(str, enum.Enum):
     NOT_DETERMINED = "NOT_DETERMINED"
     NO_TAX_DUE = "NO_TAX_DUE"
     CREDIT_BALANCE = "CREDIT_BALANCE"
+    PAYMENT_PENDING = "PAYMENT_PENDING"
     PARTIALLY_PAID = "PARTIALLY_PAID"
     PAID = "PAID"
     NOT_APPLICABLE = "NOT_APPLICABLE"
@@ -119,6 +120,13 @@ class Declaration(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __tablename__ = "declarations"
     __table_args__ = (
         UniqueConstraint("id", "tenant_id", name="uq_declarations_id_tenant"),
+        # Auxiliar para FKs compuestas (id, tenant_id, client_id) desde
+        # Bloque 3.2 (ver ADR-0036): declaration_document_items usa esta
+        # combinacion junto con la de client_document_requirements para que
+        # la base rechace un cruce entre clientes del mismo tenant.
+        UniqueConstraint(
+            "id", "tenant_id", "client_id", name="uq_declarations_id_tenant_client"
+        ),
         UniqueConstraint(
             "tenant_id",
             "client_id",

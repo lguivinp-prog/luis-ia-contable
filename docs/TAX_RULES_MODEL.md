@@ -13,7 +13,7 @@
 
 ## Alcance de esta entrega
 
-Existe el **catálogo de obligaciones** (`obligation_catalog`, Bloque 1) y, desde este bloque, el **motor de cronogramas tributarios versionado** completo: importación desde CSV, revisión, aprobación humana explícita, y resolución de vencimientos para vista previa. **No se generan declaraciones ni eventos de calendario todavía** — eso corresponde a bloques posteriores de Fase 1.
+Existe el **catálogo de obligaciones** (`obligation_catalog`, Bloque 1), el **motor de cronogramas tributarios versionado** completo (importación desde CSV, revisión, aprobación humana explícita, resolución de vencimientos), la **generación real de declaraciones** (individual y masiva, Bloque 3.1) y, desde Bloque 3.2, la **determinación y pago de impuestos** y los **honorarios profesionales** de cada declaración/cliente. **No hay integración real con SUNAT/SOL ni eventos de Google Calendar** — todo dato tributario sigue siendo ficticio y cargado manualmente.
 
 **Ningún dato de este módulo es real.** Todo cronograma cargado en desarrollo es explícitamente ficticio/demostrativo; la interfaz y las respuestas de la API lo recuerdan (`demo_disclaimer` en la vista previa de vencimiento, aviso en la UI).
 
@@ -61,6 +61,45 @@ Una versión `APPROVED` es **inmutable**: cualquier corrección crea una versió
 ## Auditoría del motor de cronogramas
 
 Se audita: creación de fuente, creación/confirmación/rechazo de una importación, envío a revisión, aprobación, rechazo, cancelación, y cada consulta de vista previa. Los errores de asociación (`AmbiguousScheduleRuleError`, `NoApplicableScheduleRuleError`, `NoApprovedVersionError`) se devuelven como respuestas HTTP explícitas (409/404), nunca se resuelven en silencio.
+
+## Determinación tributaria (Bloque 3.2, ADR-0038 a ADR-0043)
+
+Cada declaración puede tener una **determinación inicial** (`ORIGINAL`, `sequence_number=1`) y cero o más **correcciones** (`CORRECTION`, `sequence_number` incremental) — nunca se edita una determinación en el lugar. Fórmula fija, calculada siempre server-side con `Decimal` (nunca aceptada del frontend):
+
+```
+total_payable    = max(gross_tax_amount - credits_applied, 0)
+remaining_credit = max(credits_applied - gross_tax_amount, 0)
+```
+
+`tax_payment_status` se deriva de la suma de **todos** los pagos válidos de la declaración contra la determinación **vigente actual** (nunca contra la determinación que estaba vigente cuando cada pago se registró — ver ADR-0040):
+
+| Condición | Estado |
+|---|---|
+| sin determinación vigente | `NOT_DETERMINED` |
+| `remaining_credit > 0` | `CREDIT_BALANCE` (prioridad sobre lo demás) |
+| `total_payable == 0` | `NO_TAX_DUE` |
+| `total_pagado <= 0` | `PAYMENT_PENDING` |
+| `0 < total_pagado < total_payable` | `PARTIALLY_PAID` |
+| `total_pagado >= total_payable` | `PAID` |
+
+Una corrección solo escribe una fila de historial de estado si el valor derivado realmente cambia (ADR-0039) — nunca "cambios" con `from_value == to_value`.
+
+## Pagos tributarios: parcialidad, idempotencia, sobrepago, anulación (ADR-0041, ADR-0042, ADR-0043)
+
+- **Pagos parciales o totales**: cualquier monto `> 0` es válido; el estado se recalcula tras cada pago/anulación.
+- **Idempotencia**: cada pago lleva un `idempotency_key UUID` generado por el frontend; un reenvío con la misma clave y el mismo payload devuelve el pago ya existente (nunca lo duplica); la misma clave con un payload distinto devuelve HTTP 409 (ver ADR-0041).
+- **Sobrepago**: si el pago excede el saldo pendiente, se exige `overpayment_confirmed=true` + `overpayment_reason` explícito; sin confirmación explícita, HTTP 409; con confirmación pero sin motivo, HTTP 422 (ver ADR-0043). Una corrección posterior que reduce el impuesto nunca modifica pagos ya registrados.
+- **Anulación**: exige motivo explícito; nunca elimina la fila, marca `is_voided=true` + `voided_at`/`voided_by`/`void_reason`, y recalcula el estado derivado.
+- **Concurrencia**: cada operación (determinar, corregir, pagar, anular) bloquea la fila de `declarations` con `SELECT ... FOR UPDATE` dentro de la transacción del router — dos operaciones concurrentes sobre la misma declaración se serializan, nunca pierden una escritura (ver ADR-0042, prueba con dos conexiones reales en `test_tax_payment_concurrency.py`).
+
+## Honorarios profesionales (Bloque 3.2, ADR-0044 a ADR-0046)
+
+Ciclo de vida completamente independiente del ciclo tributario (ninguno de los dos módulos importa al otro para escritura; los honorarios bloquean `professional_fee_charges`, nunca `declarations`):
+
+1. **Acuerdo** (`professional_fee_agreements`): tarifa por tipo de servicio, con vigencia real. `supersede`/`cancel` cierran `valid_until` de verdad (nunca solo cambian `status`), liberando el rango para un acuerdo posterior no solapado (ADR-0044).
+2. **Cargo** (`professional_fee_charges`): generado por acuerdo + periodo tributario, idempotente (`UNIQUE(tenant_id, agreement_id, tax_period_id)`). Estado persistido sin `OVERDUE` (ADR-0045); el riesgo de cobranza vencido se calcula en vivo (`compute_fee_collection_risk`), nunca se persiste.
+3. **Pago**: mismas reglas de idempotencia/sobrepago/anulación que los pagos tributarios, pero contra el saldo del cargo, no de la declaración.
+4. **Recibo** (`professional_receipts`): puede ser parcial, pero la suma de recibos `ISSUED` de un cargo nunca puede exceder su monto (ADR-0046).
 
 ## Datos semilla
 

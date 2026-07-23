@@ -39,6 +39,9 @@ def _make_declaration_row(
     due,
     workflow,
     filing,
+    document_status="NOT_CONFIGURED",
+    tax_payment_status="NOT_DETERMINED",
+    closed_with_pending=False,
 ) -> Declaration:
     declaration = Declaration(
         tenant_id=tenant_id,
@@ -47,6 +50,9 @@ def _make_declaration_row(
         tax_period_id=period_id,
         workflow_status=workflow,
         filing_status=filing,
+        document_status=document_status,
+        tax_payment_status=tax_payment_status,
+        closed_with_pending=closed_with_pending,
         initial_effective_due_date=due,
         current_original_due_date=due,
         current_effective_due_date=due,
@@ -81,28 +87,75 @@ def scenario_setup(db_session, tenant, obligation_catalog):
     }
 
 
+# Valores por defecto de una declaracion recien creada (nunca determinada,
+# sin control documental configurado) -- abreviados para acortar CASES.
+_NC = "NOT_CONFIGURED"
+_ND = "NOT_DETERMINED"
+
 CASES = [
-    ("CANCELLED", "NOT_FILED", TODAY, "CANCELLED"),
-    ("NOT_APPLICABLE", "NOT_REQUIRED", TODAY, "NOT_APPLICABLE"),
-    ("CLOSED", "FILED", TODAY, "CLOSED"),
-    ("READY_TO_FILE", "FILED", TODAY - timedelta(days=30), "ON_TRACK"),  # FILED tras vencido -> ON_TRACK
-    ("READY_TO_FILE", "NOT_REQUIRED", TODAY - timedelta(days=30), "ON_TRACK"),
-    ("PENDING", "NOT_FILED", TODAY - timedelta(days=CRITICAL_THRESHOLD_DAYS + 1), "CRITICAL"),
-    ("PENDING", "NOT_FILED", TODAY - timedelta(days=1), "OVERDUE"),
-    ("PENDING", "NOT_FILED", TODAY, "DUE_TODAY"),
-    ("PENDING", "NOT_FILED", TODAY + timedelta(days=UPCOMING_THRESHOLD_DAYS), "UPCOMING"),
-    ("PENDING", "NOT_FILED", TODAY + timedelta(days=UPCOMING_THRESHOLD_DAYS + 10), "ON_TRACK"),
+    # (workflow, filing, due, document_status, tax_payment_status, closed_with_pending, expected)
+    ("CANCELLED", "NOT_FILED", TODAY, _NC, _ND, False, "CANCELLED"),
+    ("NOT_APPLICABLE", "NOT_REQUIRED", TODAY, _NC, _ND, False, "NOT_APPLICABLE"),
+    ("CLOSED", "FILED", TODAY, "COMPLETE", "PAID", False, "CLOSED"),
+    ("CLOSED", "FILED", TODAY, "PENDING", "PAYMENT_PENDING", True, "CLOSED_WITH_PENDING"),
+    # FILED pero la determinacion tributaria sigue pendiente (ver Dominio E):
+    # ya no es "ON_TRACK" a ciegas como en 3.1, sino PENDING_TAX.
+    ("READY_TO_FILE", "FILED", TODAY - timedelta(days=30), _NC, _ND, False, "PENDING_TAX"),
+    ("READY_TO_FILE", "NOT_REQUIRED", TODAY - timedelta(days=30), _NC, _ND, False, "PENDING_TAX"),
+    # FILED + impuesto ya determinado y pagado, pero documentos incompletos.
+    ("READY_TO_FILE", "FILED", TODAY - timedelta(days=30), "PARTIAL", "PAID", False, "PENDING_DOCUMENTS"),
+    # FILED + impuesto y documentos ambos en un estado elegible -> ON_TRACK real.
+    ("READY_TO_FILE", "FILED", TODAY - timedelta(days=30), "COMPLETE", "PAID", False, "ON_TRACK"),
+    (
+        "PENDING", "NOT_FILED", TODAY - timedelta(days=CRITICAL_THRESHOLD_DAYS + 1),
+        _NC, _ND, False, "CRITICAL",
+    ),
+    ("PENDING", "NOT_FILED", TODAY - timedelta(days=1), _NC, _ND, False, "OVERDUE"),
+    ("PENDING", "NOT_FILED", TODAY, _NC, _ND, False, "DUE_TODAY"),
+    (
+        "PENDING", "NOT_FILED", TODAY + timedelta(days=UPCOMING_THRESHOLD_DAYS),
+        _NC, _ND, False, "UPCOMING",
+    ),
+    (
+        "PENDING", "NOT_FILED", TODAY + timedelta(days=UPCOMING_THRESHOLD_DAYS + 10),
+        _NC, _ND, False, "ON_TRACK",
+    ),
 ]
 
 
-@pytest.mark.parametrize("workflow,filing,due,expected", CASES)
-def test_python_matches_expected(workflow, filing, due, expected) -> None:
-    assert compute_risk_status(due, workflow, filing, TODAY) == expected
+@pytest.mark.parametrize(
+    "workflow,filing,due,document_status,tax_payment_status,closed_with_pending,expected", CASES
+)
+def test_python_matches_expected(
+    workflow, filing, due, document_status, tax_payment_status, closed_with_pending, expected
+) -> None:
+    assert (
+        compute_risk_status(
+            due,
+            workflow,
+            filing,
+            TODAY,
+            document_status=document_status,
+            tax_payment_status=tax_payment_status,
+            closed_with_pending=closed_with_pending,
+        )
+        == expected
+    )
 
 
-@pytest.mark.parametrize("workflow,filing,due,expected", CASES)
+@pytest.mark.parametrize(
+    "workflow,filing,due,document_status,tax_payment_status,closed_with_pending,expected", CASES
+)
 def test_declaration_risk_python_matches_sql(
-    db_session, scenario_setup, workflow, filing, due, expected
+    db_session,
+    scenario_setup,
+    workflow,
+    filing,
+    due,
+    document_status,
+    tax_payment_status,
+    closed_with_pending,
+    expected,
 ) -> None:
     declaration = _make_declaration_row(
         db_session,
@@ -116,9 +169,20 @@ def test_declaration_risk_python_matches_sql(
         due=due,
         workflow=workflow,
         filing=filing,
+        document_status=document_status,
+        tax_payment_status=tax_payment_status,
+        closed_with_pending=closed_with_pending,
     )
 
-    python_result = compute_risk_status(due, workflow, filing, TODAY)
+    python_result = compute_risk_status(
+        due,
+        workflow,
+        filing,
+        TODAY,
+        document_status=document_status,
+        tax_payment_status=tax_payment_status,
+        closed_with_pending=closed_with_pending,
+    )
     assert python_result == expected
 
     sql_result = db_session.execute(

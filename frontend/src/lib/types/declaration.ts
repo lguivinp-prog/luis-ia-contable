@@ -33,6 +33,7 @@ export type TaxPaymentStatus =
   | "NOT_DETERMINED"
   | "NO_TAX_DUE"
   | "CREDIT_BALANCE"
+  | "PAYMENT_PENDING"
   | "PARTIALLY_PAID"
   | "PAID"
   | "NOT_APPLICABLE";
@@ -41,7 +42,10 @@ export type RiskStatus =
   | "CANCELLED"
   | "NOT_APPLICABLE"
   | "CLOSED"
+  | "CLOSED_WITH_PENDING"
   | "ON_TRACK"
+  | "PENDING_TAX"
+  | "PENDING_DOCUMENTS"
   | "CRITICAL"
   | "OVERDUE"
   | "DUE_TODAY"
@@ -125,8 +129,25 @@ export interface DeclarationGenerationRun {
   items: DeclarationGenerationRunItem[];
 }
 
+export interface DashboardRow extends Declaration {
+  // Agregado tributario 1:1 por declaration_id.
+  tax_gross_amount: string | null;
+  tax_total_payable: string | null;
+  tax_total_paid: string;
+  missing_documents_count: number;
+
+  // Agregado de honorarios por (client_id, tax_period_id), repetido -- nunca
+  // multiplicado -- en cada declaracion del mismo cliente/periodo.
+  fee_total_charges: number;
+  fee_total_amount: string;
+  fee_total_paid: string;
+  fee_balance: string;
+  fee_pending_charges_count: number;
+  fee_worst_collection_risk: string | null;
+}
+
 export interface DashboardOut {
-  items: Declaration[];
+  items: DashboardRow[];
   total: number;
   limit: number;
   offset: number;

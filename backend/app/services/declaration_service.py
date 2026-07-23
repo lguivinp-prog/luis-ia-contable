@@ -20,7 +20,12 @@ from app.models.declaration import (
 )
 from app.repositories import declaration_repository, obligation_repository, tax_schedule_repository
 from app.schemas.declaration import RecalculatePreviewOut
-from app.services import client_service, declaration_snapshot_service, tax_period_service
+from app.services import (
+    client_service,
+    declaration_document_service,
+    declaration_snapshot_service,
+    tax_period_service,
+)
 from app.services.tax_schedule_resolver import ScheduleResolution, resolve_due_date
 
 settings = get_settings()
@@ -262,6 +267,7 @@ def create_declaration(
     assigned_user_id: uuid.UUID | None = None,
     origin: str = "MANUAL",
     generation_run_id: uuid.UUID | None = None,
+    sync_documents: bool = True,
 ) -> Declaration:
     tax_period = tax_period_service.get_period(db, tenant_id, tax_period_id)
     tax_period_service.ensure_period_open(tax_period)
@@ -355,6 +361,14 @@ def create_declaration(
         new_snapshot=snapshot_dict,
         new_snapshot_schema_version=1,
     )
+
+    if sync_documents:
+        # Materializa declaration_document_items en la misma transaccion (ver
+        # "Sincronizacion documental").
+        declaration_document_service.sync_requirements_for_declaration(
+            db, tenant_id, declaration, actor_user_id=user_id, origin=origin
+        )
+
     return declaration
 
 

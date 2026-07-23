@@ -11,8 +11,21 @@ import {
   StatusSemaphore,
   WORKFLOW_STATUS_SEMAPHORE,
 } from "@/components/ui/StatusSemaphore";
+import { ClosePanel } from "@/components/declarations/ClosePanel";
+import { DocumentsPanel } from "@/components/declarations/DocumentsPanel";
+import { TaxAssessmentPanel } from "@/components/declarations/TaxAssessmentPanel";
+import { TaxPaymentsPanel } from "@/components/declarations/TaxPaymentsPanel";
+import { fetchCurrentUser } from "@/lib/auth";
 import { apiClient, ApiError } from "@/lib/apiClient";
-import type { Declaration, DeclarationHistoryOut } from "@/lib/types/declaration";
+import type { Declaration, DeclarationHistoryOut, TaxPeriod } from "@/lib/types/declaration";
+import type {
+  ClientDocumentRequirement,
+  DeclarationDocumentItem,
+  DocumentItemStatus,
+  DocumentRequirementCatalog,
+  SyncRequirementsResult,
+} from "@/lib/types/declarationDocument";
+import type { TaxAssessment, TaxPayment } from "@/lib/types/taxAssessment";
 
 const WORKFLOW_TARGETS: Record<string, string[]> = {
   PENDING: ["DOCUMENTS_REQUESTED", "NOT_APPLICABLE"],
@@ -24,23 +37,62 @@ const WORKFLOW_TARGETS: Record<string, string[]> = {
   READY_TO_FILE: ["UNDER_REVIEW", "NOT_APPLICABLE"],
 };
 
-type Tab = "resumen" | "historial";
+type Tab = "resumen" | "documentos" | "impuestos" | "cierre" | "historial";
+
+const TAB_LABELS: Record<Tab, string> = {
+  resumen: "Resumen",
+  documentos: "Documentos",
+  impuestos: "Impuestos",
+  cierre: "Cierre",
+  historial: "Historial",
+};
 
 export default function DeclarationDetailPage() {
   const params = useParams<{ id: string }>();
   const [declaration, setDeclaration] = useState<Declaration | null>(null);
   const [history, setHistory] = useState<DeclarationHistoryOut | null>(null);
+  const [taxPeriod, setTaxPeriod] = useState<TaxPeriod | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [tab, setTab] = useState<Tab>("resumen");
   const [target, setTarget] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const [documentItems, setDocumentItems] = useState<DeclarationDocumentItem[]>([]);
+  const [requirements, setRequirements] = useState<ClientDocumentRequirement[]>([]);
+  const [catalog, setCatalog] = useState<DocumentRequirementCatalog[]>([]);
+  const [assessments, setAssessments] = useState<TaxAssessment[]>([]);
+  const [payments, setPayments] = useState<TaxPayment[]>([]);
 
   const reload = useCallback(async () => {
-    const [d, h] = await Promise.all([
-      apiClient.get<Declaration>(`/declarations/${params.id}`),
-      apiClient.get<DeclarationHistoryOut>(`/declarations/${params.id}/history`),
-    ]);
-    setDeclaration(d);
-    setHistory(h);
+    setLoadError(null);
+    try {
+      const [d, h, user] = await Promise.all([
+        apiClient.get<Declaration>(`/declarations/${params.id}`),
+        apiClient.get<DeclarationHistoryOut>(`/declarations/${params.id}/history`),
+        fetchCurrentUser(),
+      ]);
+      setDeclaration(d);
+      setHistory(h);
+      setIsAdmin(user.role === "admin");
+
+      const [period, items, reqs, cat, assess, pays] = await Promise.all([
+        apiClient.get<TaxPeriod>(`/tax-periods/${d.tax_period_id}`),
+        apiClient.get<DeclarationDocumentItem[]>(`/declarations/${d.id}/documents`),
+        apiClient.get<ClientDocumentRequirement[]>(`/clients/${d.client_id}/document-requirements`),
+        apiClient.get<DocumentRequirementCatalog[]>("/document-requirement-catalog"),
+        apiClient.get<TaxAssessment[]>(`/declarations/${d.id}/tax-assessments`),
+        apiClient.get<TaxPayment[]>(`/declarations/${d.id}/tax-payments`),
+      ]);
+      setTaxPeriod(period);
+      setDocumentItems(items);
+      setRequirements(reqs);
+      setCatalog(cat);
+      setAssessments(assess);
+      setPayments(pays);
+    } catch (err) {
+      setLoadError(err instanceof ApiError ? String(err.detail) : "No se pudo cargar la declaración.");
+    }
   }, [params.id]);
 
   useEffect(() => {
@@ -71,17 +123,99 @@ export default function DeclarationDetailPage() {
     }
   }
 
-  if (!declaration || !history) {
+  async function handleSyncDocuments(): Promise<SyncRequirementsResult> {
+    if (!declaration) throw new Error("no declaration");
+    const result = await apiClient.post<SyncRequirementsResult>(
+      `/declarations/${declaration.id}/documents/sync-requirements`,
+    );
+    await reload();
+    return result;
+  }
+
+  async function handleChangeDocumentStatus(itemId: string, targetStatus: DocumentItemStatus, reason: string | null) {
+    if (!declaration) return;
+    await apiClient.patch(`/declarations/${declaration.id}/documents/${itemId}`, {
+      target: targetStatus,
+      reason,
+      file_metadata: null,
+    });
+    await reload();
+  }
+
+  async function handleCreateAssessment(grossTaxAmount: string, creditsApplied: string, observations: string) {
+    if (!declaration) return;
+    await apiClient.post(`/declarations/${declaration.id}/tax-assessments`, {
+      gross_tax_amount: grossTaxAmount,
+      credits_applied: creditsApplied,
+      observations: observations || null,
+    });
+    await reload();
+  }
+
+  async function handleCorrectAssessment(
+    grossTaxAmount: string,
+    creditsApplied: string,
+    observations: string,
+    reason: string,
+  ) {
+    if (!declaration) return;
+    await apiClient.post(`/declarations/${declaration.id}/tax-assessments/correct`, {
+      gross_tax_amount: grossTaxAmount,
+      credits_applied: creditsApplied,
+      observations: observations || null,
+      reason,
+    });
+    await reload();
+  }
+
+  async function handleCreatePayment(payload: {
+    idempotency_key: string;
+    amount: string;
+    paid_at: string;
+    payment_method: string;
+    operation_number: string | null;
+    reference: string | null;
+    observations: string | null;
+    overpayment_confirmed: boolean;
+    overpayment_reason: string | null;
+  }) {
+    if (!declaration) return;
+    await apiClient.post(`/declarations/${declaration.id}/tax-payments`, payload);
+    await reload();
+  }
+
+  async function handleVoidPayment(paymentId: string, reason: string) {
+    if (!declaration) return;
+    await apiClient.post(`/declarations/${declaration.id}/tax-payments/${paymentId}/void`, { reason });
+    await reload();
+  }
+
+  async function handleClose(forceCloseWithPending: boolean, closeOverrideReason: string | null) {
+    if (!declaration) return;
+    await apiClient.post(`/declarations/${declaration.id}/close`, {
+      force_close_with_pending: forceCloseWithPending,
+      close_override_reason: closeOverrideReason,
+    });
+    await reload();
+  }
+
+  if (loadError) {
+    return <p style={{ color: "var(--danger)" }}>{loadError}</p>;
+  }
+
+  if (!declaration || !history || !taxPeriod) {
     return <p>Cargando…</p>;
   }
 
   const availableTargets = WORKFLOW_TARGETS[declaration.workflow_status] ?? [];
+  const canActOnDeclaration =
+    taxPeriod.is_open && !["CLOSED", "CANCELLED", "NOT_APPLICABLE"].includes(declaration.workflow_status);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
       <h1 style={{ fontSize: "1.4rem" }}>Declaración</h1>
 
-      <div style={{ display: "flex", gap: "1rem" }}>
+      <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
         <StatusSemaphore status={declaration.workflow_status} map={WORKFLOW_STATUS_SEMAPHORE} />
         <StatusSemaphore status={declaration.filing_status} map={FILING_STATUS_SEMAPHORE} />
         {declaration.computed_risk_status && (
@@ -89,10 +223,16 @@ export default function DeclarationDetailPage() {
         )}
       </div>
 
-      <div style={{ display: "flex", gap: "0.5rem", borderBottom: "1px solid var(--border)" }}>
-        {(["resumen", "historial"] as Tab[]).map((t) => (
+      <div
+        role="tablist"
+        aria-label="Secciones de la declaración"
+        style={{ display: "flex", gap: "0.5rem", borderBottom: "1px solid var(--border)", flexWrap: "wrap" }}
+      >
+        {(Object.keys(TAB_LABELS) as Tab[]).map((t) => (
           <button
             key={t}
+            role="tab"
+            aria-selected={tab === t}
             onClick={() => setTab(t)}
             style={{
               padding: "0.5rem 1rem",
@@ -103,7 +243,7 @@ export default function DeclarationDetailPage() {
               cursor: "pointer",
             }}
           >
-            {t === "resumen" ? "Resumen" : "Historial"}
+            {TAB_LABELS[t]}
           </button>
         ))}
       </div>
@@ -118,6 +258,12 @@ export default function DeclarationDetailPage() {
             <dt>Versión (row_version)</dt>
             <dd>{declaration.row_version}</dd>
           </dl>
+
+          {!taxPeriod.is_open && (
+            <p style={{ color: "var(--muted)" }}>
+              El periodo tributario está cerrado: algunas acciones no están disponibles.
+            </p>
+          )}
 
           {availableTargets.length > 0 && (
             <div style={{ display: "flex", gap: "0.75rem", alignItems: "flex-end" }}>
@@ -135,6 +281,47 @@ export default function DeclarationDetailPage() {
           )}
           {error && <p style={{ color: "var(--danger)" }}>{error}</p>}
         </div>
+      )}
+
+      {tab === "documentos" && (
+        <DocumentsPanel
+          declaration={declaration}
+          items={documentItems}
+          requirements={requirements}
+          catalog={catalog}
+          periodIsOpen={taxPeriod.is_open}
+          onSync={handleSyncDocuments}
+          onChangeStatus={handleChangeDocumentStatus}
+        />
+      )}
+
+      {tab === "impuestos" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: "2rem" }}>
+          <section>
+            <h2 style={{ fontSize: "1.1rem" }}>Determinación tributaria</h2>
+            <TaxAssessmentPanel
+              assessments={assessments}
+              canAct={canActOnDeclaration}
+              onCreate={handleCreateAssessment}
+              onCorrect={handleCorrectAssessment}
+            />
+          </section>
+          <section>
+            <h2 style={{ fontSize: "1.1rem" }}>Pagos tributarios</h2>
+            <TaxPaymentsPanel
+              taxPaymentStatus={declaration.tax_payment_status}
+              payments={payments}
+              assessments={assessments}
+              canAct={canActOnDeclaration && assessments.some((a) => a.is_current)}
+              onCreate={handleCreatePayment}
+              onVoid={handleVoidPayment}
+            />
+          </section>
+        </div>
+      )}
+
+      {tab === "cierre" && (
+        <ClosePanel declaration={declaration} isAdmin={isAdmin} onClose={handleClose} />
       )}
 
       {tab === "historial" && (

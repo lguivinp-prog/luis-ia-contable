@@ -7,11 +7,16 @@ from app.routers import (
     auth,
     clients,
     dashboard,
+    declaration_documents,
     declaration_generation,
     declarations,
     health,
     obligations,
+    professional_fees,
+    reports,
+    tax_assessments,
     tax_categories,
+    tax_payments,
     tax_periods,
     tax_schedules,
 )
@@ -42,4 +47,9 @@ app.include_router(tax_schedules.router)
 app.include_router(tax_periods.router)
 app.include_router(declarations.router)
 app.include_router(declaration_generation.router)
+app.include_router(declaration_documents.router)
+app.include_router(tax_assessments.router)
+app.include_router(tax_payments.router)
+app.include_router(professional_fees.router)
+app.include_router(reports.router)
 app.include_router(dashboard.router)

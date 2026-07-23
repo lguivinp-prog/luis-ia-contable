@@ -96,6 +96,36 @@ async function requestFormData<T>(path: string, formData: FormData): Promise<T> 
   return (await response.json()) as T;
 }
 
+async function requestBlob(path: string, body: unknown): Promise<{ blob: Blob; filename: string }> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const csrfToken = readCsrfTokenFromCookie();
+  if (csrfToken) {
+    headers["X-CSRF-Token"] = csrfToken;
+  }
+
+  const response = await fetch(`/api/v1${path}`, {
+    method: "POST",
+    credentials: "include",
+    headers,
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    let detail: unknown = null;
+    try {
+      detail = (await response.json()).detail ?? null;
+    } catch {
+      detail = response.statusText;
+    }
+    throw new ApiError(response.status, detail);
+  }
+
+  const disposition = response.headers.get("content-disposition") ?? "";
+  const match = /filename="([^"]+)"/.exec(disposition);
+  const filename = match ? match[1] : "reporte";
+  return { blob: await response.blob(), filename };
+}
+
 export const apiClient = {
   get: <T>(path: string) => request<T>(path, { method: "GET" }),
   post: <T>(path: string, body?: unknown) =>
@@ -106,4 +136,5 @@ export const apiClient = {
     request<T>(path, { method: "PATCH", body: body ? JSON.stringify(body) : undefined }),
   delete: <T>(path: string) => request<T>(path, { method: "DELETE" }),
   uploadFile: <T>(path: string, formData: FormData) => requestFormData<T>(path, formData),
+  postForFile: (path: string, body: unknown) => requestBlob(path, body),
 };
