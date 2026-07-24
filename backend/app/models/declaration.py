@@ -428,3 +428,4 @@ class FilingHistory(Base, UUIDPrimaryKeyMixin, DeclarationHistoryMixin):
     to_filing_status: Mapped[str] = mapped_column(String(20), nullable=False)
     presentation_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     order_number: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    filing_reference: Mapped[str | None] = mapped_column(String(100), nullable=True)

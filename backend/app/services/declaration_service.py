@@ -476,6 +476,7 @@ def file_declaration(
     target: str,
     presentation_date,
     order_number: str | None,
+    filing_reference: str | None = None,
     reason: str | None,
     row_version: int,
 ) -> Declaration:
@@ -495,6 +496,7 @@ def file_declaration(
     if target == "FILED":
         declaration.presentation_date = presentation_date
         declaration.order_number = order_number
+        declaration.filing_reference = filing_reference
     declaration.row_version += 1
     db.flush()
 
@@ -511,6 +513,7 @@ def file_declaration(
             to_filing_status=target,
             presentation_date=presentation_date if target == "FILED" else None,
             order_number=order_number if target == "FILED" else None,
+            filing_reference=filing_reference if target == "FILED" else None,
         ),
     )
     return declaration
@@ -535,6 +538,7 @@ def correct_filing(
     if target != "FILED":
         declaration.presentation_date = None
         declaration.order_number = None
+        declaration.filing_reference = None
     declaration.row_version += 1
     db.flush()
 
@@ -551,6 +555,7 @@ def correct_filing(
             to_filing_status=target,
             presentation_date=declaration.presentation_date,
             order_number=declaration.order_number,
+            filing_reference=declaration.filing_reference,
         ),
     )
     return declaration

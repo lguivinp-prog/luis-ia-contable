@@ -66,6 +66,8 @@ export interface Declaration {
   current_effective_due_date: string;
   presentation_date: string | null;
   order_number: string | null;
+  filing_reference: string | null;
+  ready_to_file_override_reason: string | null;
   closed_at: string | null;
   closed_with_pending: boolean;
   cancelled_at: string | null;
@@ -182,8 +184,12 @@ export interface DeclarationHistoryOut {
     id: string;
     from_filing_status: string | null;
     to_filing_status: string;
+    presentation_date: string | null;
+    order_number: string | null;
+    filing_reference: string | null;
     created_at: string;
     reason: string | null;
+    origin: string;
   }[];
   reopen_history: {
     id: string;

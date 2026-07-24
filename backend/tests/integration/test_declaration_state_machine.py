@@ -114,6 +114,65 @@ def test_filing_requires_presentation_date(db_session, tenant, admin_user, decla
         )
 
 
+def test_filing_reference_persisted_on_filed_and_in_history(
+    db_session, tenant, admin_user, declaration_setup
+) -> None:
+    d = declaration_setup
+    d = declaration_service.file_declaration(
+        db_session, tenant.id, admin_user.id, d.id,
+        target="READY", presentation_date=None, order_number=None, reason=None, row_version=d.row_version,
+    )
+    d = declaration_service.file_declaration(
+        db_session, tenant.id, admin_user.id, d.id,
+        target="FILED", presentation_date="2026-02-10", order_number="ORD-1",
+        filing_reference="REF-001", reason=None, row_version=d.row_version,
+    )
+    assert d.filing_reference == "REF-001"
+
+    history = declaration_service.get_history(db_session, tenant.id, d.id)
+    filed_entry = next(h for h in history["filing_history"] if h.to_filing_status == "FILED")
+    assert filed_entry.filing_reference == "REF-001"
+
+
+def test_correct_filing_requires_reason(db_session, tenant, admin_user, declaration_setup) -> None:
+    d = declaration_setup
+    with pytest.raises(declaration_service.MissingRecalculationReasonError):
+        declaration_service.correct_filing(
+            db_session, tenant.id, admin_user.id, d.id, target="NOT_REQUIRED", reason="",
+        )
+
+
+def test_correct_filing_from_filed_clears_filing_fields(
+    db_session, tenant, admin_user, declaration_setup
+) -> None:
+    d = declaration_setup
+    d = declaration_service.file_declaration(
+        db_session, tenant.id, admin_user.id, d.id,
+        target="READY", presentation_date=None, order_number=None, reason=None, row_version=d.row_version,
+    )
+    d = declaration_service.file_declaration(
+        db_session, tenant.id, admin_user.id, d.id,
+        target="FILED", presentation_date="2026-02-10", order_number="ORD-1",
+        filing_reference="REF-001", reason=None, row_version=d.row_version,
+    )
+    assert d.filing_status == "FILED"
+
+    corrected = declaration_service.correct_filing(
+        db_session, tenant.id, admin_user.id, d.id,
+        target="NOT_FILED", reason="Se presento por error, se anula administrativamente",
+    )
+    assert corrected.filing_status == "NOT_FILED"
+    assert corrected.presentation_date is None
+    assert corrected.order_number is None
+    assert corrected.filing_reference is None
+
+    history = declaration_service.get_history(db_session, tenant.id, d.id)
+    correction_entry = history["filing_history"][-1]
+    assert correction_entry.from_filing_status == "FILED"
+    assert correction_entry.to_filing_status == "NOT_FILED"
+    assert correction_entry.reason == "Se presento por error, se anula administrativamente"
+
+
 def test_close_normal_blocked_for_applicable_declaration_in_3_1(
     db_session, tenant, admin_user, declaration_setup
 ) -> None:

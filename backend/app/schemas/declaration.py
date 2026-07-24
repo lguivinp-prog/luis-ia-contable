@@ -75,6 +75,7 @@ class FilingRequest(BaseModel):
     target: str = Field(pattern="^(READY|FILED|FAILED|NOT_REQUIRED)$")
     presentation_date: date | None = None
     order_number: str | None = None
+    filing_reference: str | None = None
     reason: str | None = None
     row_version: int
 
@@ -177,6 +178,7 @@ class FilingHistoryOut(BaseModel):
     to_filing_status: str
     presentation_date: date | None
     order_number: str | None
+    filing_reference: str | None
     actor_user_id: uuid.UUID | None
     created_at: datetime
     reason: str | None

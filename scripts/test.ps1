@@ -20,6 +20,9 @@ try {
     Write-Host "== Frontend: eslint ==" -ForegroundColor Cyan
     docker compose exec frontend npx eslint .
 
+    Write-Host "== Consistencia de referencias ADR ==" -ForegroundColor Cyan
+    python scripts/check_adr_consistency.py
+
     Write-Host ""
     Write-Host "Todas las verificaciones pasaron." -ForegroundColor Green
 } finally {

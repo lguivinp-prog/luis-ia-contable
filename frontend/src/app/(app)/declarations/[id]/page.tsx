@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/StatusSemaphore";
 import { ClosePanel } from "@/components/declarations/ClosePanel";
 import { DocumentsPanel } from "@/components/declarations/DocumentsPanel";
+import { PresentationPanel } from "@/components/declarations/PresentationPanel";
 import { TaxAssessmentPanel } from "@/components/declarations/TaxAssessmentPanel";
 import { TaxPaymentsPanel } from "@/components/declarations/TaxPaymentsPanel";
 import { fetchCurrentUser } from "@/lib/auth";
@@ -37,12 +38,13 @@ const WORKFLOW_TARGETS: Record<string, string[]> = {
   READY_TO_FILE: ["UNDER_REVIEW", "NOT_APPLICABLE"],
 };
 
-type Tab = "resumen" | "documentos" | "impuestos" | "cierre" | "historial";
+type Tab = "resumen" | "documentos" | "impuestos" | "presentacion" | "cierre" | "historial";
 
 const TAB_LABELS: Record<Tab, string> = {
   resumen: "Resumen",
   documentos: "Documentos",
   impuestos: "Impuestos",
+  presentacion: "Presentación",
   cierre: "Cierre",
   historial: "Historial",
 };
@@ -190,6 +192,25 @@ export default function DeclarationDetailPage() {
     await reload();
   }
 
+  async function handleFileDeclaration(payload: {
+    target: "READY" | "FILED" | "FAILED" | "NOT_REQUIRED";
+    presentation_date: string | null;
+    order_number: string | null;
+    filing_reference: string | null;
+    reason: string | null;
+    row_version: number;
+  }) {
+    if (!declaration) return;
+    await apiClient.patch(`/declarations/${declaration.id}/filing`, payload);
+    await reload();
+  }
+
+  async function handleCorrectFiling(target: string, reason: string) {
+    if (!declaration) return;
+    await apiClient.patch(`/declarations/${declaration.id}/filing/correct`, { target, reason });
+    await reload();
+  }
+
   async function handleClose(forceCloseWithPending: boolean, closeOverrideReason: string | null) {
     if (!declaration) return;
     await apiClient.post(`/declarations/${declaration.id}/close`, {
@@ -318,6 +339,16 @@ export default function DeclarationDetailPage() {
             />
           </section>
         </div>
+      )}
+
+      {tab === "presentacion" && (
+        <PresentationPanel
+          declaration={declaration}
+          filingHistory={history.filing_history}
+          canAct={canActOnDeclaration}
+          onFile={handleFileDeclaration}
+          onCorrect={handleCorrectFiling}
+        />
       )}
 
       {tab === "cierre" && (

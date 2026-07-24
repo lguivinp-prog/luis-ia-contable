@@ -256,6 +256,7 @@ def file_declaration(
             target=payload.target,
             presentation_date=payload.presentation_date,
             order_number=payload.order_number,
+            filing_reference=payload.filing_reference,
             reason=payload.reason,
             row_version=payload.row_version,
         )
