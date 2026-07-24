@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { Select } from "@/components/ui/Select";
 import { ClientForm } from "@/components/clients/ClientForm";
 import { apiClient } from "@/lib/apiClient";
+import { buildClientUpdatePayload } from "@/lib/clientUpdatePayload";
 import type { Client, ClientBase, ServiceStatus } from "@/lib/types/client";
 
 const SERVICE_STATUS_OPTIONS = [
@@ -30,7 +31,8 @@ export default function ClientDetailPage() {
   }, [params.id]);
 
   async function handleSubmit(values: ClientBase) {
-    const updated = await apiClient.put<Client>(`/clients/${params.id}`, values);
+    const payload = buildClientUpdatePayload(values);
+    const updated = await apiClient.put<Client>(`/clients/${params.id}`, payload);
     setClient(updated);
   }
 

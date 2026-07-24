@@ -46,6 +46,15 @@ export interface ClientBase {
   tags: string[] | null;
 }
 
+// Tipo exclusivo de escritura para PUT /api/v1/clients/{id}: coincide campo
+// por campo con el schema Pydantic `ClientUpdate(ClientBase)` del backend
+// (`extra="forbid"` -- cualquier campo fuera de esta forma es rechazado con
+// 422). Nunca se debe usar `Client` (el tipo de lectura, con id/tenant_id/
+// ruc_last_digit/service_status/last_verified_at/created_at/updated_at/
+// is_good_taxpayer) como payload de escritura: ver
+// `buildClientUpdatePayload` en `@/lib/clientUpdatePayload`.
+export type ClientUpdatePayload = ClientBase;
+
 export interface Client extends ClientBase {
   id: string;
   tenant_id: string;

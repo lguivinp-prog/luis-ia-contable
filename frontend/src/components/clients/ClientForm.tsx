@@ -6,8 +6,36 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { RucLookupPanel } from "@/components/clients/RucLookupPanel";
+import { ApiError } from "@/lib/apiClient";
 import type { ClientBase } from "@/lib/types/client";
 import { isValidRuc } from "@/lib/validators/ruc";
+
+function describeSubmitError(err: unknown): string {
+  if (err instanceof ApiError) {
+    if (err.status === 422) {
+      // El detalle de FastAPI/Pydantic es una lista de errores de validacion
+      // ({loc, msg, type}); se muestra el mensaje de cada uno, nunca se oculta.
+      if (Array.isArray(err.detail)) {
+        const messages = err.detail
+          .map((item) => (item && typeof item === "object" && "msg" in item ? String(item.msg) : null))
+          .filter((msg): msg is string => Boolean(msg));
+        if (messages.length > 0) {
+          return `Datos invalidos: ${messages.join("; ")}`;
+        }
+      }
+      return typeof err.detail === "string" ? err.detail : "Datos invalidos. Revisa los campos marcados.";
+    }
+    if (err.status === 409) {
+      return typeof err.detail === "string"
+        ? err.detail
+        : "El contribuyente fue modificado por otra operacion (por ejemplo, el RUC ya esta en uso). Recarga los datos antes de reintentar.";
+    }
+    if (err.status === 404) {
+      return "Este contribuyente ya no existe. Recarga la lista de contribuyentes.";
+    }
+  }
+  return "No se pudo guardar el contribuyente. Revisa los datos e intenta nuevamente.";
+}
 
 const PERSON_TYPE_OPTIONS = [
   { value: "natural", label: "Persona natural" },
@@ -95,8 +123,8 @@ export function ClientForm({ initialValues, onSubmit, submitLabel, lockRuc }: Cl
     setSubmitting(true);
     try {
       await onSubmit(values);
-    } catch {
-      setError("No se pudo guardar el contribuyente. Revisa los datos e intenta nuevamente.");
+    } catch (err) {
+      setError(describeSubmitError(err));
     } finally {
       setSubmitting(false);
     }
