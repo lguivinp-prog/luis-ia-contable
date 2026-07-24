@@ -48,6 +48,40 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 - Backend: 397 pruebas (87 % cobertura), incluidas 2 pruebas de concurrencia real del último admin y una
   matriz 200/403 de 30 casos.
 
+### Fase 1, Bloque 5 — Almacenamiento real y seguro de documentos
+
+- **Modelo y almacenamiento**: `declaration_document_files` (migración `0013`) con cadena lógica de versiones
+  (`logical_file_id`/`version`), índice único parcial que impone una sola versión `ACTIVE` por cadena,
+  `FileStorageBackend`/`LocalFileStorageBackend` desacoplado sobre un volumen Docker nombrado fuera de `/app`
+  (ADR-0053).
+- **Ciclo de vida sin restauración**: `ACTIVE`/`SUPERSEDED`/`DELETED`, transición directa `ACTIVE→DELETED`,
+  `file_metadata` legado conservado sin cambios de esquema como notas descriptivas, nunca evidencia física
+  (ADR-0054).
+- **Consistencia BD-disco y concurrencia real**: orden estricto escritura-validación-rename-inserción,
+  compensación física ante fallo de `flush()`/`commit()`, bloqueo del `file_id` exacto verificado con dos
+  conexiones reales (incluido un hallazgo real: `populate_existing=True` necesario para que el bloqueo no lea
+  un objeto cacheado obsoleto), reporte de integridad con 5 categorías exactas (`missing_blob`/`orphan_blob`/
+  `hash_mismatch`/`retained_deleted_blob`/`temporary_part`) sin exponer nunca `storage_key` (ADR-0055).
+- **Seguridad de contenido y descarga**: validación por contenido real incluida verificación estructural OOXML
+  contra ZIP-bombs y macros, nombre original saneado, `Content-Disposition` seguro (RFC 6266), nuevo permiso
+  `document:file_manage` (ADR-0056).
+- **Nuevo permiso**: `Permission` pasa de 30 a 31 valores (`admin`=31, `contador`=28, `asistente`=13 sin
+  cambio).
+- **Backup/restauración conjunta**: `backup.ps1`/`restore.ps1` extendidos — backend detenido durante la
+  captura, verificación del 100% de los blobs (nunca una muestra), manifiesto con SHA-256 de dump y volumen,
+  snapshot de seguridad automático antes de restaurar con reversión automática si la verificación
+  post-restauración falla; CLI declarativo `app/cli/document_storage_archive.py` (`tarfile`+`hashlib`, sin
+  dependencia del binario `tar` del sistema).
+- **Frontend**: sub-sección de archivos por cadena en cada ítem documental (`DocumentItemFiles.tsx`), subir/
+  descargar/reemplazar/eliminar gateados por permiso.
+- **Migración** `0013_document_file_storage` — cadena lineal desde `0012`, verificada upgrade/downgrade/
+  re-upgrade.
+- ADRs 0053–0056.
+- Backend: 472 pruebas (88 % cobertura), incluidas pruebas de concurrencia real (reemplazo simultáneo,
+  reemplazo vs. eliminación), 4 pruebas SQL directas de integridad de cadena, y verificación manual de
+  extremo a extremo de backup/restauración con corrección de un error real encontrado en el proceso (`extract`
+  intentaba eliminar el punto de montaje del volumen en sí, no solo su contenido).
+
 ## [0.2.0] - 2026-07-22 - Fase 1 bloque 2
 
 ### Añadido

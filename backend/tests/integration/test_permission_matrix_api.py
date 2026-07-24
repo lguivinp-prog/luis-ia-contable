@@ -190,6 +190,14 @@ CASES = [
     ),
     ("report:export", "POST", "/api/v1/reports/export", {}, "asistente_client", None),
     ("dashboard:read", "GET", "/api/v1/dashboard/monthly", None, "asistente_client", None),
+    (
+        "document:file_manage",
+        "POST",
+        f"/api/v1/declarations/{DUMMY_ID}/documents/{DUMMY_ID_2}/files/{DUMMY_ID}/delete",
+        {"reason": "prueba"},
+        "contador_client",
+        "asistente_client",
+    ),
 ]
 
 
@@ -210,14 +218,14 @@ def test_permission_matrix(
         )
 
 
-def test_matrix_covers_all_30_permissions() -> None:
+def test_matrix_covers_all_31_permissions() -> None:
     from app.core.permissions import Permission
 
     covered = {case[0] for case in CASES}
     all_permissions = {p.value for p in Permission}
     missing = all_permissions - covered
     assert not missing, f"permisos sin caso de prueba en la matriz: {sorted(missing)}"
-    assert len(CASES) >= 30
+    assert len(CASES) >= 31
 
 
 def test_asistente_role_is_real_and_distinct(asistente_user) -> None:

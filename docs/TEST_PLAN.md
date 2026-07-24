@@ -68,17 +68,39 @@ Ejecutadas contra una base de datos PostgreSQL real de pruebas (`TEST_DATABASE_U
 
 | Archivo | Cubre |
 |---|---|
-| `test_permissions.py` | 30 permisos exactos, pertenencia por rol (`admin`=30, `contador`=27, `asistente`=13), fallo cerrado ante rol/permiso desconocido |
+| `test_permissions.py` | 31 permisos exactos, pertenencia por rol (`admin`=31, `contador`=28, `asistente`=13), fallo cerrado ante rol/permiso desconocido |
 | `test_user_admin_invariant.py` | `removes_last_active_admin`: los 6 casos (desactivar/degradar único admin activo, ≥2 admins, objetivo inactivo, promoción, reactivación, mismo rol) |
 | `test_migration_0012_users_rbac.py` | Upgrade/downgrade/re-upgrade con datos válidos; rol desconocido bloquea preflight; usuario inactivo heredado sin metadatos bloquea preflight; 4 casos de tenant sin admin activo (`NOT EXISTS` desde `tenants`); ausencia de DDL parcial tras cualquier fallo de preflight |
 | `test_users_api.py` | CRUD completo de usuarios, cambio de rol, desactivación/reactivación, restablecimiento de contraseña, aislamiento multitenant, auto-operación rechazada, rechazo de `role == target.role` |
 | `test_users_last_admin_concurrency.py` | Concurrencia real (dos conexiones, `threading.Event`): dos admins desactivándose/degradándose mutuamente siempre dejan exactamente 1 admin activo |
 | `test_route_permission_coverage.py` | Todo endpoint bajo `/api/v1/` declara `require_permission` o está en la allowlist cerrada `EXEMPT_ROUTES`; toda ruta de `/api/v1/users` exige `user:read`/`user:manage` |
-| `test_permission_matrix_api.py` | Matriz 200/403 real para cada uno de los 30 permisos, aprovechando que FastAPI resuelve `Depends()` antes de validar el cuerpo |
+| `test_permission_matrix_api.py` | Matriz 200/403 real para cada uno de los 31 permisos, aprovechando que FastAPI resuelve `Depends()` antes de validar el cuerpo |
 
 Frontend: `permissions.test.ts` (vitest) prueba `hasPermission` como función pura sin reconstruir el mapa de
 roles. El gateo de los 16 componentes/páginas existentes se verifica manualmente con los 3 roles reales (ver
 informe de cierre del Bloque 4).
+
+## Pruebas de almacenamiento real de documentos (Bloque 5)
+
+| Archivo | Cubre |
+|---|---|
+| `test_file_storage_backend.py` | `LocalFileStorageBackend`: hash/tamaño en streaming, límite aplicado durante la lectura (no solo `Content-Length`), rechazo de archivo vacío, `promote` atómico, `delete` idempotente, contención de ruta, `iter_keys`/`stat` |
+| `test_document_file_content_validation.py` | Firma real PDF/JPEG/PNG; estructura OOXML válida DOCX/XLSX; ZIP genérico renombrado rechazado; ambigüedad word+xl rechazada; macro-habilitado rechazado (`vbaProject.bin`, y vía `[Content_Types].xml`); límites de ZIP-bomb (entradas, tamaño total/por-entrada, ratio de compresión); traversal de nombre de entrada |
+| `test_document_file_naming.py` | Saneamiento de ruta (unix/windows/traversal), rechazo de control/CRLF, truncado a 255, `Content-Disposition` ASCII/no-ASCII/RFC 6266 |
+| `test_document_file_compensation.py` | `compensate_physical_write` nunca lanza; compensa el blob ante fallo de `flush()` en la carga |
+| `test_declaration_document_files_api.py` | Flujo HTTP completo (subir/listar/descargar/reemplazar/eliminar), permisos (asistente sube, no reemplaza/elimina), 409 sobre versión no `ACTIVE`, aislamiento multitenant, auditoría, regresión de `file_metadata` legado |
+| `test_document_file_chain_integrity.py` | 4 pruebas SQL directas de integridad de cadena (versión sin predecesor, predecesor sin versión, reemplazo cruzado de ítem, reemplazo cruzado de cadena), índice único parcial rechaza dos `ACTIVE` en la misma cadena |
+| `test_document_file_replace_concurrency.py` | Concurrencia real (dos conexiones, `threading.Event`): dos reemplazos simultáneos del mismo `file_id` (uno gana, 409 al otro); reemplazo vs. eliminación simultáneos; fallo forzado del segundo `flush()` revierte a `ACTIVE` y compensa el blob |
+| `test_migration_0013_document_file_storage.py` | Upgrade/downgrade/re-upgrade de la tabla y todos sus constraints/índices nombrados |
+| `test_document_integrity_report_api.py` | Las 5 categorías exactas del reporte de integridad; filtro por categoría; aislamiento por tenant; permiso `document:manage`; ninguna entrada expone `storage_key` |
+| `test_document_storage_archive_cli.py` | `archive`/`extract` del volumen (round-trip, `--confirm` requerido, entrada faltante rechazada); regresión de que `extract` nunca elimina el punto de montaje de la raíz, solo su contenido |
+
+Frontend: `documentFileValidation.test.ts` (vitest) prueba la validación de extensión/tamaño en el cliente
+como función pura. El flujo completo (subir/descargar/reemplazar/eliminar, rechazo de contenido/tamaño
+inválido, gateo por rol) se verificó manualmente en navegador con los 3 roles reales (ver informe de cierre
+del Bloque 5). Backup/restauración (`backup.ps1`/`restore.ps1`) se verificó manualmente de extremo a extremo
+contra el entorno de desarrollo, incluida la reversión automática ante fallo — no tienen suite `pytest`, mismo
+criterio que el resto de los scripts operativos de este repositorio.
 
 ## Pruebas de arranque (smoke)
 

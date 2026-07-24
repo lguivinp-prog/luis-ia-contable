@@ -13,8 +13,8 @@ class _FakeUser:
         self.role = role
 
 
-def test_permission_enum_has_30_values() -> None:
-    assert len(list(Permission)) == 30
+def test_permission_enum_has_31_values() -> None:
+    assert len(list(Permission)) == 31
 
 
 def test_admin_has_every_permission() -> None:
@@ -26,7 +26,8 @@ def test_contador_lacks_user_management_and_close_override() -> None:
     assert Permission.USER_READ not in contador_permissions
     assert Permission.USER_MANAGE not in contador_permissions
     assert Permission.DECLARATION_CLOSE_OVERRIDE not in contador_permissions
-    assert len(contador_permissions) == 27
+    assert Permission.DOCUMENT_FILE_MANAGE in contador_permissions
+    assert len(contador_permissions) == 28
 
 
 def test_asistente_is_read_only_plus_document_item_write_and_reports() -> None:
@@ -35,6 +36,7 @@ def test_asistente_is_read_only_plus_document_item_write_and_reports() -> None:
     assert Permission.DOCUMENT_ITEM_WRITE in asistente_permissions
     assert Permission.REPORT_EXPORT in asistente_permissions
     assert Permission.DOCUMENT_MANAGE not in asistente_permissions
+    assert Permission.DOCUMENT_FILE_MANAGE not in asistente_permissions
     assert Permission.CLIENT_WRITE not in asistente_permissions
     assert Permission.TAX_PAYMENT_WRITE not in asistente_permissions
     assert Permission.USER_READ not in asistente_permissions

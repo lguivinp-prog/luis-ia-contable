@@ -2,6 +2,7 @@ from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.core.file_storage import FileStorageBackend, LocalFileStorageBackend
 from app.db.session import get_db
 from app.domain.ruc_lookup.fake_provider import FakeRucLookupProvider
 from app.domain.ruc_lookup.provider import RucLookupProvider
@@ -21,6 +22,14 @@ def get_ruc_lookup_provider() -> RucLookupProvider:
     if settings.ruc_lookup_provider == "sunat":
         return SunatRucLookupProvider()
     return FakeRucLookupProvider()
+
+
+def get_file_storage() -> FileStorageBackend:
+    """Fabrica de dependencia FastAPI para el backend de almacenamiento de
+    archivos documentales (Bloque 5, ADR-0053). Instancia liviana (solo
+    resuelve la raiz configurada) -- se crea una por peticion, sin estado
+    compartido entre requests."""
+    return LocalFileStorageBackend(settings.document_storage_root)
 
 
 def get_current_session(request: Request, db: Session = Depends(get_db)) -> SessionModel:

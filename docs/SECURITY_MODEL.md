@@ -53,9 +53,10 @@ En esta entrega, las columnas `sol_username_encrypted`, `sol_password_encrypted`
 ## RBAC real: catálogo de permisos y aplicación en routers (Bloque 4, ADR-0050/ADR-0051/ADR-0052)
 
 El sistema implementa RBAC real sobre los tres roles fijos (`admin`/`contador`/`asistente`, `CHECK
-ck_users_role`). `Permission(str, enum.Enum)` (`backend/app/core/permissions.py`) declara 30 permisos
-explícitos; `ROLE_PERMISSIONS` es el único mapa rol→permisos, sin tabla relacional (`admin`=30,
-`contador`=27, `asistente`=13). `has_permission`/`check_permission` fallan **cerrado**: un rol o permiso no
+ck_users_role`). `Permission(str, enum.Enum)` (`backend/app/core/permissions.py`) declara 31 permisos
+explícitos (30 desde Bloque 4, más `document:file_manage` desde Bloque 5, ver más abajo); `ROLE_PERMISSIONS`
+es el único mapa rol→permisos, sin tabla relacional (`admin`=31, `contador`=28, `asistente`=13).
+`has_permission`/`check_permission` fallan **cerrado**: un rol o permiso no
 reconocido nunca autoriza por defecto. `require_permission(permission)` es la dependencia que se aplica en
 la firma de cada endpoint mutante o de lectura de los 15 routers existentes; reemplaza por completo a la
 antigua `ensure_admin_role` (eliminada), incluido su único uso previo (cierre excepcional de una declaración,
@@ -75,13 +76,53 @@ Un usuario no puede desactivarse ni cambiar su propio rol.
 **Cobertura estructural verificada**: `test_route_permission_coverage.py` recorre `app.routes` y falla si
 cualquier endpoint bajo `/api/v1/` no declara `require_permission` y no está en la allowlist cerrada
 `EXEMPT_ROUTES` (los 8 endpoints de autoservicio de `auth.py` + 2 de `health.py` — nunca una exención por
-prefijo). `test_permission_matrix_api.py` confirma 200/403 real para los 30 permisos.
+prefijo). `test_permission_matrix_api.py` confirma 200/403 real para los 31 permisos.
 
 **Gateo frontend como UX, no como control de acceso**: `hasPermission(user, permission)`
 (`frontend/src/lib/permissions.ts`) consume `permissions: list[str]` calculado por el backend en
 `GET /auth/me` — no existe copia del mapa de roles en TypeScript. Oculta o deshabilita controles mutantes en
 la interfaz para reducir fricción, pero cada endpoint sigue protegido en el backend independientemente del
 estado visual del cliente.
+
+## Almacenamiento real de documentos (Bloque 5, ADR-0053 a ADR-0056)
+
+**Validación de contenido real, nunca por extensión ni `Content-Type` declarado**: PDF/JPEG/PNG se detectan
+por firma real de bytes (librería `filetype`); DOCX/XLSX requieren verificación estructural completa del ZIP
+(límites de directorio central antes de descomprimir nada — máx. 2000 entradas, 200 MB descomprimidos, 100 MB
+por entrada, ratio de compresión 100:1 — defensa contra ZIP-bombs; clasificación exclusiva por prefijo
+`word/`/`xl/`; rechazo de variantes macro-habilitadas). Allowlist cerrada: PDF, JPEG, PNG, XLSX, DOCX —
+cualquier otro contenido se rechaza con 422.
+
+**Nombre interno no predecible, nombre original solo de presentación**: `storage_key` siempre se genera del
+lado del servidor (`uuid4()` + extensión derivada del contenido real); `original_filename` se sanea (quita
+ruta, rechaza control/CRLF, trunca a 255) antes de insertar, y nunca se usa para construir la clave física.
+`Content-Disposition` de cada descarga incluye codificación RFC 6266 para nombres no ASCII, más
+`X-Content-Type-Options: nosniff`.
+
+**Aislamiento de tenant y prevención de path traversal**: `storage_key` prefijado por `tenant_id`; toda
+consulta filtra por `tenant_id`; descarga revalida `file.tenant_id == current_user.tenant_id` como defensa en
+profundidad además del filtro de la consulta. `LocalFileStorageBackend._resolve(key)` verifica
+`Path.resolve().is_relative_to(root)` antes de cualquier operación de archivo. Ninguna respuesta de la API
+expone `storage_key` ni ninguna ruta física (verificado explícitamente en pruebas); el reporte de integridad
+usa `blob_fingerprint = SHA256(clave_relativa)` para blobs sin fila en BD.
+
+**Permiso `document:file_manage`** (admin/contador, no asistente): gatea reemplazar y eliminar una versión —
+nombrado deliberadamente para cubrir ambas operaciones, no solo "delete". La carga inicial reutiliza
+`document:item_write` (asistente incluido); la descarga y el listado reutilizan `document:read` (los 3
+roles); el reporte de integridad usa `document:manage`.
+
+**Descarga siempre autenticada y en streaming**: nunca una ruta estática pública; `GET
+.../files/{file_id}/download` requiere `document:read` y transmite el archivo en bloques de 1 MiB sin
+cargarlo completo en memoria.
+
+**Auditoría**: 4 acciones nuevas en `AuditAction` (`DOCUMENT_ITEM_FILE_UPLOAD`/`DOWNLOAD`/`REPLACE`/`DELETE`).
+
+**Backup/restauración con verificación completa**: `backup.ps1`/`restore.ps1` detienen el backend durante la
+captura y recalculan el SHA-256 del 100% de los blobs registrados (nunca una muestra) antes de dejar
+`manifest.json`; `restore.ps1` toma un snapshot de seguridad previo y revierte automáticamente si la
+verificación post-restauración falla. Ver ADR-0055 para el detalle completo, incluido un error real
+encontrado y corregido durante la verificación manual (`extract` intentaba eliminar el punto de montaje del
+volumen en sí, no solo su contenido).
 
 ## Exportación de reportes: sanitización CSV y límites (Bloque 3.2, ADR-0049)
 

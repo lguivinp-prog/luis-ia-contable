@@ -42,8 +42,28 @@ Documentación base, arquitectura, modelo de amenazas, modelo de datos, estructu
   pantalla `/users` de administración, pantalla obligatoria de cambio de contraseña, gateo completo (ocultar
   o deshabilitar, nunca solo por color) de los 16 componentes/páginas mutantes existentes.
 
-**Bloques siguientes (pendientes):**
-- Almacenamiento real de archivos para documentos (hoy solo metadatos validados, nunca una ruta o URL real).
+**Bloque 5 ✅ (esta entrega): Almacenamiento real y seguro de documentos**
+- **Modelo y almacenamiento**: tabla `declaration_document_files` (migración 0013) con cadena lógica de
+  versiones (`logical_file_id`/`version`), índice único parcial que impone una sola versión `ACTIVE` por
+  cadena (varias cadenas pueden coexistir activas en el mismo ítem), `FileStorageBackend`/
+  `LocalFileStorageBackend` desacoplado sobre un volumen Docker nombrado fuera del árbol de código (ADR-0053).
+- **Ciclo de vida sin restauración**: `ACTIVE`/`SUPERSEDED`/`DELETED` con transiciones sin ambigüedad de
+  estado; `file_metadata` legado se conserva sin cambios de esquema como notas descriptivas heredadas, nunca
+  evidencia física (ADR-0054).
+- **Consistencia BD-disco y concurrencia real**: orden estricto escritura-validación-rename-inserción,
+  compensación física ante fallo de `flush()`/`commit()`, bloqueo del `file_id` exacto (no "cualquier ACTIVE de
+  la cadena") verificado con dos conexiones reales — incluido un hallazgo real de `populate_existing=True`
+  necesario para que el bloqueo no lea un objeto cacheado obsoleto —, reporte de integridad con 5 categorías
+  exactas sin exponer nunca `storage_key` (ADR-0055).
+- **Seguridad de contenido y descarga**: validación por contenido real (incluida verificación estructural
+  OOXML contra ZIP-bombs y macros, nunca por extensión declarada), nombre original saneado, `Content-Disposition`
+  seguro con codificación RFC 6266, permiso `document:file_manage` separado para reemplazar/eliminar (ADR-0056).
+- **Backup/restauración conjunta**: `backup.ps1`/`restore.ps1` con backend detenido durante la captura,
+  verificación del 100% de los blobs (nunca una muestra), manifiesto con SHA-256 de dump y volumen, snapshot
+  de seguridad automático antes de restaurar con reversión automática si la verificación post-restauración
+  falla.
+- **Frontend**: sub-sección de archivos por cadena en cada ítem documental (`DocumentItemFiles.tsx`), subir/
+  descargar/reemplazar/eliminar gateados por permiso, verificado manualmente con los 3 roles reales.
 
 **Exclusión de alcance (decisión funcional del propietario):** Luis IA Contable no incorporará un módulo
 independiente de rectificatorias tributarias vinculado a declaraciones originales — no forma parte del flujo

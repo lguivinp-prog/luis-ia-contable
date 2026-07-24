@@ -30,6 +30,8 @@ services:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:
       - ./backend:/app
+      - document_storage:/var/lib/luis-ia-contable/documents
+      - ./backups:/backups
     depends_on:
       db:
         condition: service_healthy
@@ -75,3 +77,4 @@ volumes:
   postgres_data:
   frontend_node_modules:
   frontend_next_cache:
+  document_storage:

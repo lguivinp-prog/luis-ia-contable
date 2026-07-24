@@ -159,6 +159,11 @@ class DeclarationDocumentItem(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __tablename__ = "declaration_document_items"
     __table_args__ = (
         UniqueConstraint("id", "tenant_id", name="uq_declaration_document_items_id_tenant"),
+        # Auxiliar para la FK compuesta de declaration_document_files (Bloque
+        # 5, migracion 0013) -- mismo patron que uq_declarations_id_tenant_client.
+        UniqueConstraint(
+            "id", "tenant_id", "client_id", name="uq_declaration_document_items_id_tenant_client"
+        ),
         UniqueConstraint(
             "tenant_id",
             "declaration_id",

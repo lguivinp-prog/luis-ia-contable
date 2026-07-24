@@ -96,6 +96,46 @@ async function requestFormData<T>(path: string, formData: FormData): Promise<T> 
   return (await response.json()) as T;
 }
 
+function _filenameFromContentDisposition(response: Response, fallback: string): string {
+  const disposition = response.headers.get("content-disposition") ?? "";
+  const utf8Match = /filename\*=UTF-8''([^;]+)/.exec(disposition);
+  if (utf8Match) {
+    try {
+      return decodeURIComponent(utf8Match[1]);
+    } catch {
+      // sigue al siguiente intento
+    }
+  }
+  const asciiMatch = /filename="([^"]+)"/.exec(disposition);
+  return asciiMatch ? asciiMatch[1] : fallback;
+}
+
+async function requestGetBlob(path: string): Promise<{ blob: Blob; filename: string }> {
+  const response = await fetch(`/api/v1${path}`, {
+    method: "GET",
+    credentials: "include",
+  });
+
+  if (response.status === 401 && typeof window !== "undefined") {
+    if (!window.location.pathname.startsWith("/login")) {
+      window.location.href = "/login";
+    }
+  }
+
+  if (!response.ok) {
+    let detail: unknown = null;
+    try {
+      detail = (await response.json()).detail ?? null;
+    } catch {
+      detail = response.statusText;
+    }
+    throw new ApiError(response.status, detail);
+  }
+
+  const filename = _filenameFromContentDisposition(response, "documento");
+  return { blob: await response.blob(), filename };
+}
+
 async function requestBlob(path: string, body: unknown): Promise<{ blob: Blob; filename: string }> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   const csrfToken = readCsrfTokenFromCookie();
@@ -137,4 +177,5 @@ export const apiClient = {
   delete: <T>(path: string) => request<T>(path, { method: "DELETE" }),
   uploadFile: <T>(path: string, formData: FormData) => requestFormData<T>(path, formData),
   postForFile: (path: string, body: unknown) => requestBlob(path, body),
+  getFile: (path: string) => requestGetBlob(path),
 };

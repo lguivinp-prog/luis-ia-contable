@@ -4,6 +4,8 @@ from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import sessionmaker
 
 from app.core.config import get_settings
+from app.core.dependencies import get_file_storage
+from app.core.file_storage import LocalFileStorageBackend
 from app.core.security import hash_password
 from app.db.base import Base
 from app.db.session import get_db
@@ -55,11 +57,18 @@ def db_session(test_engine):
 
 
 @pytest.fixture()
-def client(db_session):
+def client(db_session, tmp_path):
     def _override_get_db():
         yield db_session
 
+    # Aisla el almacenamiento fisico de archivos documentales (Bloque 5) en
+    # un directorio temporal por prueba -- nunca escribe en la ruta real
+    # configurada por settings.document_storage_root.
+    def _override_get_file_storage():
+        return LocalFileStorageBackend(tmp_path / "document_storage")
+
     app.dependency_overrides[get_db] = _override_get_db
+    app.dependency_overrides[get_file_storage] = _override_get_file_storage
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()

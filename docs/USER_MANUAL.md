@@ -1,13 +1,14 @@
 # Manual de uso — Luis IA Contable
 
-> Cubre las pantallas implementadas en Fase 1, Bloques 1 a 4 (verificadas en navegador). Se ampliará en cada fase siguiente.
+> Cubre las pantallas implementadas en Fase 1, Bloques 1 a 5 (verificadas en navegador). Se ampliará en cada fase siguiente.
 
 ## Roles y permisos (Bloque 4)
 
 El sistema tiene tres roles fijos: **Administrador** (acceso completo, incluida la gestión de usuarios y el
 cierre excepcional de declaraciones), **Contador** (todo el trabajo operativo diario, sin gestión de usuarios
 ni cierre excepcional) y **Asistente** (solo lectura en la mayoría de pantallas, más la capacidad de cambiar
-el estado de documentos ya asignados y exportar reportes). Los controles que un usuario no puede usar por su
+el estado de documentos ya asignados, subir archivos y exportar reportes — sin poder reemplazar ni eliminar un
+archivo ya subido). Los controles que un usuario no puede usar por su
 rol quedan ocultos o deshabilitados en pantalla — si un control no aparece, es porque el rol actual no tiene
 el permiso correspondiente, no un error.
 
@@ -69,6 +70,8 @@ Lista los requisitos documentales ya materializados para esta declaración (nomb
 
 **Sincronización administrativa por periodo (declaraciones generadas antes de existir control documental):** si una declaración ya existente nunca recibió requisitos porque se generó antes de asignarlos al cliente, no hace falta ninguna migración — basta con asignar el requisito al cliente y luego presionar "Sincronizar requisitos" en la declaración (o, para todo un periodo a la vez, un administrador puede invocar `POST /api/v1/tax-periods/{id}/documents/sync-requirements`, que recorre todas las declaraciones del periodo sin afectar el resto si una falla individualmente).
 
+**Archivos por ítem (Bloque 5)**: cada requisito tiene su propia columna "Archivos". Cualquier rol con permiso de escritura documental (incluido asistente) puede subir un archivo nuevo (PDF, JPG, PNG, DOCX o XLSX, hasta 15 MB) — sube como una cadena de versiones independiente; un ítem puede tener varias cadenas simultáneas (p. ej. varios comprobantes distintos para el mismo requisito). Cada cadena muestra su versión vigente con estado "Activo" y botones "Descargar" (los 3 roles), y — solo para administrador/contador — "Reemplazar" (sube una nueva versión indicando un motivo obligatorio; la versión anterior pasa a "Reemplazado" y queda visible en el historial colapsable) y "Eliminar" (pide motivo y confirmación reforzada; el archivo físico se conserva para auditoría, pero la cadena queda cerrada — un documento nuevo para el mismo requisito es una cadena nueva, no una reactivación). Subir o reemplazar un archivo **nunca** cambia automáticamente el estado del ítem (`NOT_REQUESTED`/`REQUESTED`/etc.) — eso sigue siendo una acción manual separada con el selector de estado. Un archivo cuyo contenido no corresponde a un formato permitido (incluido un archivo renombrado para simular otra extensión) es rechazado con un mensaje explícito.
+
 ### Impuestos
 **Determinación tributaria**: si la declaración no tiene determinación, un formulario permite registrar la primera (impuesto bruto + créditos aplicados); el sistema calcula automáticamente el total por pagar y el saldo a favor — nunca se ingresan directamente. Una vez determinada, el mismo formulario se convierte en "Registrar corrección", que exige un motivo explícito y una confirmación adicional antes de enviarse; el historial completo de determinaciones queda visible debajo.
 
@@ -119,7 +122,7 @@ Visible únicamente para el rol Administrador (el enlace "Usuarios" no aparece p
 
 ## Qué todavía no hace el sistema
 
-Esta versión no gestiona notificaciones, ni integraciones con Google/Gmail/WhatsApp/SUNAT Operaciones en Línea, ni presenta declaraciones o realiza pagos reales. Los documentos solo guardan metadatos validados (nunca un archivo real ni una ruta/URL). Ver [ROADMAP.md](ROADMAP.md).
+Esta versión no gestiona notificaciones, ni integraciones con Google/Gmail/WhatsApp/SUNAT Operaciones en Línea, ni presenta declaraciones o realiza pagos reales. Desde Bloque 5 los documentos sí se almacenan como archivos reales (PDF/JPG/PNG/DOCX/XLSX, con reemplazo versionado y eliminación lógica); lo que no existe todavía es restauración de una versión eliminada, previsualización embebida de Office, ni purga física automática de archivos eliminados. Las rectificatorias tributarias quedan excluidas del producto por decisión funcional del propietario (no reaparecen como pendiente). Ver [ROADMAP.md](ROADMAP.md).
 
 ## Cerrar sesión
 

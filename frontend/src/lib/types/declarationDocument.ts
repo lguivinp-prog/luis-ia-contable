@@ -57,3 +57,28 @@ export interface SyncRequirementsResult {
   skipped: string[];
   errors: string[];
 }
+
+export type DeclarationDocumentFileStatus = "ACTIVE" | "SUPERSEDED" | "DELETED";
+
+// Evidencia fisica real de un item documental (Bloque 5, ADR-0053 a
+// ADR-0056). Nunca incluye storage_key/ruta fisica -- ver DeclarationDocumentFileOut.
+export interface DeclarationDocumentFile {
+  id: string;
+  logical_file_id: string;
+  version: number;
+  declaration_document_item_id: string;
+  original_filename: string;
+  description: string | null;
+  mime_type: string;
+  extension: string;
+  size_bytes: number;
+  sha256_hash: string;
+  status: DeclarationDocumentFileStatus;
+  replaces_file_id: string | null;
+  uploaded_by: string;
+  uploaded_at: string;
+  superseded_at: string | null;
+  deleted_at: string | null;
+  deleted_by: string | null;
+  deletion_reason: string | null;
+}

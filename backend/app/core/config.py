@@ -50,6 +50,12 @@ class Settings(BaseSettings):
     # ---- Reportes (Bloque 3.2) ----
     report_export_max_rows: int = 20000
 
+    # ---- Almacenamiento de archivos documentales (Bloque 5, ADR-0053) ----
+    # Ruta deliberadamente fuera de /app (el bind mount de codigo fuente) --
+    # respaldada por un volumen Docker nombrado, nunca un bind mount del host.
+    document_storage_root: str = "/var/lib/luis-ia-contable/documents"
+    document_file_max_bytes: int = 15_000_000
+
 
 @lru_cache
 def get_settings() -> Settings:

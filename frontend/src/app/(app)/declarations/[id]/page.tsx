@@ -312,6 +312,7 @@ export default function DeclarationDetailPage() {
           periodIsOpen={taxPeriod.is_open}
           canManage={hasPermission(user, "document:manage")}
           canWriteItems={hasPermission(user, "document:item_write")}
+          canManageFiles={hasPermission(user, "document:file_manage")}
           onSync={handleSyncDocuments}
           onChangeStatus={handleChangeDocumentStatus}
         />

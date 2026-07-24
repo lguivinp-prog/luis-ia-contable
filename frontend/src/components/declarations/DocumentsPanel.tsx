@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Table } from "@/components/ui/Table";
 import { DOCUMENT_STATUS_SEMAPHORE, StatusSemaphore } from "@/components/ui/StatusSemaphore";
+import { DocumentItemFiles } from "@/components/declarations/DocumentItemFiles";
 import { ApiError } from "@/lib/apiClient";
 import type {
   ClientDocumentRequirement,
@@ -33,6 +34,7 @@ interface DocumentsPanelProps {
   periodIsOpen: boolean;
   canManage: boolean;
   canWriteItems: boolean;
+  canManageFiles: boolean;
   onSync: () => Promise<SyncRequirementsResult>;
   onChangeStatus: (itemId: string, target: DocumentItemStatus, reason: string | null) => Promise<void>;
 }
@@ -45,6 +47,7 @@ export function DocumentsPanel({
   periodIsOpen,
   canManage,
   canWriteItems,
+  canManageFiles,
   onSync,
   onChangeStatus,
 }: DocumentsPanelProps) {
@@ -176,6 +179,18 @@ export function DocumentsPanel({
               key: "observations",
               header: "Observaciones",
               render: (item) => item.observations ?? "—",
+            },
+            {
+              key: "files",
+              header: "Archivos",
+              render: (item) => (
+                <DocumentItemFiles
+                  declarationId={declaration.id}
+                  itemId={item.id}
+                  canUpload={canWriteItems}
+                  canManageFiles={canManageFiles}
+                />
+              ),
             },
             {
               key: "actions",

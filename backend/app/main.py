@@ -10,6 +10,7 @@ from app.routers import (
     declaration_documents,
     declaration_generation,
     declarations,
+    document_integrity,
     health,
     obligations,
     professional_fees,
@@ -55,3 +56,4 @@ app.include_router(professional_fees.router)
 app.include_router(reports.router)
 app.include_router(dashboard.router)
 app.include_router(users.router)
+app.include_router(document_integrity.router)

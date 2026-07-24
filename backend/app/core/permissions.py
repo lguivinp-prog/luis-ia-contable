@@ -32,6 +32,7 @@ class Permission(str, enum.Enum):
     DOCUMENT_READ = "document:read"
     DOCUMENT_ITEM_WRITE = "document:item_write"
     DOCUMENT_MANAGE = "document:manage"
+    DOCUMENT_FILE_MANAGE = "document:file_manage"
     TAX_ASSESSMENT_READ = "tax_assessment:read"
     TAX_ASSESSMENT_WRITE = "tax_assessment:write"
     TAX_PAYMENT_READ = "tax_payment:read"
@@ -71,6 +72,7 @@ _CONTADOR_ONLY_ADDITIONS: frozenset[Permission] = frozenset(
         Permission.DECLARATION_FILE,
         Permission.DECLARATION_CLOSE,
         Permission.DOCUMENT_MANAGE,
+        Permission.DOCUMENT_FILE_MANAGE,
         Permission.TAX_ASSESSMENT_WRITE,
         Permission.TAX_PAYMENT_WRITE,
         Permission.TAX_PAYMENT_VOID,

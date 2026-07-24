@@ -305,7 +305,7 @@ Ejecución masiva de generación por periodo: `status` (`PENDING`/`PREVIEWED`/`S
 
 **`client_document_requirements`**: asignación de un requisito a un cliente, con vigencia (`valid_from`/`valid_until`/`validity_range` generada), `client_obligation_id NULL` = requisito general o FK compuesta hacia la obligación asignada concreta (ADR-0034), `EXCLUDE USING gist` que impide solapamientos del mismo requisito/obligación/periodicidad para el mismo cliente.
 
-**`declaration_document_items`**: materialización real por declaración. `client_id` propio + dos FKs compuestas idénticas en esa columna hacia `declarations` y `client_document_requirements` (ADR-0036, impide cruces entre clientes). `status` (7 valores: `NOT_REQUESTED`/`REQUESTED`/`PARTIAL`/`RECEIVED`/`OBSERVED`/`ACCEPTED`/`NOT_APPLICABLE`), `file_metadata JSONB` validado (`DocumentFileMetadataV1`, `extra=forbid`, nunca una ruta/URL real). `UNIQUE(tenant_id, declaration_id, client_document_requirement_id)` sostiene la idempotencia de la sincronización (ADR-0035).
+**`declaration_document_items`**: materialización real por declaración. `client_id` propio + dos FKs compuestas idénticas en esa columna hacia `declarations` y `client_document_requirements` (ADR-0036, impide cruces entre clientes). `status` (7 valores: `NOT_REQUESTED`/`REQUESTED`/`PARTIAL`/`RECEIVED`/`OBSERVED`/`ACCEPTED`/`NOT_APPLICABLE`), `file_metadata JSONB` validado (`DocumentFileMetadataV1`, `extra=forbid`, nunca una ruta/URL real) — desde Bloque 5, se trata explícitamente como **notas descriptivas heredadas, nunca el archivo real**; la evidencia física real vive en `declaration_document_files` (ver más abajo, ADR-0054). `UNIQUE(tenant_id, declaration_id, client_document_requirement_id)` sostiene la idempotencia de la sincronización (ADR-0035).
 
 **`document_item_status_history`**: historial de cambios de estado de cada ítem.
 
@@ -343,6 +343,29 @@ Sin tablas nuevas: la migración 0012 solo extiende `users` (columnas y constrai
 admin activo, verificado con `NOT EXISTS` partiendo de `tenants`). Ver ADR-0050 (catálogo de permisos) y
 ADR-0051 (ciclo de vida de usuarios, protección concurrente del último admin) para el detalle completo.
 
+## Bloque 5 — Almacenamiento real de documentos (migración 0013)
+
+### `declaration_document_files` (ADR-0053 a ADR-0056)
+
+Evidencia física real de un ítem documental, organizada en **cadenas lógicas de versiones**. Columnas
+principales: `tenant_id`/`client_id`/`declaration_id`/`declaration_document_item_id` (FKs compuestas
+existentes, mismo patrón ADR-0036); `logical_file_id UUID` (identifica la cadena); `version INT`
+(`CHECK >= 1`); `original_filename` (saneado, solo presentación); `description TEXT NULL`; `storage_key
+VARCHAR UNIQUE` (clave lógica generada por el servidor, nunca una ruta que el cliente pueda influir);
+`mime_type`/`extension` (derivados del contenido real, ver ADR-0056); `size_bytes` (`CHECK > 0`); `sha256_hash
+CHAR(64)`; `status` (`ACTIVE`/`SUPERSEDED`/`DELETED`); `replaces_file_id` (auto-FK compuesta acotada a la
+misma cadena); `uploaded_by`/`uploaded_at`; `superseded_at`; `deleted_at`/`deleted_by`/`deletion_reason`.
+
+Constraints que imponen la cadena de versiones estructuralmente (ADR-0054): `UNIQUE(tenant_id,
+logical_file_id, version)`; **índice único parcial** `UNIQUE(tenant_id, logical_file_id) WHERE status =
+'ACTIVE'` (solo una versión activa por cadena, varias cadenas pueden coexistir activas en el mismo ítem);
+`CHECK` de integridad de cadena (`version=1` ⟺ `replaces_file_id IS NULL`); `CHECK` de coherencia de estado
+(cada uno de los 3 estados con sus columnas de cierre mutuamente excluyentes); FK compuesta amplia que acota
+`replaces_file_id` a exactamente la misma cadena (tenant/cliente/declaración/ítem/`logical_file_id`).
+
+`declaration_document_items.file_metadata` no cambia de esquema ni de contrato — sigue siendo notas
+descriptivas heredadas, nunca evidencia física (ver arriba y ADR-0054).
+
 ## Diagrama de relaciones (esta entrega)
 
 ```
@@ -364,6 +387,7 @@ tax_periods 1──n declaration_generation_runs 1──n declaration_generation
 document_requirement_catalog 1──n client_document_requirements n──1 client_obligations (opcional)
 declarations 1──n declaration_document_items n──1 client_document_requirements (mismo client_id en ambas FKs)
 declaration_document_items 1──n document_item_status_history
+declaration_document_items 1──n declaration_document_files (agrupadas por logical_file_id, cadena de versiones)
 
 declarations 1──n tax_assessments 1──n tax_assessment_history
 declarations 1──n tax_payments n──1 tax_assessments (referencia historica)

@@ -14,6 +14,7 @@ from app.models.declaration_document import (
     DocumentItemStatusHistory,
     DocumentRequirementCatalog,
 )
+from app.models.declaration_document_file import DeclarationDocumentFile
 from app.models.declaration_generation import (
     DeclarationGenerationRun,
     DeclarationGenerationRunItem,
@@ -54,6 +55,7 @@ __all__ = [
     "ClientTaxCategory",
     "Declaration",
     "DeclarationAssignmentHistory",
+    "DeclarationDocumentFile",
     "DeclarationDocumentItem",
     "DeclarationDueDateHistory",
     "DeclarationGenerationRun",

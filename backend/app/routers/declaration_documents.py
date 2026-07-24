@@ -1,9 +1,12 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import get_client_ip, verify_csrf
+from app.core.config import get_settings
+from app.core.dependencies import get_client_ip, get_file_storage, verify_csrf
+from app.core.file_storage import FileStorageBackend
 from app.core.permissions import Permission, require_permission
 from app.db.session import get_db
 from app.models.audit_log import AuditAction
@@ -17,9 +20,14 @@ from app.schemas.declaration_document import (
     DocumentRequirementCatalogOut,
     SyncRequirementsResult,
 )
+from app.schemas.declaration_document_file import (
+    DeclarationDocumentFileDeleteRequest,
+    DeclarationDocumentFileOut,
+)
 from app.services import (
     declaration_document_service,
     declaration_service,
+    document_file_service,
     document_requirement_catalog_service,
 )
 from app.services.audit_service import record as record_audit
@@ -29,6 +37,14 @@ from app.services.declaration_document_service import (
     InvalidFileMetadataError,
 )
 from app.services.declaration_service import DeclarationNotFoundError
+from app.services.document_file_naming import build_content_disposition
+from app.services.document_file_service import (
+    DeclarationDocumentFileNotFoundError,
+    EmptyFileError,
+    FileNotActiveError,
+    FileTooLargeError,
+    UnsupportedFileTypeError,
+)
 from app.services.document_requirement_catalog_service import (
     DocumentCatalogEntryNotFoundError,
     ForeignDocumentCatalogEntryError,
@@ -36,6 +52,7 @@ from app.services.document_requirement_catalog_service import (
 from app.services.tax_period_service import TaxPeriodClosedError, TaxPeriodNotFoundError
 
 router = APIRouter(prefix="/api/v1", tags=["declaration-documents"])
+_settings = get_settings()
 
 
 # --- catalogo ---
@@ -315,3 +332,278 @@ def sync_requirements_for_period(
     )
     db.commit()
     return {"total_synced": total_synced, "total_errors": total_errors, "errors": errors}
+
+
+# --- archivos de item documental (Bloque 5, ADR-0053 a ADR-0056) ---
+
+
+def _validate_reason_field(reason: str) -> str:
+    from app.schemas.common import _validate_reason
+
+    try:
+        return _validate_reason(reason)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+
+
+@router.post(
+    "/declarations/{declaration_id}/documents/{item_id}/files",
+    response_model=DeclarationDocumentFileOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def upload_document_file(
+    declaration_id: uuid.UUID,
+    item_id: uuid.UUID,
+    request: Request,
+    file: UploadFile = File(...),
+    description: str | None = Form(None),
+    db: Session = Depends(get_db),
+    storage: FileStorageBackend = Depends(get_file_storage),
+    current_user: User = Depends(require_permission(Permission.DOCUMENT_ITEM_WRITE)),
+    _csrf: None = Depends(verify_csrf),
+) -> DeclarationDocumentFileOut:
+    try:
+        declaration_service.get_declaration(db, current_user.tenant_id, declaration_id)
+        item = declaration_document_service.get_item(db, current_user.tenant_id, declaration_id, item_id)
+        new_file = document_file_service.upload_file(
+            db,
+            storage,
+            current_user.tenant_id,
+            item.client_id,
+            declaration_id,
+            item_id,
+            stream=file.file,
+            original_filename=file.filename or "documento",
+            description=description,
+            max_bytes=_settings.document_file_max_bytes,
+            actor_user_id=current_user.id,
+        )
+        record_audit(
+            db,
+            tenant_id=current_user.tenant_id,
+            user_id=current_user.id,
+            action=AuditAction.DOCUMENT_ITEM_FILE_UPLOAD,
+            entity_type="declaration_document_file",
+            entity_id=new_file.id,
+            metadata={"logical_file_id": str(new_file.logical_file_id), "version": new_file.version},
+            ip_address=get_client_ip(request),
+            user_agent=request.headers.get("user-agent"),
+        )
+        db.commit()
+        db.refresh(new_file)
+        return new_file
+    except (DeclarationNotFoundError, DeclarationDocumentItemNotFoundError) as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except FileTooLargeError as exc:
+        db.rollback()
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
+    except EmptyFileError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except UnsupportedFileTypeError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+
+
+@router.get(
+    "/declarations/{declaration_id}/documents/{item_id}/files",
+    response_model=list[DeclarationDocumentFileOut],
+)
+def list_document_files(
+    declaration_id: uuid.UUID,
+    item_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(Permission.DOCUMENT_READ)),
+) -> list[DeclarationDocumentFileOut]:
+    try:
+        declaration_service.get_declaration(db, current_user.tenant_id, declaration_id)
+        declaration_document_service.get_item(db, current_user.tenant_id, declaration_id, item_id)
+    except (DeclarationNotFoundError, DeclarationDocumentItemNotFoundError) as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return document_file_service.list_files(db, current_user.tenant_id, declaration_id, item_id)
+
+
+@router.get(
+    "/declarations/{declaration_id}/documents/{item_id}/files/{file_id}",
+    response_model=DeclarationDocumentFileOut,
+)
+def get_document_file(
+    declaration_id: uuid.UUID,
+    item_id: uuid.UUID,
+    file_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(Permission.DOCUMENT_READ)),
+) -> DeclarationDocumentFileOut:
+    try:
+        return document_file_service.get_file(
+            db, current_user.tenant_id, declaration_id, item_id, file_id
+        )
+    except DeclarationDocumentFileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.get("/declarations/{declaration_id}/documents/{item_id}/files/{file_id}/download")
+def download_document_file(
+    declaration_id: uuid.UUID,
+    item_id: uuid.UUID,
+    file_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    storage: FileStorageBackend = Depends(get_file_storage),
+    current_user: User = Depends(require_permission(Permission.DOCUMENT_READ)),
+) -> StreamingResponse:
+    try:
+        file = document_file_service.get_file(
+            db, current_user.tenant_id, declaration_id, item_id, file_id
+        )
+    except DeclarationDocumentFileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    # Defensa adicional ademas del filtro ya aplicado en la consulta (mismo
+    # patron que validate_catalog_scope, ver ADR-0056).
+    if file.tenant_id != current_user.tenant_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Archivo no encontrado")
+
+    if not storage.exists(file.storage_key):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="El archivo fisico no esta disponible"
+        )
+
+    record_audit(
+        db,
+        tenant_id=current_user.tenant_id,
+        user_id=current_user.id,
+        action=AuditAction.DOCUMENT_ITEM_FILE_DOWNLOAD,
+        entity_type="declaration_document_file",
+        entity_id=file.id,
+        ip_address=get_client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
+    db.commit()
+
+    return StreamingResponse(
+        document_file_service.iter_download_chunks(storage, file),
+        media_type=file.mime_type,
+        headers={
+            "Content-Disposition": build_content_disposition(file.original_filename),
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+@router.post(
+    "/declarations/{declaration_id}/documents/{item_id}/files/{file_id}/replace",
+    response_model=DeclarationDocumentFileOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def replace_document_file(
+    declaration_id: uuid.UUID,
+    item_id: uuid.UUID,
+    file_id: uuid.UUID,
+    request: Request,
+    file: UploadFile = File(...),
+    reason: str = Form(...),
+    db: Session = Depends(get_db),
+    storage: FileStorageBackend = Depends(get_file_storage),
+    current_user: User = Depends(require_permission(Permission.DOCUMENT_FILE_MANAGE)),
+    _csrf: None = Depends(verify_csrf),
+) -> DeclarationDocumentFileOut:
+    validated_reason = _validate_reason_field(reason)
+    try:
+        item = declaration_document_service.get_item(db, current_user.tenant_id, declaration_id, item_id)
+        new_file = document_file_service.replace_file(
+            db,
+            storage,
+            current_user.tenant_id,
+            item.client_id,
+            declaration_id,
+            item_id,
+            file_id,
+            stream=file.file,
+            original_filename=file.filename or "documento",
+            max_bytes=_settings.document_file_max_bytes,
+            reason=validated_reason,
+            actor_user_id=current_user.id,
+        )
+        record_audit(
+            db,
+            tenant_id=current_user.tenant_id,
+            user_id=current_user.id,
+            action=AuditAction.DOCUMENT_ITEM_FILE_REPLACE,
+            entity_type="declaration_document_file",
+            entity_id=new_file.id,
+            metadata={
+                "replaces_file_id": str(file_id),
+                "logical_file_id": str(new_file.logical_file_id),
+                "version": new_file.version,
+                "reason": validated_reason,
+            },
+            ip_address=get_client_ip(request),
+            user_agent=request.headers.get("user-agent"),
+        )
+        db.commit()
+        db.refresh(new_file)
+        return new_file
+    except (DeclarationDocumentItemNotFoundError, DeclarationDocumentFileNotFoundError) as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except FileNotActiveError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except FileTooLargeError as exc:
+        db.rollback()
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
+    except EmptyFileError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except UnsupportedFileTypeError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+
+
+@router.post(
+    "/declarations/{declaration_id}/documents/{item_id}/files/{file_id}/delete",
+    response_model=DeclarationDocumentFileOut,
+)
+def delete_document_file(
+    declaration_id: uuid.UUID,
+    item_id: uuid.UUID,
+    file_id: uuid.UUID,
+    payload: DeclarationDocumentFileDeleteRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(Permission.DOCUMENT_FILE_MANAGE)),
+    _csrf: None = Depends(verify_csrf),
+) -> DeclarationDocumentFileOut:
+    try:
+        declaration_document_service.get_item(db, current_user.tenant_id, declaration_id, item_id)
+        file = document_file_service.delete_file(
+            db,
+            current_user.tenant_id,
+            declaration_id,
+            item_id,
+            file_id,
+            reason=payload.reason,
+            actor_user_id=current_user.id,
+        )
+        record_audit(
+            db,
+            tenant_id=current_user.tenant_id,
+            user_id=current_user.id,
+            action=AuditAction.DOCUMENT_ITEM_FILE_DELETE,
+            entity_type="declaration_document_file",
+            entity_id=file.id,
+            metadata={"reason": payload.reason},
+            ip_address=get_client_ip(request),
+            user_agent=request.headers.get("user-agent"),
+        )
+        db.commit()
+        db.refresh(file)
+        return file
+    except (DeclarationDocumentItemNotFoundError, DeclarationDocumentFileNotFoundError) as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except FileNotActiveError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
