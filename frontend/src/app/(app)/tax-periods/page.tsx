@@ -8,6 +8,8 @@ import { Select } from "@/components/ui/Select";
 import { Table } from "@/components/ui/Table";
 import { TAX_PERIOD_TYPE_LABEL } from "@/components/ui/StatusSemaphore";
 import { apiClient, ApiError } from "@/lib/apiClient";
+import { useCurrentUser } from "@/lib/currentUserContext";
+import { hasPermission } from "@/lib/permissions";
 import type { TaxPeriod, TaxPeriodType } from "@/lib/types/declaration";
 
 const PERIOD_TYPE_OPTIONS = [
@@ -17,6 +19,8 @@ const PERIOD_TYPE_OPTIONS = [
 ];
 
 export default function TaxPeriodsPage() {
+  const { user } = useCurrentUser();
+  const canManage = hasPermission(user, "tax_period:manage");
   const [periods, setPeriods] = useState<TaxPeriod[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -81,47 +85,49 @@ export default function TaxPeriodsPage() {
     <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
       <h1 style={{ fontSize: "1.4rem" }}>Periodos tributarios</h1>
 
-      <form
-        onSubmit={handleCreate}
-        style={{ display: "flex", gap: "0.75rem", alignItems: "flex-end", flexWrap: "wrap" }}
-      >
-        <Select
-          label="Tipo"
-          options={PERIOD_TYPE_OPTIONS}
-          value={periodType}
-          onChange={(e) => setPeriodType(e.target.value as TaxPeriodType)}
-        />
-        <Input
-          label="Año fiscal"
-          type="number"
-          value={fiscalYear}
-          onChange={(e) => setFiscalYear(Number(e.target.value))}
-        />
-        {periodType === "MONTHLY" && (
-          <Input
-            label="Mes"
-            type="number"
-            min={1}
-            max={12}
-            value={month}
-            onChange={(e) => setMonth(Number(e.target.value))}
+      {canManage && (
+        <form
+          onSubmit={handleCreate}
+          style={{ display: "flex", gap: "0.75rem", alignItems: "flex-end", flexWrap: "wrap" }}
+        >
+          <Select
+            label="Tipo"
+            options={PERIOD_TYPE_OPTIONS}
+            value={periodType}
+            onChange={(e) => setPeriodType(e.target.value as TaxPeriodType)}
           />
-        )}
-        {periodType === "SPECIAL" && (
-          <>
+          <Input
+            label="Año fiscal"
+            type="number"
+            value={fiscalYear}
+            onChange={(e) => setFiscalYear(Number(e.target.value))}
+          />
+          {periodType === "MONTHLY" && (
             <Input
-              label="Código canónico"
-              value={canonicalCode}
-              onChange={(e) => setCanonicalCode(e.target.value)}
-              required
+              label="Mes"
+              type="number"
+              min={1}
+              max={12}
+              value={month}
+              onChange={(e) => setMonth(Number(e.target.value))}
             />
-            <Input label="Inicio" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} required />
-            <Input label="Fin" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} required />
-          </>
-        )}
-        <Input label="Nombre (opcional)" value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
-        <Button type="submit">Crear periodo</Button>
-      </form>
+          )}
+          {periodType === "SPECIAL" && (
+            <>
+              <Input
+                label="Código canónico"
+                value={canonicalCode}
+                onChange={(e) => setCanonicalCode(e.target.value)}
+                required
+              />
+              <Input label="Inicio" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} required />
+              <Input label="Fin" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} required />
+            </>
+          )}
+          <Input label="Nombre (opcional)" value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
+          <Button type="submit">Crear periodo</Button>
+        </form>
+      )}
 
       {error && <p style={{ color: "var(--danger)" }}>{error}</p>}
 
@@ -138,20 +144,24 @@ export default function TaxPeriodsPage() {
               header: "Estado",
               render: (p: TaxPeriod) => (p.is_open ? "Abierto" : "Cerrado"),
             },
-            {
-              key: "actions",
-              header: "",
-              render: (p: TaxPeriod) =>
-                p.is_open ? (
-                  <Button type="button" variant="secondary" onClick={() => handleClose(p)}>
-                    Cerrar
-                  </Button>
-                ) : (
-                  <Button type="button" variant="secondary" onClick={() => handleReopen(p)}>
-                    Reabrir
-                  </Button>
-                ),
-            },
+            ...(canManage
+              ? [
+                  {
+                    key: "actions",
+                    header: "",
+                    render: (p: TaxPeriod) =>
+                      p.is_open ? (
+                        <Button type="button" variant="secondary" onClick={() => handleClose(p)}>
+                          Cerrar
+                        </Button>
+                      ) : (
+                        <Button type="button" variant="secondary" onClick={() => handleReopen(p)}>
+                          Reabrir
+                        </Button>
+                      ),
+                  },
+                ]
+              : []),
           ]}
           rows={periods}
           rowKey={(p) => p.id}

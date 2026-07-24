@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.core import clock
-from app.core.dependencies import get_current_user
+from app.core.permissions import Permission, require_permission
 from app.db.session import get_db
 from app.models.user import User
 from app.repositories import declaration_repository
@@ -28,7 +28,7 @@ def monthly_dashboard(
     limit: int = 50,
     offset: int = 0,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.DASHBOARD_READ)),
 ) -> DashboardOut:
     """Tablero mensual completo (ver "Tablero mensual completo -- sin
     duplicacion de filas" del plan): sigue devolviendo exactamente una fila

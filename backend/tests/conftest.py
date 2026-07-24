@@ -104,6 +104,63 @@ def auth_client(client, admin_user):
 
 
 @pytest.fixture()
+def contador_user(db_session, tenant):
+    user = User(
+        tenant_id=tenant.id,
+        email="contador@luisiacontable-tests.dev",
+        full_name="Contador de prueba",
+        password_hash=hash_password("TestPassword123!"),
+        role="contador",
+        is_active=True,
+    )
+    db_session.add(user)
+    db_session.flush()
+    return user
+
+
+@pytest.fixture()
+def asistente_user(db_session, tenant):
+    user = User(
+        tenant_id=tenant.id,
+        email="asistente@luisiacontable-tests.dev",
+        full_name="Asistente de prueba",
+        password_hash=hash_password("TestPassword123!"),
+        role="asistente",
+        is_active=True,
+    )
+    db_session.add(user)
+    db_session.flush()
+    return user
+
+
+def _login_new_client(user) -> TestClient:
+    """Crea un TestClient independiente (misma app, mismo dependency_override
+    de get_db activo durante el test) e inicia sesion como `user` -- a
+    diferencia de `auth_client`, no comparte cookies con el `client` de la
+    fixture (necesario para tener 2-3 sesiones autenticadas simultaneas en
+    la misma prueba, ver Seccion 7/matriz 200-403 del plan de Bloque 4)."""
+    dedicated_client = TestClient(app)
+    response = dedicated_client.post(
+        "/api/v1/auth/login", json={"email": user.email, "password": "TestPassword123!"}
+    )
+    assert response.status_code == 200
+    csrf_token = response.cookies.get("csrf_token")
+    assert csrf_token, "El login deberia establecer la cookie csrf_token"
+    dedicated_client.headers.update({"X-CSRF-Token": csrf_token})
+    return dedicated_client
+
+
+@pytest.fixture()
+def contador_client(client, contador_user):
+    return _login_new_client(contador_user)
+
+
+@pytest.fixture()
+def asistente_client(client, asistente_user):
+    return _login_new_client(asistente_user)
+
+
+@pytest.fixture()
 def scratch_database():
     """Base de datos Postgres nueva y desechable, para pruebas que ejercitan
     Alembic directamente (ver tests/integration/test_migrations.py y

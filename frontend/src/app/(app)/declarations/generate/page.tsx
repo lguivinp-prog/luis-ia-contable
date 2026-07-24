@@ -7,6 +7,8 @@ import { Select } from "@/components/ui/Select";
 import { Table } from "@/components/ui/Table";
 import { GENERATION_RUN_STATUS_SEMAPHORE, StatusSemaphore } from "@/components/ui/StatusSemaphore";
 import { apiClient, ApiError } from "@/lib/apiClient";
+import { useCurrentUser } from "@/lib/currentUserContext";
+import { hasPermission } from "@/lib/permissions";
 import type { DeclarationGenerationRun, DeclarationGenerationRunItem, TaxPeriod } from "@/lib/types/declaration";
 
 const CLASSIFICATION_LABEL: Record<string, string> = {
@@ -21,6 +23,7 @@ const CLASSIFICATION_LABEL: Record<string, string> = {
 };
 
 export default function GenerateDeclarationsPage() {
+  const { user } = useCurrentUser();
   const [periods, setPeriods] = useState<TaxPeriod[]>([]);
   const [selectedPeriodId, setSelectedPeriodId] = useState("");
   const [run, setRun] = useState<DeclarationGenerationRun | null>(null);
@@ -98,6 +101,15 @@ export default function GenerateDeclarationsPage() {
     } finally {
       setBusy(false);
     }
+  }
+
+  if (!hasPermission(user, "declaration:write")) {
+    return (
+      <div style={{ maxWidth: "480px" }}>
+        <h1 style={{ fontSize: "1.4rem", marginBottom: "1rem" }}>Generación masiva de declaraciones</h1>
+        <p style={{ color: "var(--muted)" }}>No tienes permiso para generar declaraciones.</p>
+      </div>
+    );
   }
 
   return (

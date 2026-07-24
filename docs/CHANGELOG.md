@@ -27,6 +27,27 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 - ADRs 0016–0032.
 - Backend: cobertura de pruebas mantenida ≥ 84 % (311+ pruebas), incluida una prueba de concurrencia con dos conexiones reales y una prueba de rollback atómico forzado.
 
+### Fase 1, Bloque 4 — RBAC real y gestión de usuarios
+
+- **Catálogo de permisos**: `Permission` (30 valores) + `ROLE_PERMISSIONS` declarativo (`admin`=30,
+  `contador`=27, `asistente`=13), fallo cerrado ante rol/permiso desconocido; separación
+  `document:item_write` (operar ítems, incluido asistente) vs. `document:manage` (configuración documental,
+  solo admin/contador) (ADR-0050).
+- **Gestión de usuarios**: alta con contraseña temporal obligatoria, cambio de rol, desactivación/reactivación
+  con motivo y revocación de sesiones, restablecimiento administrativo de contraseña — 6 endpoints
+  (`/api/v1/users/*`), protección concurrente real del último admin activo por tenant vía
+  `SELECT ... FOR UPDATE` sin deadlock, migración `0012_users_role_management` con preflight de 3
+  verificaciones antes de cualquier DDL (ADR-0051).
+- **Aplicación de permisos**: `require_permission` sustituye a `ensure_admin_role` (eliminada) en los 15
+  routers existentes; cobertura estructural verificada por prueba dedicada (allowlist cerrada, nunca por
+  prefijo) y matriz funcional 200/403 de los 30 permisos (ADR-0052).
+- **Frontend**: `CurrentUserProvider`/`useCurrentUser` como fuente única de permisos (`GET /auth/me`),
+  pantalla `/users` de administración, pantalla obligatoria de cambio de contraseña, gateo completo de los 16
+  componentes/páginas mutantes existentes (ocultar o deshabilitar, nunca solo por color).
+- ADRs 0050–0052.
+- Backend: 397 pruebas (87 % cobertura), incluidas 2 pruebas de concurrencia real del último admin y una
+  matriz 200/403 de 30 casos.
+
 ## [0.2.0] - 2026-07-22 - Fase 1 bloque 2
 
 ### Añadido

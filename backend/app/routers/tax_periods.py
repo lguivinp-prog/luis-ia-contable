@@ -3,7 +3,8 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import get_client_ip, get_current_user, verify_csrf
+from app.core.dependencies import get_client_ip, verify_csrf
+from app.core.permissions import Permission, require_permission
 from app.db.session import get_db
 from app.models.audit_log import AuditAction
 from app.models.user import User
@@ -28,7 +29,8 @@ router = APIRouter(prefix="/api/v1/tax-periods", tags=["tax-periods"])
 
 @router.get("", response_model=list[TaxPeriodOut])
 def list_periods(
-    db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(Permission.TAX_PERIOD_READ)),
 ) -> list[TaxPeriodOut]:
     return tax_period_service.list_periods(db, current_user.tenant_id)
 
@@ -38,7 +40,7 @@ def create_period(
     payload: TaxPeriodCreate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.TAX_PERIOD_MANAGE)),
     _csrf: None = Depends(verify_csrf),
 ) -> TaxPeriodOut:
     try:
@@ -80,7 +82,7 @@ def create_period(
 def get_period(
     period_id: uuid.UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.TAX_PERIOD_READ)),
 ) -> TaxPeriodOut:
     try:
         return tax_period_service.get_period(db, current_user.tenant_id, period_id)
@@ -94,7 +96,7 @@ def close_period(
     payload: TaxPeriodCloseRequest,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.TAX_PERIOD_MANAGE)),
     _csrf: None = Depends(verify_csrf),
 ) -> TaxPeriodOut:
     try:
@@ -125,7 +127,7 @@ def reopen_period(
     payload: TaxPeriodReopenRequest,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.TAX_PERIOD_MANAGE)),
     _csrf: None = Depends(verify_csrf),
 ) -> TaxPeriodOut:
     try:
@@ -157,7 +159,7 @@ def reopen_period(
 def get_status_history(
     period_id: uuid.UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.TAX_PERIOD_READ)),
 ) -> list[TaxPeriodStatusHistoryOut]:
     tax_period_service.get_period(db, current_user.tenant_id, period_id)
     return tax_period_service.list_status_history(db, current_user.tenant_id, period_id)

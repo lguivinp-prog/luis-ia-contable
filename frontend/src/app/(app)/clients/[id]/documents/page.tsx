@@ -9,6 +9,8 @@ import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { Table } from "@/components/ui/Table";
 import { apiClient, ApiError } from "@/lib/apiClient";
+import { useCurrentUser } from "@/lib/currentUserContext";
+import { hasPermission } from "@/lib/permissions";
 import type { ClientObligation, ObligationCatalogItem } from "@/lib/types/obligation";
 import type {
   ClientDocumentRequirement,
@@ -51,6 +53,8 @@ function emptyRequirementForm(): RequirementFormState {
 export default function ClientDocumentsPage() {
   const params = useParams<{ id: string }>();
   const clientId = params.id;
+  const { user } = useCurrentUser();
+  const canManage = hasPermission(user, "document:manage");
 
   const [catalog, setCatalog] = useState<DocumentRequirementCatalog[]>([]);
   const [requirements, setRequirements] = useState<ClientDocumentRequirement[]>([]);
@@ -159,6 +163,8 @@ export default function ClientDocumentsPage() {
         <p>Cargando…</p>
       ) : (
         <>
+          {canManage && (
+          <>
           <section className="surface-card" style={{ padding: "1.25rem" }}>
             <h2 style={{ fontSize: "1.05rem", marginBottom: "0.75rem" }}>Nuevo requisito de catálogo</h2>
             <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "flex-end" }}>
@@ -260,6 +266,8 @@ export default function ClientDocumentsPage() {
               </Button>
             </div>
           </section>
+          </>
+          )}
 
           <Table
             rows={requirements}

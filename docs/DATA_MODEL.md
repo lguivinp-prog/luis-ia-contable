@@ -26,10 +26,19 @@
 | email | VARCHAR(255) UNIQUE NOT NULL | |
 | full_name | VARCHAR(200) NOT NULL | |
 | password_hash | VARCHAR(255) NOT NULL | Argon2id encoded string |
-| role | VARCHAR(30) NOT NULL DEFAULT 'admin' | preparado para roles futuros |
+| role | VARCHAR(30) NOT NULL DEFAULT 'admin' | `CHECK ck_users_role IN ('admin','contador','asistente')` (migración 0012, ADR-0050) |
 | is_active | BOOLEAN NOT NULL DEFAULT true | |
+| must_change_password | BOOLEAN NOT NULL DEFAULT false | migración 0012; `true` tras alta o reset administrativo de contraseña (ADR-0051) |
+| deactivated_at | TIMESTAMPTZ NULL | migración 0012 |
+| deactivated_by | UUID FK users NULL | migración 0012, FK compuesta `(deactivated_by, tenant_id)` |
+| deactivation_reason | TEXT NULL | migración 0012 |
 | last_login_at | TIMESTAMPTZ NULL | |
 | created_at, updated_at | TIMESTAMPTZ | |
+
+`CHECK ck_users_deactivation_coherence`: las 3 columnas de desactivación son todas `NULL` cuando
+`is_active=true` y todas `NOT NULL` cuando `is_active=false` (migración 0012, ADR-0051). Ver ADR-0050 para el
+catálogo de 30 permisos por rol (`Permission`/`ROLE_PERMISSIONS`, sin tabla relacional propia) y ADR-0052
+para cómo se aplican en los routers.
 
 ### `sessions`
 | Columna | Tipo | Notas |
@@ -59,7 +68,7 @@
 | user_agent | VARCHAR(255) NULL | |
 | created_at | TIMESTAMPTZ NOT NULL | |
 
-Acciones auditadas: `LOGIN_SUCCESS`, `LOGOUT`, `PASSWORD_CHANGED`, `SESSION_REVOKED`, `SESSION_REVOKED_ALL_OTHERS`, `CLIENT_CREATE`, `CLIENT_UPDATE`, `CLIENT_STATUS_CHANGE`, `CLIENT_OBLIGATION_ASSIGN`, `CLIENT_OBLIGATION_UPDATE`, `CLIENT_OBLIGATION_REMOVE`, `RUC_LOOKUP_QUERY`, `TAX_CATEGORY_ASSIGN`, `TAX_CATEGORY_REMOVE`, `TAX_SCHEDULE_SOURCE_CREATE`, `TAX_SCHEDULE_IMPORT_RUN_CREATE`, `TAX_SCHEDULE_IMPORT_CONFIRM`, `TAX_SCHEDULE_IMPORT_REJECT`, `TAX_SCHEDULE_SUBMIT_FOR_REVIEW`, `TAX_SCHEDULE_APPROVE`, `TAX_SCHEDULE_REJECT`, `TAX_SCHEDULE_CANCEL`, `TAX_SCHEDULE_PREVIEW_QUERY`, `TAX_PERIOD_CREATE`, `TAX_PERIOD_CLOSE`, `TAX_PERIOD_REOPEN`, `DECLARATION_CREATE`, `DECLARATION_WORKFLOW_CHANGE`, `DECLARATION_ASSIGN`, `DECLARATION_FILE`, `DECLARATION_FILING_CORRECT`, `DECLARATION_RECALCULATE`, `DECLARATION_REOPEN`, `DECLARATION_CLOSE`, `DECLARATION_CANCEL`, `DECLARATION_GENERATION_PREVIEW`, `DECLARATION_GENERATION_ITEM_EXCLUDE`, `DECLARATION_GENERATION_CONFIRM`, `DECLARATION_GENERATION_REFRESH_PREVIEW`, `DECLARATION_GENERATION_CANCEL` (Bloque 3.1), y desde Bloque 3.2: `DOCUMENT_CATALOG_CREATE`, `DOCUMENT_REQUIREMENT_ASSIGN`, `DOCUMENT_ITEM_STATUS_CHANGE`, `DOCUMENT_REQUIREMENTS_SYNC`, `TAX_ASSESSMENT_CREATE`, `TAX_ASSESSMENT_CORRECT`, `TAX_PAYMENT_CREATE`, `TAX_PAYMENT_VOID`, `TAX_PAYMENT_OVERPAYMENT_CONFIRM`, `FEE_AGREEMENT_CREATE`, `FEE_AGREEMENT_SUPERSEDE`, `FEE_AGREEMENT_CANCEL`, `FEE_CHARGE_CREATE`, `FEE_PAYMENT_CREATE`, `FEE_PAYMENT_VOID`, `FEE_RECEIPT_ISSUE`, `FEE_RECEIPT_VOID`, `DECLARATION_CLOSE_WITH_OVERRIDE`, `REPORT_EXPORT`.
+Acciones auditadas: `LOGIN_SUCCESS`, `LOGOUT`, `PASSWORD_CHANGED`, `SESSION_REVOKED`, `SESSION_REVOKED_ALL_OTHERS`, `CLIENT_CREATE`, `CLIENT_UPDATE`, `CLIENT_STATUS_CHANGE`, `CLIENT_OBLIGATION_ASSIGN`, `CLIENT_OBLIGATION_UPDATE`, `CLIENT_OBLIGATION_REMOVE`, `RUC_LOOKUP_QUERY`, `TAX_CATEGORY_ASSIGN`, `TAX_CATEGORY_REMOVE`, `TAX_SCHEDULE_SOURCE_CREATE`, `TAX_SCHEDULE_IMPORT_RUN_CREATE`, `TAX_SCHEDULE_IMPORT_CONFIRM`, `TAX_SCHEDULE_IMPORT_REJECT`, `TAX_SCHEDULE_SUBMIT_FOR_REVIEW`, `TAX_SCHEDULE_APPROVE`, `TAX_SCHEDULE_REJECT`, `TAX_SCHEDULE_CANCEL`, `TAX_SCHEDULE_PREVIEW_QUERY`, `TAX_PERIOD_CREATE`, `TAX_PERIOD_CLOSE`, `TAX_PERIOD_REOPEN`, `DECLARATION_CREATE`, `DECLARATION_WORKFLOW_CHANGE`, `DECLARATION_ASSIGN`, `DECLARATION_FILE`, `DECLARATION_FILING_CORRECT`, `DECLARATION_RECALCULATE`, `DECLARATION_REOPEN`, `DECLARATION_CLOSE`, `DECLARATION_CANCEL`, `DECLARATION_GENERATION_PREVIEW`, `DECLARATION_GENERATION_ITEM_EXCLUDE`, `DECLARATION_GENERATION_CONFIRM`, `DECLARATION_GENERATION_REFRESH_PREVIEW`, `DECLARATION_GENERATION_CANCEL` (Bloque 3.1), y desde Bloque 3.2: `DOCUMENT_CATALOG_CREATE`, `DOCUMENT_REQUIREMENT_ASSIGN`, `DOCUMENT_ITEM_STATUS_CHANGE`, `DOCUMENT_REQUIREMENTS_SYNC`, `TAX_ASSESSMENT_CREATE`, `TAX_ASSESSMENT_CORRECT`, `TAX_PAYMENT_CREATE`, `TAX_PAYMENT_VOID`, `TAX_PAYMENT_OVERPAYMENT_CONFIRM`, `FEE_AGREEMENT_CREATE`, `FEE_AGREEMENT_SUPERSEDE`, `FEE_AGREEMENT_CANCEL`, `FEE_CHARGE_CREATE`, `FEE_PAYMENT_CREATE`, `FEE_PAYMENT_VOID`, `FEE_RECEIPT_ISSUE`, `FEE_RECEIPT_VOID`, `DECLARATION_CLOSE_WITH_OVERRIDE`, `REPORT_EXPORT`, y desde Bloque 4: `USER_CREATE`, `USER_ROLE_CHANGE`, `USER_DEACTIVATE`, `USER_REACTIVATE`, `USER_PASSWORD_RESET` (nunca registran contraseña ni hash — solo `reason`/`from_role`/`to_role` en `metadata`, ver ADR-0051).
 
 **Nota importante (ver ADR-0009):** ningún fallo de login (exista o no la cuenta) escribe en `audit_logs` — esa información vive exclusivamente en `login_attempts` y `security_events`, para no filtrar por auditoría lo que la mitigación de enumeración por tiempo oculta en la respuesta HTTP.
 
@@ -326,6 +335,14 @@ Ejecución masiva de generación por periodo: `status` (`PENDING`/`PREVIEWED`/`S
 
 **`professional_receipts`**: `charge_id`, `issued_by` (FK compuesta hacia `users`), `receipt_type`/`number` (`UNIQUE(tenant_id, receipt_type, number)`), `status` (`ISSUED`/`VOIDED`) con `CHECK` de coherencia; la suma de recibos `ISSUED` de un cargo nunca puede exceder su `amount` (ADR-0046, validado en servicio).
 
+## Bloque 4 — RBAC real y gestión de usuarios (migración 0012)
+
+Sin tablas nuevas: la migración 0012 solo extiende `users` (columnas y constraints listadas en la sección
+`users` más arriba) tras un preflight de 3 verificaciones que se ejecuta antes de cualquier `ALTER TABLE`
+(roles desconocidos; usuarios inactivos heredados sin metadatos de desactivación; todo tenant con al menos un
+admin activo, verificado con `NOT EXISTS` partiendo de `tenants`). Ver ADR-0050 (catálogo de permisos) y
+ADR-0051 (ciclo de vida de usuarios, protección concurrente del último admin) para el detalle completo.
+
 ## Diagrama de relaciones (esta entrega)
 
 ```
@@ -360,6 +377,6 @@ professional_fee_charges 1──n professional_receipts
 
 ## Entidades planificadas para fases futuras (no implementadas aún)
 
-`client_contacts`, `client_tax_profiles`, `client_credentials` (bóveda real), `client_settings`, `communications`, `communication_templates`, `notifications`, `notification_deadlines`, `cases`, `tasks`, `calendar_events`, `drive_folders`, `email_messages`, `integration_accounts`, `integration_sync_runs`, `automation_jobs`, `backup_runs`, `ai_prompt_templates`, `ai_analysis_results`, `system_settings`, `roles`, `user_roles` (RBAC real — ver deuda técnica).
+`client_contacts`, `client_tax_profiles`, `client_credentials` (bóveda real), `client_settings`, `communications`, `communication_templates`, `notifications`, `notification_deadlines`, `cases`, `tasks`, `calendar_events`, `drive_folders`, `email_messages`, `integration_accounts`, `integration_sync_runs`, `automation_jobs`, `backup_runs`, `ai_prompt_templates`, `ai_analysis_results`, `system_settings`. RBAC (roles/permisos por rol fijo) ya está implementado desde Bloque 4 sin tablas relacionales propias (`Permission`/`ROLE_PERMISSIONS` declarativos, ver ADR-0050); `roles`/`user_roles` solo se revisitarían si en el futuro se necesitan roles personalizados configurables por tenant (Fase 6, comercialización multi-despacho).
 
 Estas tablas se diseñarán en detalle y se migrarán en los bloques de Fase 1 posteriores y en las Fases 2–6, siguiendo las mismas convenciones (`tenant_id`, sin `float` para montos, timestamps con zona horaria, historial de estados donde aplique).

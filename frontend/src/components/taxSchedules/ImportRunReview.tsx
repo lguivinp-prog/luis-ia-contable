@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Table } from "@/components/ui/Table";
 import { apiClient } from "@/lib/apiClient";
+import { useCurrentUser } from "@/lib/currentUserContext";
+import { hasPermission } from "@/lib/permissions";
 import type { ImportRun, TaxScheduleVersion } from "@/lib/types/taxSchedule";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -24,7 +26,8 @@ export function ImportRunReview({ importRun }: { importRun: ImportRun }) {
   const [error, setError] = useState<string | null>(null);
 
   const hasErrors = !!importRun.validation_errors && importRun.validation_errors.length > 0;
-  const canConfirm = importRun.status === "VALIDATED";
+  const { user } = useCurrentUser();
+  const canConfirm = importRun.status === "VALIDATED" && hasPermission(user, "tax_schedule:manage");
 
   async function handleConfirm() {
     if (!versionLabel.trim()) return;

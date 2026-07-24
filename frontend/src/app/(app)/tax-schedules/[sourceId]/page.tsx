@@ -7,11 +7,15 @@ import { useCallback, useEffect, useState } from "react";
 import { ImportCsvForm } from "@/components/taxSchedules/ImportCsvForm";
 import { VersionsTable } from "@/components/taxSchedules/VersionsTable";
 import { apiClient } from "@/lib/apiClient";
+import { useCurrentUser } from "@/lib/currentUserContext";
+import { hasPermission } from "@/lib/permissions";
 import type { TaxScheduleSource, TaxScheduleVersion } from "@/lib/types/taxSchedule";
 
 export default function TaxScheduleSourcePage() {
   const params = useParams<{ sourceId: string }>();
   const sourceId = params.sourceId;
+  const { user } = useCurrentUser();
+  const canManage = hasPermission(user, "tax_schedule:manage");
 
   const [source, setSource] = useState<TaxScheduleSource | null>(null);
   const [versions, setVersions] = useState<TaxScheduleVersion[]>([]);
@@ -47,7 +51,7 @@ export default function TaxScheduleSourcePage() {
       </div>
 
       <VersionsTable versions={versions} />
-      <ImportCsvForm sourceId={sourceId} />
+      {canManage && <ImportCsvForm sourceId={sourceId} />}
     </div>
   );
 }

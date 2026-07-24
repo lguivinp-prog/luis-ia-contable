@@ -3,7 +3,8 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import get_client_ip, get_current_user, get_ruc_lookup_provider, verify_csrf
+from app.core.dependencies import get_client_ip, get_ruc_lookup_provider, verify_csrf
+from app.core.permissions import Permission, require_permission
 from app.db.session import get_db
 from app.domain.ruc_lookup.provider import RucLookupProvider
 from app.models.user import User
@@ -30,7 +31,7 @@ def list_clients(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.CLIENT_READ)),
 ) -> dict:
     items, total = client_service.list_clients(
         db,
@@ -50,7 +51,7 @@ def create_client(
     payload: ClientCreate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.CLIENT_WRITE)),
     _csrf: None = Depends(verify_csrf),
 ) -> ClientOut:
     try:
@@ -75,7 +76,7 @@ def create_client(
 
 @router.get("/validate-ruc/{ruc}")
 def validate_ruc_format(
-    ruc: str, current_user: User = Depends(get_current_user)
+    ruc: str, current_user: User = Depends(require_permission(Permission.CLIENT_READ))
 ) -> dict:
     return {"ruc": ruc, "is_valid": is_valid_ruc(ruc)}
 
@@ -85,7 +86,7 @@ def ruc_lookup(
     ruc: str,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.CLIENT_READ)),
     provider: RucLookupProvider = Depends(get_ruc_lookup_provider),
 ) -> RucLookupOut:
     try:
@@ -112,7 +113,7 @@ def ruc_lookup(
 def get_client(
     client_id: uuid.UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.CLIENT_READ)),
 ) -> ClientOut:
     try:
         client = client_service.get_client(db, current_user.tenant_id, client_id)
@@ -127,7 +128,7 @@ def update_client(
     payload: ClientUpdate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.CLIENT_WRITE)),
     _csrf: None = Depends(verify_csrf),
 ) -> ClientOut:
     try:
@@ -160,7 +161,7 @@ def change_client_status(
     payload: ClientStatusUpdate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.CLIENT_WRITE)),
     _csrf: None = Depends(verify_csrf),
 ) -> ClientOut:
     try:

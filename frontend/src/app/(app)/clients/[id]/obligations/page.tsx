@@ -7,11 +7,15 @@ import { useCallback, useEffect, useState } from "react";
 import { ClientObligationsList } from "@/components/obligations/ClientObligationsList";
 import { ObligationCatalogPicker } from "@/components/obligations/ObligationCatalogPicker";
 import { apiClient } from "@/lib/apiClient";
+import { useCurrentUser } from "@/lib/currentUserContext";
+import { hasPermission } from "@/lib/permissions";
 import type { ClientObligation, ObligationCatalogItem } from "@/lib/types/obligation";
 
 export default function ClientObligationsPage() {
   const params = useParams<{ id: string }>();
   const clientId = params.id;
+  const { user } = useCurrentUser();
+  const canWrite = hasPermission(user, "obligation:write");
 
   const [catalog, setCatalog] = useState<ObligationCatalogItem[]>([]);
   const [assigned, setAssigned] = useState<ClientObligation[]>([]);
@@ -74,11 +78,14 @@ export default function ClientObligationsPage() {
         <p>Cargando…</p>
       ) : (
         <>
-          <ObligationCatalogPicker availableObligations={availableObligations} onAssign={handleAssign} />
+          {canWrite && (
+            <ObligationCatalogPicker availableObligations={availableObligations} onAssign={handleAssign} />
+          )}
           <ClientObligationsList
             obligations={assignedWithCatalog}
             onToggleActive={handleToggleActive}
             onRemove={handleRemove}
+            canWrite={canWrite}
           />
         </>
       )}

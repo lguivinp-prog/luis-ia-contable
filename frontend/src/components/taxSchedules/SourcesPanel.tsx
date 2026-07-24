@@ -14,9 +14,10 @@ interface SourcesPanelProps {
   sources: TaxScheduleSource[];
   obligations: ObligationCatalogItem[];
   onCreate: (obligationId: string, name: string, description: string | null, referenceUrl: string | null) => Promise<void>;
+  canManage: boolean;
 }
 
-export function SourcesPanel({ sources, obligations, onCreate }: SourcesPanelProps) {
+export function SourcesPanel({ sources, obligations, onCreate, canManage }: SourcesPanelProps) {
   const [obligationId, setObligationId] = useState("");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -65,27 +66,29 @@ export function SourcesPanel({ sources, obligations, onCreate }: SourcesPanelPro
         ]}
       />
 
-      <div style={{ display: "flex", gap: "0.75rem", alignItems: "flex-end", flexWrap: "wrap" }}>
-        <Select
-          label="Obligación asociada"
-          name="obligation_id"
-          placeholder="Selecciona una obligación"
-          options={obligations.map((o) => ({ value: o.id, label: `${o.code} — ${o.name}` }))}
-          value={obligationId}
-          onChange={(e) => setObligationId(e.target.value)}
-        />
-        <Input label="Nombre de la fuente" name="name" value={name} onChange={(e) => setName(e.target.value)} />
-        <Input label="Descripción" name="description" value={description} onChange={(e) => setDescription(e.target.value)} />
-        <Input
-          label="URL de referencia"
-          name="reference_url"
-          value={referenceUrl}
-          onChange={(e) => setReferenceUrl(e.target.value)}
-        />
-        <Button type="button" disabled={!obligationId || !name.trim() || submitting} onClick={handleSubmit}>
-          {submitting ? "Creando…" : "Crear fuente"}
-        </Button>
-      </div>
+      {canManage && (
+        <div style={{ display: "flex", gap: "0.75rem", alignItems: "flex-end", flexWrap: "wrap" }}>
+          <Select
+            label="Obligación asociada"
+            name="obligation_id"
+            placeholder="Selecciona una obligación"
+            options={obligations.map((o) => ({ value: o.id, label: `${o.code} — ${o.name}` }))}
+            value={obligationId}
+            onChange={(e) => setObligationId(e.target.value)}
+          />
+          <Input label="Nombre de la fuente" name="name" value={name} onChange={(e) => setName(e.target.value)} />
+          <Input label="Descripción" name="description" value={description} onChange={(e) => setDescription(e.target.value)} />
+          <Input
+            label="URL de referencia"
+            name="reference_url"
+            value={referenceUrl}
+            onChange={(e) => setReferenceUrl(e.target.value)}
+          />
+          <Button type="button" disabled={!obligationId || !name.trim() || submitting} onClick={handleSubmit}>
+            {submitting ? "Creando…" : "Crear fuente"}
+          </Button>
+        </div>
+      )}
     </section>
   );
 }

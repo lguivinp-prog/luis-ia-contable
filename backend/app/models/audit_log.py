@@ -77,6 +77,12 @@ class AuditAction(str, enum.Enum):
     # ---- Bloque 3.2: cierre completo y reportes ----
     DECLARATION_CLOSE_WITH_OVERRIDE = "DECLARATION_CLOSE_WITH_OVERRIDE"
     REPORT_EXPORT = "REPORT_EXPORT"
+    # ---- Bloque 4: RBAC real y gestion de usuarios ----
+    USER_CREATE = "USER_CREATE"
+    USER_ROLE_CHANGE = "USER_ROLE_CHANGE"
+    USER_DEACTIVATE = "USER_DEACTIVATE"
+    USER_REACTIVATE = "USER_REACTIVATE"
+    USER_PASSWORD_RESET = "USER_PASSWORD_RESET"
 
 
 class AuditLog(Base, UUIDPrimaryKeyMixin):

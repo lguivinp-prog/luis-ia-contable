@@ -183,7 +183,7 @@ def test_force_close_router_requires_admin_role(auth_client, db_session, tenant,
         email="staff@luisiacontable-tests.dev",
         full_name="Staff sin rol admin",
         password_hash=hash_password("TestPassword123!"),
-        role="staff",
+        role="contador",
         is_active=True,
     )
     db_session.add(non_admin)

@@ -3,7 +3,8 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import get_client_ip, get_current_user, verify_csrf
+from app.core.dependencies import get_client_ip, verify_csrf
+from app.core.permissions import Permission, require_permission
 from app.db.session import get_db
 from app.models.audit_log import AuditAction
 from app.models.user import User
@@ -42,7 +43,8 @@ router = APIRouter(prefix="/api/v1", tags=["declaration-documents"])
 
 @router.get("/document-requirement-catalog", response_model=list[DocumentRequirementCatalogOut])
 def list_catalog(
-    db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(Permission.DOCUMENT_READ)),
 ) -> list[DocumentRequirementCatalogOut]:
     return document_requirement_catalog_service.list_visible_catalog(db, current_user.tenant_id)
 
@@ -56,7 +58,7 @@ def create_catalog_entry(
     payload: DocumentRequirementCatalogCreate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.DOCUMENT_MANAGE)),
     _csrf: None = Depends(verify_csrf),
 ) -> DocumentRequirementCatalogOut:
     entry = document_requirement_catalog_service.create_custom_catalog_entry(
@@ -92,7 +94,7 @@ def create_catalog_entry(
 def list_client_requirements(
     client_id: uuid.UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.DOCUMENT_READ)),
 ) -> list[ClientDocumentRequirementOut]:
     try:
         get_client(db, current_user.tenant_id, client_id)
@@ -111,7 +113,7 @@ def assign_requirement(
     payload: ClientDocumentRequirementCreate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.DOCUMENT_MANAGE)),
     _csrf: None = Depends(verify_csrf),
 ) -> ClientDocumentRequirementOut:
     try:
@@ -163,7 +165,7 @@ def assign_requirement(
 def list_declaration_documents(
     declaration_id: uuid.UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.DOCUMENT_READ)),
 ) -> list[DeclarationDocumentItemOut]:
     try:
         declaration_service.get_declaration(db, current_user.tenant_id, declaration_id)
@@ -182,7 +184,7 @@ def change_document_status(
     payload: DocumentItemStatusChangeRequest,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.DOCUMENT_ITEM_WRITE)),
     _csrf: None = Depends(verify_csrf),
 ) -> DeclarationDocumentItemOut:
     try:
@@ -227,7 +229,7 @@ def sync_requirements(
     declaration_id: uuid.UUID,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.DOCUMENT_MANAGE)),
     _csrf: None = Depends(verify_csrf),
 ) -> SyncRequirementsResult:
     try:
@@ -270,7 +272,7 @@ def sync_requirements_for_period(
     tax_period_id: uuid.UUID,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.DOCUMENT_MANAGE)),
     _csrf: None = Depends(verify_csrf),
 ) -> dict:
     """Accion administrativa masiva (ver "Sincronizacion documental"): itera

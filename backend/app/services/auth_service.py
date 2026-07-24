@@ -143,6 +143,15 @@ def revoke_all_sessions_except(db: DbSession, user_id, keep_session_id) -> int:
     return count
 
 
+def revoke_all_sessions(db: DbSession, user_id) -> int:
+    """Revoca todas las sesiones activas de `user_id`, sin excepcion -- usado
+    al desactivar un usuario o al resetear su contrasena administrativamente
+    (ver ADR-0051), a diferencia de `revoke_all_sessions_except` que preserva
+    la sesion actual del propio usuario que ejecuta la accion."""
+    now = clock.utcnow()
+    return session_repository.revoke_all_for_user(db, user_id, now)
+
+
 def list_active_sessions(db: DbSession, user_id) -> list[SessionModel]:
     return session_repository.list_active_for_user(db, user_id, clock.utcnow())
 
@@ -166,6 +175,7 @@ def change_password(
         )
 
     user.password_hash = hash_password(new_password)
+    user.must_change_password = False
     now = clock.utcnow()
     revoked_count = session_repository.revoke_all_for_user(db, user.id, now)
     security_event_service.record(

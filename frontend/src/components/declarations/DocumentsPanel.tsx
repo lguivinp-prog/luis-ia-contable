@@ -31,6 +31,8 @@ interface DocumentsPanelProps {
   requirements: ClientDocumentRequirement[];
   catalog: DocumentRequirementCatalog[];
   periodIsOpen: boolean;
+  canManage: boolean;
+  canWriteItems: boolean;
   onSync: () => Promise<SyncRequirementsResult>;
   onChangeStatus: (itemId: string, target: DocumentItemStatus, reason: string | null) => Promise<void>;
 }
@@ -41,6 +43,8 @@ export function DocumentsPanel({
   requirements,
   catalog,
   periodIsOpen,
+  canManage,
+  canWriteItems,
   onSync,
   onChangeStatus,
 }: DocumentsPanelProps) {
@@ -53,7 +57,10 @@ export function DocumentsPanel({
   const requirementsById = new Map(requirements.map((r) => [r.id, r]));
   const catalogById = new Map(catalog.map((c) => [c.id, c]));
 
-  const canAct = periodIsOpen && !["CLOSED", "CANCELLED"].includes(declaration.workflow_status);
+  const periodAndStatusAllow =
+    periodIsOpen && !["CLOSED", "CANCELLED"].includes(declaration.workflow_status);
+  const canSync = periodAndStatusAllow && canManage;
+  const canAct = periodAndStatusAllow && canWriteItems;
 
   async function handleSync() {
     setSyncing(true);
@@ -92,9 +99,11 @@ export function DocumentsPanel({
       <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
         <strong>Estado documental:</strong>
         <StatusSemaphore status={declaration.document_status} map={DOCUMENT_STATUS_SEMAPHORE} />
-        <Button type="button" variant="secondary" onClick={handleSync} disabled={syncing || !canAct}>
-          {syncing ? "Sincronizando…" : "Sincronizar requisitos"}
-        </Button>
+        {canManage && (
+          <Button type="button" variant="secondary" onClick={handleSync} disabled={syncing || !canSync}>
+            {syncing ? "Sincronizando…" : "Sincronizar requisitos"}
+          </Button>
+        )}
       </div>
 
       {!canAct && (

@@ -3,7 +3,8 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import get_client_ip, get_current_user, verify_csrf
+from app.core.dependencies import get_client_ip, verify_csrf
+from app.core.permissions import Permission, require_permission
 from app.db.session import get_db
 from app.models.audit_log import AuditAction
 from app.models.user import User
@@ -27,7 +28,8 @@ router = APIRouter(prefix="/api/v1", tags=["tax-categories"])
 
 @router.get("/tax-categories/catalog", response_model=list[TaxCategoryCatalogOut])
 def list_catalog(
-    db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(Permission.TAX_CATEGORY_READ)),
 ) -> list[TaxCategoryCatalogOut]:
     return tax_category_service.list_catalog(db)
 
@@ -38,7 +40,7 @@ def list_catalog(
 def create_catalog_item(
     payload: TaxCategoryCatalogCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.TAX_CATEGORY_WRITE)),
     _csrf: None = Depends(verify_csrf),
 ) -> TaxCategoryCatalogOut:
     item = tax_category_service.create_catalog_item(db, payload.code, payload.name, payload.description)
@@ -51,7 +53,7 @@ def create_catalog_item(
 def list_client_tax_categories(
     client_id: uuid.UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.TAX_CATEGORY_READ)),
 ) -> list[ClientTaxCategoryOut]:
     try:
         client_service.get_client(db, current_user.tenant_id, client_id)
@@ -70,7 +72,7 @@ def assign_client_tax_category(
     payload: ClientTaxCategoryCreate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.TAX_CATEGORY_WRITE)),
     _csrf: None = Depends(verify_csrf),
 ) -> ClientTaxCategoryOut:
     try:
@@ -117,7 +119,7 @@ def remove_client_tax_category(
     assignment_id: uuid.UUID,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.TAX_CATEGORY_WRITE)),
     _csrf: None = Depends(verify_csrf),
 ) -> None:
     try:

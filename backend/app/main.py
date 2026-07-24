@@ -19,6 +19,7 @@ from app.routers import (
     tax_payments,
     tax_periods,
     tax_schedules,
+    users,
 )
 
 settings = get_settings()
@@ -53,3 +54,4 @@ app.include_router(tax_payments.router)
 app.include_router(professional_fees.router)
 app.include_router(reports.router)
 app.include_router(dashboard.router)
+app.include_router(users.router)

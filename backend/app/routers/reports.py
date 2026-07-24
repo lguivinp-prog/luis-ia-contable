@@ -2,7 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy.orm import Session
 
 from app.core import clock
-from app.core.dependencies import get_client_ip, get_current_user, verify_csrf
+from app.core.dependencies import get_client_ip, verify_csrf
+from app.core.permissions import Permission, require_permission
 from app.db.session import get_db
 from app.models.audit_log import AuditAction
 from app.models.user import User
@@ -21,7 +22,7 @@ def export_report(
     payload: ReportExportRequest,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.REPORT_EXPORT)),
     _csrf: None = Depends(verify_csrf),
 ) -> Response:
     try:

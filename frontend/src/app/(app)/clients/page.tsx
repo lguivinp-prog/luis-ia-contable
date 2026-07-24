@@ -7,11 +7,14 @@ import { Button } from "@/components/ui/Button";
 import { ClientFilterBar, type ClientFilters } from "@/components/clients/ClientFilterBar";
 import { ClientsTable } from "@/components/clients/ClientsTable";
 import { apiClient } from "@/lib/apiClient";
+import { useCurrentUser } from "@/lib/currentUserContext";
+import { hasPermission } from "@/lib/permissions";
 import type { ClientListResponse } from "@/lib/types/client";
 
 const EMPTY_FILTERS: ClientFilters = { search: "", serviceStatus: "", taxRegime: "" };
 
 export default function ClientsPage() {
+  const { user } = useCurrentUser();
   const [filters, setFilters] = useState<ClientFilters>(EMPTY_FILTERS);
   const [data, setData] = useState<ClientListResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -37,9 +40,11 @@ export default function ClientsPage() {
     <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <h1 style={{ fontSize: "1.4rem" }}>Contribuyentes</h1>
-        <Link href="/clients/new">
-          <Button type="button">Nuevo contribuyente</Button>
-        </Link>
+        {hasPermission(user, "client:write") && (
+          <Link href="/clients/new">
+            <Button type="button">Nuevo contribuyente</Button>
+          </Link>
+        )}
       </div>
 
       <ClientFilterBar filters={filters} onChange={setFilters} />

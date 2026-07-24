@@ -49,6 +49,7 @@ interface TaxPaymentsPanelProps {
   payments: TaxPayment[];
   assessments: TaxAssessment[];
   canAct: boolean;
+  canVoid: boolean;
   onCreate: (payload: {
     idempotency_key: string;
     amount: string;
@@ -68,6 +69,7 @@ export function TaxPaymentsPanel({
   payments,
   assessments,
   canAct,
+  canVoid,
   onCreate,
   onVoid,
 }: TaxPaymentsPanelProps) {
@@ -231,7 +233,7 @@ export function TaxPaymentsPanel({
                   </span>
                 </td>
                 <td>
-                  {!p.is_voided && canAct && (
+                  {!p.is_voided && canVoid && (
                     <Button
                       type="button"
                       variant="danger"

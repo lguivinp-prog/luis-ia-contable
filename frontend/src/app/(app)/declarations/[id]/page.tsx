@@ -16,8 +16,9 @@ import { DocumentsPanel } from "@/components/declarations/DocumentsPanel";
 import { PresentationPanel } from "@/components/declarations/PresentationPanel";
 import { TaxAssessmentPanel } from "@/components/declarations/TaxAssessmentPanel";
 import { TaxPaymentsPanel } from "@/components/declarations/TaxPaymentsPanel";
-import { fetchCurrentUser } from "@/lib/auth";
 import { apiClient, ApiError } from "@/lib/apiClient";
+import { useCurrentUser } from "@/lib/currentUserContext";
+import { hasPermission } from "@/lib/permissions";
 import type { Declaration, DeclarationHistoryOut, TaxPeriod } from "@/lib/types/declaration";
 import type {
   ClientDocumentRequirement,
@@ -51,10 +52,10 @@ const TAB_LABELS: Record<Tab, string> = {
 
 export default function DeclarationDetailPage() {
   const params = useParams<{ id: string }>();
+  const { user } = useCurrentUser();
   const [declaration, setDeclaration] = useState<Declaration | null>(null);
   const [history, setHistory] = useState<DeclarationHistoryOut | null>(null);
   const [taxPeriod, setTaxPeriod] = useState<TaxPeriod | null>(null);
-  const [isAdmin, setIsAdmin] = useState(false);
   const [tab, setTab] = useState<Tab>("resumen");
   const [target, setTarget] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -69,14 +70,12 @@ export default function DeclarationDetailPage() {
   const reload = useCallback(async () => {
     setLoadError(null);
     try {
-      const [d, h, user] = await Promise.all([
+      const [d, h] = await Promise.all([
         apiClient.get<Declaration>(`/declarations/${params.id}`),
         apiClient.get<DeclarationHistoryOut>(`/declarations/${params.id}/history`),
-        fetchCurrentUser(),
       ]);
       setDeclaration(d);
       setHistory(h);
-      setIsAdmin(user.role === "admin");
 
       const [period, items, reqs, cat, assess, pays] = await Promise.all([
         apiClient.get<TaxPeriod>(`/tax-periods/${d.tax_period_id}`),
@@ -286,7 +285,7 @@ export default function DeclarationDetailPage() {
             </p>
           )}
 
-          {availableTargets.length > 0 && (
+          {availableTargets.length > 0 && hasPermission(user, "declaration:write") && (
             <div style={{ display: "flex", gap: "0.75rem", alignItems: "flex-end" }}>
               <Select
                 label="Cambiar estado de flujo"
@@ -311,6 +310,8 @@ export default function DeclarationDetailPage() {
           requirements={requirements}
           catalog={catalog}
           periodIsOpen={taxPeriod.is_open}
+          canManage={hasPermission(user, "document:manage")}
+          canWriteItems={hasPermission(user, "document:item_write")}
           onSync={handleSyncDocuments}
           onChangeStatus={handleChangeDocumentStatus}
         />
@@ -322,7 +323,7 @@ export default function DeclarationDetailPage() {
             <h2 style={{ fontSize: "1.1rem" }}>Determinación tributaria</h2>
             <TaxAssessmentPanel
               assessments={assessments}
-              canAct={canActOnDeclaration}
+              canAct={canActOnDeclaration && hasPermission(user, "tax_assessment:write")}
               onCreate={handleCreateAssessment}
               onCorrect={handleCorrectAssessment}
             />
@@ -333,7 +334,12 @@ export default function DeclarationDetailPage() {
               taxPaymentStatus={declaration.tax_payment_status}
               payments={payments}
               assessments={assessments}
-              canAct={canActOnDeclaration && assessments.some((a) => a.is_current)}
+              canAct={
+                canActOnDeclaration &&
+                assessments.some((a) => a.is_current) &&
+                hasPermission(user, "tax_payment:write")
+              }
+              canVoid={canActOnDeclaration && hasPermission(user, "tax_payment:void")}
               onCreate={handleCreatePayment}
               onVoid={handleVoidPayment}
             />
@@ -345,14 +351,19 @@ export default function DeclarationDetailPage() {
         <PresentationPanel
           declaration={declaration}
           filingHistory={history.filing_history}
-          canAct={canActOnDeclaration}
+          canAct={canActOnDeclaration && hasPermission(user, "declaration:file")}
           onFile={handleFileDeclaration}
           onCorrect={handleCorrectFiling}
         />
       )}
 
       {tab === "cierre" && (
-        <ClosePanel declaration={declaration} isAdmin={isAdmin} onClose={handleClose} />
+        <ClosePanel
+          declaration={declaration}
+          canClose={hasPermission(user, "declaration:close")}
+          canOverrideClose={hasPermission(user, "declaration:close_override")}
+          onClose={handleClose}
+        />
       )}
 
       {tab === "historial" && (

@@ -3,7 +3,8 @@ import uuid
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Response, UploadFile, status
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import get_client_ip, get_current_user, verify_csrf
+from app.core.dependencies import get_client_ip, verify_csrf
+from app.core.permissions import Permission, require_permission
 from app.db.session import get_db
 from app.models.audit_log import AuditAction
 from app.models.user import User
@@ -60,7 +61,8 @@ router = APIRouter(prefix="/api/v1/tax-schedules", tags=["tax-schedules"])
 
 @router.get("/sources", response_model=list[TaxScheduleSourceOut])
 def list_sources(
-    db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(Permission.TAX_SCHEDULE_READ)),
 ) -> list[TaxScheduleSourceOut]:
     return tax_schedule_service.list_sources(db, current_user.tenant_id)
 
@@ -70,7 +72,7 @@ def create_source(
     payload: TaxScheduleSourceCreate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.TAX_SCHEDULE_MANAGE)),
     _csrf: None = Depends(verify_csrf),
 ) -> TaxScheduleSourceOut:
     source = tax_schedule_service.create_source(
@@ -100,7 +102,7 @@ def create_source(
 def get_source(
     source_id: uuid.UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.TAX_SCHEDULE_READ)),
 ) -> TaxScheduleSourceOut:
     try:
         return tax_schedule_service.get_source(db, current_user.tenant_id, source_id)
@@ -122,7 +124,7 @@ async def create_import_run(
     schedule_type: str = Form("GENERAL"),
     scope_category_code: str | None = Form(None),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.TAX_SCHEDULE_MANAGE)),
     _csrf: None = Depends(verify_csrf),
 ) -> ImportRunOut:
     try:
@@ -166,7 +168,7 @@ async def create_import_run(
 def get_import_run_preview(
     import_run_id: uuid.UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.TAX_SCHEDULE_READ)),
 ) -> ImportRunOut:
     try:
         return tax_schedule_import_service.get_import_run(db, current_user.tenant_id, import_run_id)
@@ -180,7 +182,7 @@ def confirm_import_run(
     payload: ConfirmImportRequest,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.TAX_SCHEDULE_MANAGE)),
     _csrf: None = Depends(verify_csrf),
 ) -> TaxScheduleVersionOut:
     try:
@@ -219,7 +221,7 @@ def reject_import_run(
     import_run_id: uuid.UUID,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.TAX_SCHEDULE_MANAGE)),
     _csrf: None = Depends(verify_csrf),
 ) -> dict:
     try:
@@ -251,7 +253,7 @@ def reject_import_run(
 def list_versions(
     source_id: uuid.UUID | None = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.TAX_SCHEDULE_READ)),
 ) -> list[TaxScheduleVersionOut]:
     return tax_schedule_service.list_versions(db, current_user.tenant_id, source_id=source_id)
 
@@ -261,7 +263,7 @@ def compare_versions(
     version_a: uuid.UUID,
     version_b: uuid.UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.TAX_SCHEDULE_READ)),
 ) -> CompareVersionsOut:
     try:
         return tax_schedule_service.compare_versions(db, current_user.tenant_id, version_a, version_b)
@@ -273,7 +275,7 @@ def compare_versions(
 def get_version(
     version_id: uuid.UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.TAX_SCHEDULE_READ)),
 ) -> TaxScheduleVersionOut:
     try:
         return tax_schedule_service.get_version(db, current_user.tenant_id, version_id)
@@ -285,7 +287,7 @@ def get_version(
 def list_version_entries(
     version_id: uuid.UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.TAX_SCHEDULE_READ)),
 ) -> list[TaxScheduleEntryOut]:
     from app.repositories import tax_schedule_repository
 
@@ -297,7 +299,7 @@ def list_version_entries(
 def export_version_entries_csv(
     version_id: uuid.UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.TAX_SCHEDULE_READ)),
 ) -> Response:
     from app.repositories import tax_schedule_repository
 
@@ -325,7 +327,7 @@ def submit_for_review(
     version_id: uuid.UUID,
     payload: SubmitForReviewRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.TAX_SCHEDULE_MANAGE)),
     _csrf: None = Depends(verify_csrf),
 ) -> TaxScheduleVersionOut:
     try:
@@ -356,7 +358,7 @@ def approve_version(
     version_id: uuid.UUID,
     payload: ApproveRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.TAX_SCHEDULE_MANAGE)),
     _csrf: None = Depends(verify_csrf),
 ) -> TaxScheduleVersionOut:
     try:
@@ -394,7 +396,7 @@ def reject_version(
     version_id: uuid.UUID,
     payload: RejectRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.TAX_SCHEDULE_MANAGE)),
     _csrf: None = Depends(verify_csrf),
 ) -> TaxScheduleVersionOut:
     try:
@@ -431,7 +433,7 @@ def cancel_version(
     version_id: uuid.UUID,
     payload: CancelRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.TAX_SCHEDULE_MANAGE)),
     _csrf: None = Depends(verify_csrf),
 ) -> TaxScheduleVersionOut:
     try:
@@ -467,7 +469,7 @@ def cancel_version(
 def get_approval_history(
     version_id: uuid.UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.TAX_SCHEDULE_READ)),
 ) -> list[ApprovalHistoryOut]:
     tax_schedule_service.get_version(db, current_user.tenant_id, version_id)
     return tax_schedule_service.list_approval_history(db, current_user.tenant_id, version_id)
@@ -483,7 +485,7 @@ def preview_due_date(
     client_id: uuid.UUID,
     tax_period: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.TAX_SCHEDULE_READ)),
 ) -> PreviewDueDateOut:
     try:
         client = client_service.get_client(db, current_user.tenant_id, client_id)

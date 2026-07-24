@@ -9,6 +9,8 @@ import { Select } from "@/components/ui/Select";
 import { ClientForm } from "@/components/clients/ClientForm";
 import { apiClient } from "@/lib/apiClient";
 import { buildClientUpdatePayload } from "@/lib/clientUpdatePayload";
+import { useCurrentUser } from "@/lib/currentUserContext";
+import { hasPermission } from "@/lib/permissions";
 import type { Client, ClientBase, ServiceStatus } from "@/lib/types/client";
 
 const SERVICE_STATUS_OPTIONS = [
@@ -21,6 +23,8 @@ const SERVICE_STATUS_OPTIONS = [
 
 export default function ClientDetailPage() {
   const params = useParams<{ id: string }>();
+  const { user } = useCurrentUser();
+  const canWrite = hasPermission(user, "client:write");
   const [client, setClient] = useState<Client | null>(null);
   const [newStatus, setNewStatus] = useState<ServiceStatus | "">("");
   const [statusNote, setStatusNote] = useState("");
@@ -85,36 +89,46 @@ export default function ClientDetailPage() {
         </div>
       </div>
 
-      <section className="surface-card" style={{ padding: "1.25rem" }}>
-        <h2 style={{ fontSize: "1.05rem", marginBottom: "0.75rem" }}>Cambiar estado de servicio</h2>
-        {statusError && <div className="error-banner" style={{ marginBottom: "0.75rem" }}>{statusError}</div>}
-        <div style={{ display: "flex", gap: "0.75rem", alignItems: "flex-end", flexWrap: "wrap" }}>
-          <Select
-            label="Nuevo estado"
-            name="newStatus"
-            placeholder="Selecciona"
-            options={SERVICE_STATUS_OPTIONS}
-            value={newStatus}
-            onChange={(event) => setNewStatus(event.target.value as ServiceStatus)}
-          />
-          <div className="field" style={{ flex: 1, minWidth: "220px" }}>
-            <label htmlFor="statusNote">Motivo del cambio</label>
-            <input
-              id="statusNote"
-              className="input"
-              value={statusNote}
-              onChange={(event) => setStatusNote(event.target.value)}
+      {canWrite && (
+        <section className="surface-card" style={{ padding: "1.25rem" }}>
+          <h2 style={{ fontSize: "1.05rem", marginBottom: "0.75rem" }}>Cambiar estado de servicio</h2>
+          {statusError && (
+            <div className="error-banner" style={{ marginBottom: "0.75rem" }}>{statusError}</div>
+          )}
+          <div style={{ display: "flex", gap: "0.75rem", alignItems: "flex-end", flexWrap: "wrap" }}>
+            <Select
+              label="Nuevo estado"
+              name="newStatus"
+              placeholder="Selecciona"
+              options={SERVICE_STATUS_OPTIONS}
+              value={newStatus}
+              onChange={(event) => setNewStatus(event.target.value as ServiceStatus)}
             />
+            <div className="field" style={{ flex: 1, minWidth: "220px" }}>
+              <label htmlFor="statusNote">Motivo del cambio</label>
+              <input
+                id="statusNote"
+                className="input"
+                value={statusNote}
+                onChange={(event) => setStatusNote(event.target.value)}
+              />
+            </div>
+            <Button type="button" onClick={handleStatusChange}>
+              Actualizar estado
+            </Button>
           </div>
-          <Button type="button" onClick={handleStatusChange}>
-            Actualizar estado
-          </Button>
-        </div>
-      </section>
+        </section>
+      )}
 
       <section>
         <h2 style={{ fontSize: "1.05rem", marginBottom: "0.75rem" }}>Datos del contribuyente</h2>
-        <ClientForm initialValues={client} onSubmit={handleSubmit} submitLabel="Guardar cambios" lockRuc />
+        {canWrite ? (
+          <ClientForm initialValues={client} onSubmit={handleSubmit} submitLabel="Guardar cambios" lockRuc />
+        ) : (
+          <p style={{ color: "var(--muted)" }}>
+            No tienes permiso para editar contribuyentes. Contacta a un administrador o contador.
+          </p>
+        )}
       </section>
     </div>
   );

@@ -1,10 +1,23 @@
 # Manual de uso — Luis IA Contable
 
-> Cubre las pantallas implementadas en Fase 1, Bloques 1, 2 y 3 (verificadas en navegador). Se ampliará en cada fase siguiente.
+> Cubre las pantallas implementadas en Fase 1, Bloques 1 a 4 (verificadas en navegador). Se ampliará en cada fase siguiente.
+
+## Roles y permisos (Bloque 4)
+
+El sistema tiene tres roles fijos: **Administrador** (acceso completo, incluida la gestión de usuarios y el
+cierre excepcional de declaraciones), **Contador** (todo el trabajo operativo diario, sin gestión de usuarios
+ni cierre excepcional) y **Asistente** (solo lectura en la mayoría de pantallas, más la capacidad de cambiar
+el estado de documentos ya asignados y exportar reportes). Los controles que un usuario no puede usar por su
+rol quedan ocultos o deshabilitados en pantalla — si un control no aparece, es porque el rol actual no tiene
+el permiso correspondiente, no un error.
 
 ## Inicio de sesión
 
-Ingresa a http://localhost:3010, escribe tu correo y contraseña de administrador, y presiona "Ingresar". Si los datos son incorrectos, el sistema lo indica sin especificar cuál campo falló ni si la cuenta existe (por seguridad). Tras varios intentos fallidos consecutivos, la cuenta queda bloqueada temporalmente (nunca de forma permanente); el sistema indica cuánto falta para poder reintentar.
+Ingresa a http://localhost:3010, escribe tu correo y contraseña, y presiona "Ingresar". Si los datos son incorrectos, el sistema lo indica sin especificar cuál campo falló ni si la cuenta existe (por seguridad). Tras varios intentos fallidos consecutivos, la cuenta queda bloqueada temporalmente (nunca de forma permanente); el sistema indica cuánto falta para poder reintentar.
+
+Si un administrador te asignó una contraseña temporal (alta de usuario o restablecimiento), el sistema te
+lleva directamente a una pantalla de "Cambio de contraseña obligatorio" antes de mostrar cualquier otra
+pantalla; no puedes navegar a otra parte de la aplicación hasta completarla.
 
 ## Sesión e inactividad
 
@@ -62,7 +75,7 @@ Lista los requisitos documentales ya materializados para esta declaración (nomb
 **Pagos tributarios**: muestra el saldo tributario actual y permite registrar un pago (monto, fecha, método, número de operación, referencia). Si el pago excede el saldo pendiente, el sistema pide confirmar explícitamente el sobrepago e indicar el motivo antes de reintentar. Cada pago listado muestra qué determinación estaba vigente cuando se registró, y puede anularse indicando un motivo (nunca se elimina). Un reenvío accidental del mismo formulario (doble clic) nunca duplica el pago.
 
 ### Cierre
-Muestra las tres precondiciones del cierre normal (presentación, documentos, impuesto) con su estado. El botón de cierre normal solo se habilita si las tres están cumplidas. Si falta alguna y el usuario tiene rol de administrador, aparece la opción "Cerrar con pendientes (excepcional)", que exige un motivo explícito y una confirmación reforzada; una vez cerrada, la declaración muestra visiblemente si el cierre fue normal o con pendientes.
+Muestra las tres precondiciones del cierre normal (presentación, documentos, impuesto) con su estado. El botón de cierre normal solo se habilita si las tres están cumplidas y el usuario tiene permiso para cerrar declaraciones (administrador o contador). Si falta alguna precondición y el usuario es administrador, aparece la opción "Cerrar con pendientes (excepcional)", que exige un motivo explícito y una confirmación reforzada; una vez cerrada, la declaración muestra visiblemente si el cierre fue normal o con pendientes.
 
 ### Historial
 Registro completo de cambios de estado y de vencimiento con motivo, actor y fecha.
@@ -86,6 +99,23 @@ Una fila por declaración (nunca se duplica aunque tenga varios documentos, pago
 ## Reportes (`/reports`)
 
 Exporta datos del tenant (declaraciones, documentos, determinaciones, pagos tributarios, acuerdos/cargos/pagos/recibos de honorarios, contribuyentes, registro de auditoría) en CSV o Excel. Cada exportación queda registrada en el historial de auditoría; el número de filas exportables tiene un límite configurable por el equipo técnico.
+
+## Gestión de usuarios (`/users`, solo Administrador)
+
+Visible únicamente para el rol Administrador (el enlace "Usuarios" no aparece para Contador ni Asistente).
+
+- **Listado**: correo, nombre, rol, estado (activo/inactivo), si tiene una contraseña temporal pendiente de
+  cambio, y último inicio de sesión.
+- **Nuevo usuario**: correo, nombre completo, rol y una contraseña inicial (temporal) que el propio
+  administrador define. El usuario nuevo deberá cambiarla en su primer inicio de sesión.
+- **Cambiar rol**: exige un motivo explícito. No puedes cambiar tu propio rol, ni el sistema permite dejar a
+  un tenant sin ningún administrador activo (si eres el único, la operación se rechaza).
+- **Desactivar**: exige un motivo; revoca de inmediato todas las sesiones activas del usuario (aunque tenga
+  una pestaña abierta, su siguiente acción falla). No puedes desactivarte a ti mismo, ni desactivar al último
+  administrador activo del tenant.
+- **Reactivar**: sin motivo requerido; el usuario puede volver a iniciar sesión normalmente.
+- **Restablecer contraseña**: exige un motivo; define una nueva contraseña temporal, revoca todas las
+  sesiones del usuario objetivo, y lo obliga a cambiarla en su próximo inicio de sesión.
 
 ## Qué todavía no hace el sistema
 

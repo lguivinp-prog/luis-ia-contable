@@ -5,6 +5,8 @@ import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { apiClient } from "@/lib/apiClient";
+import { useCurrentUser } from "@/lib/currentUserContext";
+import { hasPermission } from "@/lib/permissions";
 import type { TaxScheduleVersion, TaxScheduleVersionStatus } from "@/lib/types/taxSchedule";
 
 interface VersionActionsProps {
@@ -15,10 +17,15 @@ interface VersionActionsProps {
 const MUTABLE: TaxScheduleVersionStatus[] = ["DRAFT", "IMPORTED"];
 
 export function VersionActions({ version, onChanged }: VersionActionsProps) {
+  const { user } = useCurrentUser();
   const [comment, setComment] = useState("");
   const [reason, setReason] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  if (!hasPermission(user, "tax_schedule:manage")) {
+    return null;
+  }
 
   async function run(action: () => Promise<void>) {
     setSubmitting(true);

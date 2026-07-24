@@ -3,7 +3,8 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import get_client_ip, get_current_user, verify_csrf
+from app.core.dependencies import get_client_ip, verify_csrf
+from app.core.permissions import Permission, require_permission
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.obligation import (
@@ -25,7 +26,8 @@ router = APIRouter(prefix="/api/v1", tags=["obligations"])
 
 @router.get("/obligations/catalog", response_model=list[ObligationCatalogOut])
 def list_catalog(
-    db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(Permission.OBLIGATION_READ)),
 ) -> list[ObligationCatalogOut]:
     return obligation_service.list_catalog(db)
 
@@ -34,7 +36,7 @@ def list_catalog(
 def get_catalog_item(
     obligation_id: uuid.UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.OBLIGATION_READ)),
 ) -> ObligationCatalogOut:
     try:
         return obligation_service.get_catalog_item(db, obligation_id)
@@ -46,7 +48,7 @@ def get_catalog_item(
 def list_client_obligations(
     client_id: uuid.UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.OBLIGATION_READ)),
 ) -> list[ClientObligationOut]:
     try:
         client_service.get_client(db, current_user.tenant_id, client_id)
@@ -65,7 +67,7 @@ def assign_obligation(
     payload: ClientObligationCreate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.OBLIGATION_WRITE)),
     _csrf: None = Depends(verify_csrf),
 ) -> ClientObligationOut:
     try:
@@ -103,7 +105,7 @@ def update_client_obligation(
     payload: ClientObligationUpdate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.OBLIGATION_WRITE)),
     _csrf: None = Depends(verify_csrf),
 ) -> ClientObligationOut:
     try:
@@ -134,7 +136,7 @@ def remove_client_obligation(
     obligation_id: uuid.UUID,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.OBLIGATION_WRITE)),
     _csrf: None = Depends(verify_csrf),
 ) -> None:
     try:

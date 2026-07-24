@@ -4,7 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from app.core import clock
-from app.core.dependencies import ensure_admin_role, get_client_ip, get_current_user, verify_csrf
+from app.core.dependencies import get_client_ip, verify_csrf
+from app.core.permissions import Permission, check_permission, require_permission
 from app.db.session import get_db
 from app.models.audit_log import AuditAction
 from app.models.declaration import Declaration
@@ -70,7 +71,7 @@ def list_declarations(
     limit: int = 50,
     offset: int = 0,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.DECLARATION_READ)),
 ) -> list[DeclarationOut]:
     items, _total = declaration_repository.list_for_dashboard(
         db,
@@ -88,7 +89,7 @@ def create_declaration(
     payload: DeclarationCreateRequest,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.DECLARATION_WRITE)),
     _csrf: None = Depends(verify_csrf),
 ) -> DeclarationOut:
     try:
@@ -133,7 +134,7 @@ def create_declaration(
 def get_declaration(
     declaration_id: uuid.UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.DECLARATION_READ)),
 ) -> DeclarationOut:
     try:
         declaration = declaration_service.get_declaration(db, current_user.tenant_id, declaration_id)
@@ -148,7 +149,7 @@ def change_workflow_status(
     payload: WorkflowStatusChangeRequest,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.DECLARATION_WRITE)),
     _csrf: None = Depends(verify_csrf),
 ) -> DeclarationOut:
     try:
@@ -201,7 +202,7 @@ def assign_declaration(
     payload: AssignRequest,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.DECLARATION_WRITE)),
     _csrf: None = Depends(verify_csrf),
 ) -> DeclarationOut:
     try:
@@ -244,7 +245,7 @@ def file_declaration(
     payload: FilingRequest,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.DECLARATION_FILE)),
     _csrf: None = Depends(verify_csrf),
 ) -> DeclarationOut:
     try:
@@ -294,7 +295,7 @@ def correct_filing(
     payload: FilingCorrectRequest,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.DECLARATION_FILE)),
     _csrf: None = Depends(verify_csrf),
 ) -> DeclarationOut:
     try:
@@ -335,7 +336,7 @@ def correct_filing(
 def recalculate_preview(
     declaration_id: uuid.UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.DECLARATION_READ)),
 ) -> RecalculatePreviewOut:
     try:
         return declaration_service.recalculate_preview(db, current_user.tenant_id, declaration_id)
@@ -351,7 +352,7 @@ def recalculate(
     payload: RecalculateRequest,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.DECLARATION_WRITE)),
     _csrf: None = Depends(verify_csrf),
 ) -> DeclarationOut:
     try:
@@ -399,7 +400,7 @@ def reopen_declaration(
     payload: ReopenRequest,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.DECLARATION_CLOSE)),
     _csrf: None = Depends(verify_csrf),
 ) -> DeclarationOut:
     try:
@@ -442,12 +443,12 @@ def close_declaration(
     payload: CloseRequest,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.DECLARATION_CLOSE)),
     _csrf: None = Depends(verify_csrf),
 ) -> DeclarationOut:
     try:
         if payload.force_close_with_pending:
-            ensure_admin_role(current_user)
+            check_permission(current_user, Permission.DECLARATION_CLOSE_OVERRIDE)
         declaration = declaration_service.close(
             db,
             current_user.tenant_id,
@@ -490,7 +491,7 @@ def cancel_declaration(
     payload: CancelRequest,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.DECLARATION_CLOSE)),
     _csrf: None = Depends(verify_csrf),
 ) -> DeclarationOut:
     try:
@@ -525,7 +526,7 @@ def cancel_declaration(
 def get_history(
     declaration_id: uuid.UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.DECLARATION_READ)),
 ) -> DeclarationHistoryOut:
     try:
         history = declaration_service.get_history(db, current_user.tenant_id, declaration_id)

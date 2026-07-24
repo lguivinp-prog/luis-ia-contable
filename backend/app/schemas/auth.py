@@ -1,7 +1,9 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr
+
+from app.schemas.common import PasswordStr
 
 
 class LoginRequest(BaseModel):
@@ -11,11 +13,17 @@ class LoginRequest(BaseModel):
     password: str
 
 
-class UserOut(BaseModel):
+class CurrentUserOut(BaseModel):
+    """Respuesta de `GET /auth/me` y `POST /auth/login` -- unico lugar donde
+    aparece `permissions` calculado (ver ADR-0050). Nunca se reutiliza como
+    schema de gestion de usuarios (ver `ManagedUserOut` en `schemas/user.py`)."""
+
     id: uuid.UUID
     email: str
     full_name: str
     role: str
+    permissions: list[str]
+    must_change_password: bool
 
     model_config = {"from_attributes": True}
 
@@ -24,7 +32,7 @@ class ChangePasswordRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     current_password: str
-    new_password: str = Field(min_length=8)
+    new_password: PasswordStr
 
 
 class SessionOut(BaseModel):

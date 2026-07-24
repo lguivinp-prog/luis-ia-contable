@@ -50,9 +50,38 @@ En esta entrega, las columnas `sol_username_encrypted`, `sol_password_encrypted`
 - Para habilitarlo en el futuro se requiere: autenticación reforzada, HTTPS local o canal privado equivalente, restricción de firewall al perfil de red privada, ausencia de reenvío de puertos del router, bloqueo por intentos fallidos, sesiones con vencimiento corto, y opción de desactivación inmediata.
 - La base de datos **nunca** se expone directamente a la red; solo el backend accede a Postgres.
 
-## Autorización de una sola posición (Bloque 3.2, ADR-0047)
+## RBAC real: catálogo de permisos y aplicación en routers (Bloque 4, ADR-0050/ADR-0051/ADR-0052)
 
-El sistema no implementa RBAC completo todavía (ver deuda técnica). La única verificación de rol existente es `app.core.dependencies.ensure_admin_role`, usada exclusivamente para gatear el **cierre operativo excepcional** de una declaración (`force_close_with_pending=true`, `routers/declarations.py::close_declaration`): un usuario sin `role == 'admin'` recibe `403` aunque el interruptor global `settings.allow_close_with_pending_tax` esté habilitado. Esta verificación se hace en el **router**, no en el servicio de dominio, porque depende de quién realiza la llamada HTTP — una decisión de autorización, no una regla de negocio pura.
+El sistema implementa RBAC real sobre los tres roles fijos (`admin`/`contador`/`asistente`, `CHECK
+ck_users_role`). `Permission(str, enum.Enum)` (`backend/app/core/permissions.py`) declara 30 permisos
+explícitos; `ROLE_PERMISSIONS` es el único mapa rol→permisos, sin tabla relacional (`admin`=30,
+`contador`=27, `asistente`=13). `has_permission`/`check_permission` fallan **cerrado**: un rol o permiso no
+reconocido nunca autoriza por defecto. `require_permission(permission)` es la dependencia que se aplica en
+la firma de cada endpoint mutante o de lectura de los 15 routers existentes; reemplaza por completo a la
+antigua `ensure_admin_role` (eliminada), incluido su único uso previo (cierre excepcional de una declaración,
+ahora gateado por `Permission.DECLARATION_CLOSE_OVERRIDE`).
+
+**Contraseña temporal**: el alta de usuario y el restablecimiento administrativo de contraseña fijan
+`must_change_password=true`; la dependencia `require_password_ready` (prerequisito de `require_permission`)
+bloquea con 403 `PASSWORD_CHANGE_REQUIRED` toda ruta de negocio hasta que el usuario complete el cambio vía
+`POST /auth/change-password` (único endpoint que limpia el flag).
+
+**Protección concurrente del último admin**: `deactivate_user`/`change_role` usan una única consulta
+`SELECT ... FOR UPDATE ... ORDER BY id` (`user_repository.lock_target_and_active_admins`) para bloquear a la
+vez la fila objetivo y todas las filas admin activas del tenant en un orden determinista, evitando deadlock
+bajo operaciones concurrentes simétricas; el predicado puro `removes_last_active_admin` decide el rechazo.
+Un usuario no puede desactivarse ni cambiar su propio rol.
+
+**Cobertura estructural verificada**: `test_route_permission_coverage.py` recorre `app.routes` y falla si
+cualquier endpoint bajo `/api/v1/` no declara `require_permission` y no está en la allowlist cerrada
+`EXEMPT_ROUTES` (los 8 endpoints de autoservicio de `auth.py` + 2 de `health.py` — nunca una exención por
+prefijo). `test_permission_matrix_api.py` confirma 200/403 real para los 30 permisos.
+
+**Gateo frontend como UX, no como control de acceso**: `hasPermission(user, permission)`
+(`frontend/src/lib/permissions.ts`) consume `permissions: list[str]` calculado por el backend en
+`GET /auth/me` — no existe copia del mapa de roles en TypeScript. Oculta o deshabilita controles mutantes en
+la interfaz para reducir fricción, pero cada endpoint sigue protegido en el backend independientemente del
+estado visual del cliente.
 
 ## Exportación de reportes: sanitización CSV y límites (Bloque 3.2, ADR-0049)
 

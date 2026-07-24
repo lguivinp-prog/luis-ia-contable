@@ -12,9 +12,10 @@ import type { ClientTaxCategory, TaxCategoryCatalogItem } from "@/lib/types/taxC
 
 interface ClientCategoryPanelProps {
   catalog: TaxCategoryCatalogItem[];
+  canWrite: boolean;
 }
 
-export function ClientCategoryPanel({ catalog }: ClientCategoryPanelProps) {
+export function ClientCategoryPanel({ catalog, canWrite }: ClientCategoryPanelProps) {
   const [search, setSearch] = useState("");
   const [results, setResults] = useState<Client[]>([]);
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
@@ -141,50 +142,56 @@ export function ClientCategoryPanel({ catalog }: ClientCategoryPanelProps) {
               { key: "valid_from", header: "Vigente desde", render: (a) => a.valid_from },
               { key: "valid_until", header: "Vigente hasta", render: (a) => a.valid_until ?? "Indefinido" },
               { key: "notes", header: "Notas", render: (a) => a.notes ?? "—" },
-              {
-                key: "actions",
-                header: "",
-                render: (a) => (
-                  <Button type="button" variant="danger" onClick={() => handleRemove(a.id)}>
-                    Quitar
-                  </Button>
-                ),
-              },
+              ...(canWrite
+                ? [
+                    {
+                      key: "actions",
+                      header: "",
+                      render: (a: ClientTaxCategory) => (
+                        <Button type="button" variant="danger" onClick={() => handleRemove(a.id)}>
+                          Quitar
+                        </Button>
+                      ),
+                    },
+                  ]
+                : []),
             ]}
           />
 
-          <div style={{ display: "flex", gap: "0.75rem", alignItems: "flex-end", flexWrap: "wrap" }}>
-            <Select
-              label="Categoría"
-              name="category_code"
-              placeholder="Selecciona una categoría"
-              options={catalog.map((c) => ({ value: c.code, label: `${c.code} — ${c.name}` }))}
-              value={categoryCode}
-              onChange={(e) => setCategoryCode(e.target.value)}
-            />
-            <Input
-              label="Vigente desde"
-              name="valid_from"
-              type="date"
-              value={validFrom}
-              onChange={(e) => setValidFrom(e.target.value)}
-            />
-            <Input
-              label="Vigente hasta (opcional)"
-              name="valid_until"
-              type="date"
-              value={validUntil}
-              onChange={(e) => setValidUntil(e.target.value)}
-            />
-            <Input label="Notas" name="notes" value={notes} onChange={(e) => setNotes(e.target.value)} />
-            <Button
-              type="button"
-              disabled={!categoryCode || !validFrom || submitting}
-              onClick={handleAssign}
-            >
-              {submitting ? "Asignando…" : "Asignar"}
-            </Button>
-          </div>
+          {canWrite && (
+            <div style={{ display: "flex", gap: "0.75rem", alignItems: "flex-end", flexWrap: "wrap" }}>
+              <Select
+                label="Categoría"
+                name="category_code"
+                placeholder="Selecciona una categoría"
+                options={catalog.map((c) => ({ value: c.code, label: `${c.code} — ${c.name}` }))}
+                value={categoryCode}
+                onChange={(e) => setCategoryCode(e.target.value)}
+              />
+              <Input
+                label="Vigente desde"
+                name="valid_from"
+                type="date"
+                value={validFrom}
+                onChange={(e) => setValidFrom(e.target.value)}
+              />
+              <Input
+                label="Vigente hasta (opcional)"
+                name="valid_until"
+                type="date"
+                value={validUntil}
+                onChange={(e) => setValidUntil(e.target.value)}
+              />
+              <Input label="Notas" name="notes" value={notes} onChange={(e) => setNotes(e.target.value)} />
+              <Button
+                type="button"
+                disabled={!categoryCode || !validFrom || submitting}
+                onClick={handleAssign}
+              >
+                {submitting ? "Asignando…" : "Asignar"}
+              </Button>
+            </div>
+          )}
           {error && <div className="error-banner">{error}</div>}
         </>
       )}

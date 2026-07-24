@@ -1,23 +1,29 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
+import { usePathname, useRouter } from "next/navigation";
 
 import { Header } from "@/components/layout/Header";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { InactivityGuard } from "@/components/security/InactivityGuard";
-import { fetchCurrentUser } from "@/lib/auth";
-import type { User } from "@/lib/types/auth";
+import { CurrentUserProvider, useCurrentUser } from "@/lib/currentUserContext";
 
-export default function AppLayout({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
+const CHANGE_PASSWORD_REQUIRED_PATH = "/change-password-required";
+
+function AppLayoutInner({ children }: { children: React.ReactNode }) {
+  const { user, loading } = useCurrentUser();
+  const pathname = usePathname();
+  const router = useRouter();
 
   useEffect(() => {
-    fetchCurrentUser()
-      .then(setUser)
-      .catch(() => {
-        // apiClient ya redirige a /login ante un 401
-      });
-  }, []);
+    // La propia pantalla de cambio obligatorio queda exenta de esta
+    // redirección -- si no, un usuario con must_change_password=true nunca
+    // podría llegar a completarla (ciclo de navegación infinito).
+    if (pathname === CHANGE_PASSWORD_REQUIRED_PATH) return;
+    if (!loading && user?.must_change_password) {
+      router.replace(CHANGE_PASSWORD_REQUIRED_PATH);
+    }
+  }, [loading, user, pathname, router]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
@@ -28,5 +34,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       </div>
       <InactivityGuard />
     </div>
+  );
+}
+
+export default function AppLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <CurrentUserProvider>
+      <AppLayoutInner>{children}</AppLayoutInner>
+    </CurrentUserProvider>
   );
 }

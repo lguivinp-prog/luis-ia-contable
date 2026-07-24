@@ -14,7 +14,9 @@ import {
   StatusSemaphore,
 } from "@/components/ui/StatusSemaphore";
 import { apiClient, ApiError } from "@/lib/apiClient";
+import { useCurrentUser } from "@/lib/currentUserContext";
 import { computeFeeCollectionRisk } from "@/lib/feeRisk";
+import { hasPermission } from "@/lib/permissions";
 import type { TaxPeriod } from "@/lib/types/declaration";
 import type {
   ProfessionalFeeAgreement,
@@ -50,6 +52,9 @@ function emptyAgreementForm(): AgreementFormState {
 export default function ClientFeesPage() {
   const params = useParams<{ id: string }>();
   const clientId = params.id;
+  const { user } = useCurrentUser();
+  const canWrite = hasPermission(user, "professional_fee:write");
+  const canVoid = hasPermission(user, "professional_fee:void");
 
   const [agreements, setAgreements] = useState<ProfessionalFeeAgreement[]>([]);
   const [periods, setPeriods] = useState<TaxPeriod[]>([]);
@@ -326,6 +331,7 @@ export default function ClientFeesPage() {
         <p>Cargando…</p>
       ) : (
         <>
+          {canWrite && (
           <section className="surface-card" style={{ padding: "1.25rem" }}>
             <h2 style={{ fontSize: "1.05rem", marginBottom: "0.75rem" }}>Nuevo acuerdo</h2>
             <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "flex-end" }}>
@@ -365,6 +371,7 @@ export default function ClientFeesPage() {
               </Button>
             </div>
           </section>
+          )}
 
           <section>
             <h2 style={{ fontSize: "1.05rem", marginBottom: "0.75rem" }}>Acuerdos</h2>
@@ -397,7 +404,7 @@ export default function ClientFeesPage() {
                       >
                         {selectedAgreementId === a.id ? "Ocultar cargos" : "Ver cargos"}
                       </Button>
-                      {a.status === "ACTIVE" && (
+                      {a.status === "ACTIVE" && canWrite && (
                         <>
                           <Button type="button" variant="secondary" onClick={() => handleSupersede(a.id)}>
                             Superar
@@ -424,6 +431,7 @@ export default function ClientFeesPage() {
           {selectedAgreementId && (
             <section className="surface-card" style={{ padding: "1.25rem" }}>
               <h2 style={{ fontSize: "1.05rem", marginBottom: "0.75rem" }}>Cargos del acuerdo</h2>
+              {canWrite && (
               <div style={{ display: "flex", gap: "0.75rem", alignItems: "flex-end", flexWrap: "wrap", marginBottom: "1rem" }}>
                 <Select
                   label="Periodo tributario"
@@ -449,6 +457,7 @@ export default function ClientFeesPage() {
                   {creatingCharge ? "Creando…" : "Crear cargo"}
                 </Button>
               </div>
+              )}
 
               <table className="data-table">
                 <thead>
@@ -468,7 +477,7 @@ export default function ClientFeesPage() {
                       </td>
                       <td>{c.due_date ?? "—"}</td>
                       <td style={{ display: "flex", gap: "0.4rem" }}>
-                        {c.status === "PENDING_ISSUANCE" && (
+                        {c.status === "PENDING_ISSUANCE" && canWrite && (
                           <Button type="button" variant="secondary" onClick={() => handleIssueCharge(c.id)}>
                             Emitir
                           </Button>
@@ -505,7 +514,7 @@ export default function ClientFeesPage() {
 
               <div>
                 <h3 style={{ fontSize: "0.95rem" }}>Pagos</h3>
-                {selectedCharge.status !== "PENDING_ISSUANCE" && selectedCharge.status !== "CANCELLED" && (
+                {canWrite && selectedCharge.status !== "PENDING_ISSUANCE" && selectedCharge.status !== "CANCELLED" && (
                   <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "flex-end", marginBottom: "0.75rem" }}>
                     <Input
                       label="Monto"
@@ -570,7 +579,7 @@ export default function ClientFeesPage() {
                           </span>
                         </td>
                         <td>
-                          {!p.is_voided && (
+                          {!p.is_voided && canVoid && (
                             <Button type="button" variant="danger" onClick={() => handleVoidPayment(p.id)}>
                               Anular
                             </Button>
@@ -591,6 +600,7 @@ export default function ClientFeesPage() {
 
               <div>
                 <h3 style={{ fontSize: "0.95rem" }}>Recibos</h3>
+                {canWrite && (
                 <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "flex-end", marginBottom: "0.75rem" }}>
                   <Input label="Número" value={receiptNumber} onChange={(e) => setReceiptNumber(e.target.value)} />
                   <Input
@@ -609,6 +619,7 @@ export default function ClientFeesPage() {
                     {submittingReceipt ? "Emitiendo…" : "Emitir recibo"}
                   </Button>
                 </div>
+                )}
                 <table className="data-table">
                   <thead>
                     <tr>
@@ -631,7 +642,7 @@ export default function ClientFeesPage() {
                           </span>
                         </td>
                         <td>
-                          {r.status === "ISSUED" && (
+                          {r.status === "ISSUED" && canVoid && (
                             <Button type="button" variant="danger" onClick={() => handleVoidReceipt(r.id)}>
                               Anular
                             </Button>

@@ -5,6 +5,7 @@ from app.core import clock
 from app.core.config import get_settings
 from app.core.dependencies import get_client_ip, get_current_session, get_current_user, verify_csrf
 from app.core.identifier import InvalidIdentifierError, normalize_login_identifier
+from app.core.permissions import permission_codes_for_role
 from app.db.session import get_db
 from app.models.audit_log import AuditAction
 from app.models.security_event import SecurityEventSeverity, SecurityEventType
@@ -12,11 +13,11 @@ from app.models.session import Session as SessionModel
 from app.models.user import User
 from app.schemas.auth import (
     ChangePasswordRequest,
+    CurrentUserOut,
     KeepAliveOut,
     LoginRequest,
     SessionOut,
     SessionPolicyOut,
-    UserOut,
 )
 from app.services import auth_service, login_attempt_service, security_event_service
 from app.services.audit_service import record as record_audit
@@ -53,10 +54,21 @@ def _clear_auth_cookies(response: Response) -> None:
     response.delete_cookie(key="csrf_token", path="/")
 
 
-@router.post("/login", response_model=UserOut)
+def _to_current_user_out(user: User) -> CurrentUserOut:
+    return CurrentUserOut(
+        id=user.id,
+        email=user.email,
+        full_name=user.full_name,
+        role=user.role,
+        permissions=permission_codes_for_role(user.role),
+        must_change_password=user.must_change_password,
+    )
+
+
+@router.post("/login", response_model=CurrentUserOut)
 def login(
     payload: LoginRequest, request: Request, response: Response, db: Session = Depends(get_db)
-) -> User:
+) -> CurrentUserOut:
     ip_address = get_client_ip(request)
     user_agent = request.headers.get("user-agent")
 
@@ -133,7 +145,7 @@ def login(
     db.commit()
 
     _set_auth_cookies(response, raw_token, raw_csrf_token)
-    return user
+    return _to_current_user_out(user)
 
 
 @router.post("/logout")
@@ -164,9 +176,9 @@ def logout(
     return {"status": "ok"}
 
 
-@router.get("/me", response_model=UserOut)
-def me(current_user: User = Depends(get_current_user)) -> User:
-    return current_user
+@router.get("/me", response_model=CurrentUserOut)
+def me(current_user: User = Depends(get_current_user)) -> CurrentUserOut:
+    return _to_current_user_out(current_user)
 
 
 @router.get("/session-policy", response_model=SessionPolicyOut)

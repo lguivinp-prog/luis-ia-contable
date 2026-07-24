@@ -64,6 +64,22 @@ Ejecutadas contra una base de datos PostgreSQL real de pruebas (`TEST_DATABASE_U
 | `test_professional_fee_risk.py` | `compute_fee_collection_risk`: 7 combinaciones de vencimiento/estado/saldo |
 | `test_report_service.py` | Sanitización CSV contra fórmula, Excel con hojas "Datos"/"Metadatos" |
 
+## Pruebas de RBAC y gestión de usuarios (Bloque 4)
+
+| Archivo | Cubre |
+|---|---|
+| `test_permissions.py` | 30 permisos exactos, pertenencia por rol (`admin`=30, `contador`=27, `asistente`=13), fallo cerrado ante rol/permiso desconocido |
+| `test_user_admin_invariant.py` | `removes_last_active_admin`: los 6 casos (desactivar/degradar único admin activo, ≥2 admins, objetivo inactivo, promoción, reactivación, mismo rol) |
+| `test_migration_0012_users_rbac.py` | Upgrade/downgrade/re-upgrade con datos válidos; rol desconocido bloquea preflight; usuario inactivo heredado sin metadatos bloquea preflight; 4 casos de tenant sin admin activo (`NOT EXISTS` desde `tenants`); ausencia de DDL parcial tras cualquier fallo de preflight |
+| `test_users_api.py` | CRUD completo de usuarios, cambio de rol, desactivación/reactivación, restablecimiento de contraseña, aislamiento multitenant, auto-operación rechazada, rechazo de `role == target.role` |
+| `test_users_last_admin_concurrency.py` | Concurrencia real (dos conexiones, `threading.Event`): dos admins desactivándose/degradándose mutuamente siempre dejan exactamente 1 admin activo |
+| `test_route_permission_coverage.py` | Todo endpoint bajo `/api/v1/` declara `require_permission` o está en la allowlist cerrada `EXEMPT_ROUTES`; toda ruta de `/api/v1/users` exige `user:read`/`user:manage` |
+| `test_permission_matrix_api.py` | Matriz 200/403 real para cada uno de los 30 permisos, aprovechando que FastAPI resuelve `Depends()` antes de validar el cuerpo |
+
+Frontend: `permissions.test.ts` (vitest) prueba `hasPermission` como función pura sin reconstruir el mapa de
+roles. El gateo de los 16 componentes/páginas existentes se verifica manualmente con los 3 roles reales (ver
+informe de cierre del Bloque 4).
+
 ## Pruebas de arranque (smoke)
 
 - `backend/tests/smoke/test_app_boot.py`: la aplicación FastAPI arranca sin excepciones; `/api/v1/health/live` y `/api/v1/health/ready` responden 200.

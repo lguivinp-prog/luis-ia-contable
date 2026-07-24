@@ -7,10 +7,14 @@ import { Button } from "@/components/ui/Button";
 import { DemoDataBanner } from "@/components/taxSchedules/DemoDataBanner";
 import { SourcesPanel } from "@/components/taxSchedules/SourcesPanel";
 import { apiClient } from "@/lib/apiClient";
+import { useCurrentUser } from "@/lib/currentUserContext";
+import { hasPermission } from "@/lib/permissions";
 import type { ObligationCatalogItem } from "@/lib/types/obligation";
 import type { TaxScheduleSource } from "@/lib/types/taxSchedule";
 
 export default function TaxSchedulesPage() {
+  const { user } = useCurrentUser();
+  const canManage = hasPermission(user, "tax_schedule:manage");
   const [sources, setSources] = useState<TaxScheduleSource[]>([]);
   const [obligations, setObligations] = useState<ObligationCatalogItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -58,7 +62,16 @@ export default function TaxSchedulesPage() {
 
       <DemoDataBanner />
 
-      {loading ? <p>Cargando…</p> : <SourcesPanel sources={sources} obligations={obligations} onCreate={handleCreate} />}
+      {loading ? (
+        <p>Cargando…</p>
+      ) : (
+        <SourcesPanel
+          sources={sources}
+          obligations={obligations}
+          onCreate={handleCreate}
+          canManage={canManage}
+        />
+      )}
     </div>
   );
 }

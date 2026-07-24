@@ -3,6 +3,9 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+import { useCurrentUser } from "@/lib/currentUserContext";
+import { hasPermission } from "@/lib/permissions";
+
 const NAV_ITEMS = [
   { href: "/clients", label: "Contribuyentes" },
   { href: "/tax-categories", label: "Categorías tributarias" },
@@ -16,6 +19,10 @@ const NAV_ITEMS = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  const { user } = useCurrentUser();
+  const navItems = hasPermission(user, "user:read")
+    ? [...NAV_ITEMS, { href: "/users", label: "Usuarios" }]
+    : NAV_ITEMS;
 
   return (
     <nav
@@ -27,7 +34,7 @@ export function Sidebar() {
         background: "var(--surface)",
       }}
     >
-      {NAV_ITEMS.map((item) => {
+      {navItems.map((item) => {
         const active = pathname?.startsWith(item.href);
         return (
           <Link

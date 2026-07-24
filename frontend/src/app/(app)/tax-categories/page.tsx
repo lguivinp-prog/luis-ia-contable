@@ -5,9 +5,13 @@ import { useCallback, useEffect, useState } from "react";
 import { CategoryCatalogPanel } from "@/components/taxCategories/CategoryCatalogPanel";
 import { ClientCategoryPanel } from "@/components/taxCategories/ClientCategoryPanel";
 import { apiClient } from "@/lib/apiClient";
+import { useCurrentUser } from "@/lib/currentUserContext";
+import { hasPermission } from "@/lib/permissions";
 import type { TaxCategoryCatalogItem } from "@/lib/types/taxCategory";
 
 export default function TaxCategoriesPage() {
+  const { user } = useCurrentUser();
+  const canWrite = hasPermission(user, "tax_category:write");
   const [catalog, setCatalog] = useState<TaxCategoryCatalogItem[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -35,8 +39,8 @@ export default function TaxCategoriesPage() {
         <p>Cargando…</p>
       ) : (
         <>
-          <CategoryCatalogPanel catalog={catalog} onCreate={handleCreate} />
-          <ClientCategoryPanel catalog={catalog} />
+          {canWrite && <CategoryCatalogPanel catalog={catalog} onCreate={handleCreate} />}
+          <ClientCategoryPanel catalog={catalog} canWrite={canWrite} />
         </>
       )}
     </div>

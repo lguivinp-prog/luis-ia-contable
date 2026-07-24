@@ -3,7 +3,8 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import get_client_ip, get_current_user, verify_csrf
+from app.core.dependencies import get_client_ip, verify_csrf
+from app.core.permissions import Permission, require_permission
 from app.db.session import get_db
 from app.models.audit_log import AuditAction
 from app.models.user import User
@@ -18,7 +19,7 @@ router = APIRouter(prefix="/api/v1", tags=["tax-payments"])
 def list_payments(
     declaration_id: uuid.UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.TAX_PAYMENT_READ)),
 ) -> list[TaxPaymentOut]:
     try:
         declaration_service.get_declaration(db, current_user.tenant_id, declaration_id)
@@ -37,7 +38,7 @@ def create_payment(
     payload: TaxPaymentCreate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.TAX_PAYMENT_WRITE)),
     _csrf: None = Depends(verify_csrf),
 ) -> TaxPaymentOut:
     try:
@@ -113,7 +114,7 @@ def void_payment(
     payload: TaxPaymentVoidRequest,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.TAX_PAYMENT_VOID)),
     _csrf: None = Depends(verify_csrf),
 ) -> TaxPaymentOut:
     try:

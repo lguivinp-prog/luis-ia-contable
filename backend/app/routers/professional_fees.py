@@ -3,7 +3,8 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import get_client_ip, get_current_user, verify_csrf
+from app.core.dependencies import get_client_ip, verify_csrf
+from app.core.permissions import Permission, require_permission
 from app.db.session import get_db
 from app.models.audit_log import AuditAction
 from app.models.user import User
@@ -41,7 +42,7 @@ router = APIRouter(prefix="/api/v1", tags=["professional-fees"])
 def list_agreements(
     client_id: uuid.UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.PROFESSIONAL_FEE_READ)),
 ) -> list[ProfessionalFeeAgreementOut]:
     try:
         get_client(db, current_user.tenant_id, client_id)
@@ -60,7 +61,7 @@ def create_agreement(
     payload: ProfessionalFeeAgreementCreate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.PROFESSIONAL_FEE_WRITE)),
     _csrf: None = Depends(verify_csrf),
 ) -> ProfessionalFeeAgreementOut:
     try:
@@ -107,7 +108,7 @@ def supersede_agreement(
     payload: ProfessionalFeeAgreementLifecycleRequest,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.PROFESSIONAL_FEE_WRITE)),
     _csrf: None = Depends(verify_csrf),
 ) -> ProfessionalFeeAgreementOut:
     try:
@@ -158,7 +159,7 @@ def cancel_agreement(
     payload: ProfessionalFeeAgreementLifecycleRequest,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.PROFESSIONAL_FEE_WRITE)),
     _csrf: None = Depends(verify_csrf),
 ) -> ProfessionalFeeAgreementOut:
     try:
@@ -212,7 +213,7 @@ def cancel_agreement(
 def list_charges(
     agreement_id: uuid.UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.PROFESSIONAL_FEE_READ)),
 ) -> list[ProfessionalFeeChargeOut]:
     try:
         professional_fee_service.get_agreement(db, current_user.tenant_id, agreement_id)
@@ -231,7 +232,7 @@ def create_charge(
     payload: ProfessionalFeeChargeCreate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.PROFESSIONAL_FEE_WRITE)),
     _csrf: None = Depends(verify_csrf),
 ) -> ProfessionalFeeChargeOut:
     try:
@@ -279,7 +280,7 @@ def issue_charge(
     payload: ProfessionalFeeChargeIssueRequest,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.PROFESSIONAL_FEE_WRITE)),
     _csrf: None = Depends(verify_csrf),
 ) -> ProfessionalFeeChargeOut:
     try:
@@ -309,7 +310,7 @@ def issue_charge(
 def list_payments(
     charge_id: uuid.UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.PROFESSIONAL_FEE_READ)),
 ) -> list[ProfessionalFeePaymentOut]:
     try:
         professional_fee_service.get_charge(db, current_user.tenant_id, charge_id)
@@ -328,7 +329,7 @@ def create_payment(
     payload: ProfessionalFeePaymentCreate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.PROFESSIONAL_FEE_WRITE)),
     _csrf: None = Depends(verify_csrf),
 ) -> ProfessionalFeePaymentOut:
     try:
@@ -393,7 +394,7 @@ def void_payment(
     payload: ProfessionalFeePaymentVoidRequest,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.PROFESSIONAL_FEE_VOID)),
     _csrf: None = Depends(verify_csrf),
 ) -> ProfessionalFeePaymentOut:
     try:
@@ -443,7 +444,7 @@ def void_payment(
 def list_receipts(
     charge_id: uuid.UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.PROFESSIONAL_FEE_READ)),
 ) -> list[ProfessionalReceiptOut]:
     try:
         professional_fee_service.get_charge(db, current_user.tenant_id, charge_id)
@@ -462,7 +463,7 @@ def issue_receipt(
     payload: ProfessionalReceiptCreate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.PROFESSIONAL_FEE_WRITE)),
     _csrf: None = Depends(verify_csrf),
 ) -> ProfessionalReceiptOut:
     try:
@@ -508,7 +509,7 @@ def void_receipt(
     payload: ProfessionalReceiptVoidRequest,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.PROFESSIONAL_FEE_VOID)),
     _csrf: None = Depends(verify_csrf),
 ) -> ProfessionalReceiptOut:
     try:

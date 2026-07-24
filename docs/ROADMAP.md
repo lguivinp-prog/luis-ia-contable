@@ -25,10 +25,31 @@ Documentación base, arquitectura, modelo de amenazas, modelo de datos, estructu
 - **Reportes**: exportación CSV/Excel de 10 tipos de datos, sanitizada contra *CSV formula injection*, límite de filas configurable, `openpyxl` como dependencia declarativa (ADR-0049).
 - Frontend completo para las pantallas anteriores (pestañas de declaración, honorarios por cliente, tablero extendido, reportes).
 
+**Bloque 4 ✅ (esta entrega): RBAC real + gestión de usuarios**
+- **Catálogo de permisos**: `Permission` (30 valores, `backend/app/core/permissions.py`) + `ROLE_PERMISSIONS`
+  declarativo por rol (`admin`=30, `contador`=27, `asistente`=13), fallo cerrado ante rol/permiso desconocido
+  (ADR-0050). Separación `document:item_write` (operar ítems ya asignados, incluido `asistente`) vs.
+  `document:manage` (configuración documental: catálogo, asignación, sincronización — solo `admin`/`contador`).
+- **Gestión de usuarios**: alta con contraseña temporal (`must_change_password`), cambio de rol, desactivación
+  y reactivación con motivo, restablecimiento administrativo de contraseña, revocación de sesiones — 6
+  endpoints (`/api/v1/users/*`), protección concurrente real del último admin activo por tenant vía
+  `SELECT ... FOR UPDATE` con orden determinista (sin deadlock), migración 0012 con preflight de 3
+  verificaciones antes de cualquier DDL (ADR-0051).
+- **Aplicación de permisos**: `require_permission` sustituye a `ensure_admin_role` en los 15 routers
+  existentes, con cobertura estructural verificada por prueba dedicada (allowlist cerrada de rutas exentas,
+  nunca por prefijo) y matriz funcional 200/403 de los 30 permisos (ADR-0052).
+- **Frontend**: `CurrentUserProvider`/`useCurrentUser` como fuente única de permisos (`GET /auth/me`),
+  pantalla `/users` de administración, pantalla obligatoria de cambio de contraseña, gateo completo (ocultar
+  o deshabilitar, nunca solo por color) de los 16 componentes/páginas mutantes existentes.
+
 **Bloques siguientes (pendientes):**
-- RBAC real (roles/permisos más allá del gateo de una sola posición usado para el cierre excepcional).
-- Rectificatorias tributarias completas.
 - Almacenamiento real de archivos para documentos (hoy solo metadatos validados, nunca una ruta o URL real).
+
+**Exclusión de alcance (decisión funcional del propietario):** Luis IA Contable no incorporará un módulo
+independiente de rectificatorias tributarias vinculado a declaraciones originales — no forma parte del flujo
+operativo real del estudio. Esta exclusión no afecta la funcionalidad ya existente: las correcciones de
+determinaciones tributarias, la corrección administrativa de presentación, los historiales de estado y la
+auditoría asociada se conservan tal como están implementadas (ver ADR-0038/0039 y `docs/USER_MANUAL.md`).
 
 ## Fase 2 — Google y comunicaciones (pendiente)
 

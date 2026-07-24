@@ -13,7 +13,8 @@ const DOCUMENT_ELIGIBLE = new Set(["COMPLETE", "NOT_APPLICABLE"]);
 
 interface ClosePanelProps {
   declaration: Declaration;
-  isAdmin: boolean;
+  canClose: boolean;
+  canOverrideClose: boolean;
   onClose: (forceCloseWithPending: boolean, closeOverrideReason: string | null) => Promise<void>;
 }
 
@@ -28,7 +29,7 @@ function PreconditionRow({ label, met }: { label: string; met: boolean }) {
   );
 }
 
-export function ClosePanel({ declaration, isAdmin, onClose }: ClosePanelProps) {
+export function ClosePanel({ declaration, canClose, canOverrideClose, onClose }: ClosePanelProps) {
   const [showOverride, setShowOverride] = useState(false);
   const [reason, setReason] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -96,17 +97,21 @@ export function ClosePanel({ declaration, isAdmin, onClose }: ClosePanelProps) {
         <PreconditionRow label="Impuesto" met={taxMet} />
       </ul>
 
-      {allMet ? (
+      {allMet && canClose && (
         <Button type="button" onClick={handleNormalClose} disabled={submitting}>
           {submitting ? "Cerrando…" : "Cerrar declaración"}
         </Button>
-      ) : (
+      )}
+      {allMet && !canClose && (
+        <p style={{ color: "var(--muted)" }}>No tienes permiso para cerrar declaraciones.</p>
+      )}
+      {!allMet && (
         <p style={{ color: "var(--muted)" }}>
           El cierre normal requiere que las tres precondiciones estén cumplidas.
         </p>
       )}
 
-      {!allMet && isAdmin && (
+      {!allMet && canOverrideClose && (
         <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
           {!showOverride ? (
             <Button type="button" variant="danger" onClick={() => setShowOverride(true)}>

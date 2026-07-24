@@ -3,7 +3,8 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import get_client_ip, get_current_user, verify_csrf
+from app.core.dependencies import get_client_ip, verify_csrf
+from app.core.permissions import Permission, require_permission
 from app.db.session import get_db
 from app.models.audit_log import AuditAction
 from app.models.user import User
@@ -30,7 +31,7 @@ def preview(
     payload: GenerationPreviewRequest,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.DECLARATION_WRITE)),
     _csrf: None = Depends(verify_csrf),
 ) -> DeclarationGenerationRunOut:
     try:
@@ -69,7 +70,7 @@ def preview(
 def get_run(
     run_id: uuid.UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.DECLARATION_READ)),
 ) -> DeclarationGenerationRunOut:
     try:
         run = declaration_generation_service.get_run(db, current_user.tenant_id, run_id)
@@ -87,7 +88,7 @@ def set_item_excluded(
     payload: GenerationItemExcludeRequest,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.DECLARATION_WRITE)),
     _csrf: None = Depends(verify_csrf),
 ) -> dict:
     try:
@@ -120,7 +121,7 @@ def confirm(
     run_id: uuid.UUID,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.DECLARATION_WRITE)),
     _csrf: None = Depends(verify_csrf),
 ) -> DeclarationGenerationRunOut:
     try:
@@ -160,7 +161,7 @@ def refresh_preview(
     run_id: uuid.UUID,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.DECLARATION_WRITE)),
     _csrf: None = Depends(verify_csrf),
 ) -> DeclarationGenerationRunOut:
     try:
@@ -193,7 +194,7 @@ def cancel(
     run_id: uuid.UUID,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(Permission.DECLARATION_WRITE)),
     _csrf: None = Depends(verify_csrf),
 ) -> DeclarationGenerationRunOut:
     try:
