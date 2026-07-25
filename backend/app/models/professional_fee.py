@@ -80,6 +80,11 @@ class ProfessionalFeeAgreement(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __tablename__ = "professional_fee_agreements"
     __table_args__ = (
         UniqueConstraint("id", "tenant_id", name="uq_professional_fee_agreements_id_tenant"),
+        # Auxiliar para la FK compuesta de operational_tasks (Fase 2/Bloque 1,
+        # migracion 0014) -- forma 4 (honorario), ver ADR-0057.
+        UniqueConstraint(
+            "id", "tenant_id", "client_id", name="uq_professional_fee_agreements_id_tenant_client"
+        ),
         CheckConstraint(_AGREEMENT_STATUS_CHECK, name="ck_professional_fee_agreements_status"),
         CheckConstraint("amount >= 0", name="ck_professional_fee_agreements_amount_positive"),
         CheckConstraint("currency = 'PEN'", name="ck_professional_fee_agreements_currency_pen"),
@@ -164,6 +169,11 @@ class ProfessionalFeeCharge(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         UniqueConstraint(
             "tenant_id", "agreement_id", "tax_period_id",
             name="uq_professional_fee_charges_agreement_period",
+        ),
+        # Auxiliar para la FK compuesta de operational_tasks (Fase 2/Bloque 1,
+        # migracion 0014) -- forma 4 (honorario), ver ADR-0057.
+        UniqueConstraint(
+            "id", "tenant_id", "agreement_id", name="uq_professional_fee_charges_id_tenant_agreement"
         ),
         CheckConstraint(_CHARGE_STATUS_CHECK, name="ck_professional_fee_charges_status"),
         CheckConstraint("amount >= 0", name="ck_professional_fee_charges_amount_positive"),

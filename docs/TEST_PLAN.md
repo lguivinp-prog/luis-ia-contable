@@ -102,6 +102,25 @@ del Bloque 5). Backup/restauración (`backup.ps1`/`restore.ps1`) se verificó ma
 contra el entorno de desarrollo, incluida la reversión automática ante fallo — no tienen suite `pytest`, mismo
 criterio que el resto de los scripts operativos de este repositorio.
 
+## Pruebas de gestión operativa de tareas (Fase 2, Bloque 1)
+
+| Archivo | Cubre |
+|---|---|
+| `test_migration_0014_operational_tasks.py` | Upgrade/downgrade/re-upgrade; las 11 FK + 7 `CHECK` de `operational_tasks`, 4 FK + 8 `CHECK` de `task_change_history`, 2 FK + 1 `CHECK` de `task_comments`, las 4 constraints auxiliares en tablas preexistentes |
+| `test_operational_task_constraints.py` | Intentos SQL/ORM directos contra las 5 formas estructurales, la cadena `charge→agreement→client`, coherencia de generación/resolución/vencimiento/`starts_before_due`, coherencia por `event_type` de `task_change_history`, límite de `task_comments.body` |
+| `test_operational_tasks_manual.py` | Ciclo de vida manual vía API real: creación (con/sin `client_id`, rechazo cross-tenant), `PATCH` sin campos → 422, sin cambio real → 409 `TASK_NO_CHANGES`, `expected_version` obsoleto → 409 `TASK_VERSION_CONFLICT`, start/complete/cancel, reasignación (mismo valor → 409, usuario inactivo → 422), autorización por fila del asistente, comentarios (terminal → 409, vacío → 422), historial, filtro por `client_id` |
+| `test_task_generation.py` | Las 3 reglas con plantillas exactas comparadas completas, idempotencia, `OBSERVED` incluido en `DOCUMENT_COLLECTION`, resolución automática (`FILED`→`COMPLETED`), realineación de vencimiento, conservación de `due_at` tras `due_is_overridden` |
+| `test_sync_operational_tasks_cli.py` | El CLI persiste con un único `commit()`; tenant inexistente no crea ninguna fila y sale con código distinto de cero; una excepción forzada revierte todo; idempotencia en una segunda ejecución |
+| `test_task_agenda_and_filters.py` | Fronteras exactas de `time_bucket` con reloj congelado (tarea sin hora a las 23:59:59 Lima vs. 1s después; tarea con hora 10:00 a las 09:59 vs. 10:01), ausencia de solape entre baldes, exclusión de tareas terminales, `assigned_to=me/unassigned` y valor inválido → 422, resúmenes de agenda/alertas, `task_summary` en el dashboard |
+| `test_operational_task_concurrency.py` | Dos conexiones reales (12 casos): completar-vs-completar, completar-vs-cancelar, reasignar-vs-completar/reprogramar, dos reprogramaciones concurrentes (uno gana, 409 al otro), comentario-vs-reasignación en ambos órdenes, sincronización realineando/resolviendo vs. acción humana concurrente, dos sincronizaciones mutando las mismas tareas existentes bloqueadas por `id ASC`, y dos sincronizaciones insertando las MISMAS `generation_key` descubiertas en orden opuesto -- normalizadas al mismo orden antes de insertar en el índice único parcial, sin interbloqueo |
+| `test_reports_api.py` (extendido) | 11º tipo `TASKS` incluido en la iteración genérica de los 11 tipos; cliente resuelto correctamente en el reporte |
+| `test_permissions.py`/`test_permission_matrix_api.py` (extendidos) | `Permission` con 39 valores; `admin`=39/`contador`=36/`asistente`=19; matriz 200/403 de los 8 permisos nuevos |
+
+Frontend: `/tasks`, `/tasks/[id]`, `/tasks/new`, `/agenda` y la extensión del dashboard se verificaron
+manualmente en navegador con roles `admin` y `asistente` reales (creación sin/con cliente, ciclo de vida
+completo con historial, comentarios, botones deshabilitados —no ocultos— del asistente sobre una tarea sin
+responsable, agenda y tablero con las tarjetas canónicas).
+
 ## Pruebas de arranque (smoke)
 
 - `backend/tests/smoke/test_app_boot.py`: la aplicación FastAPI arranca sin excepciones; `/api/v1/health/live` y `/api/v1/health/ready` responden 200.

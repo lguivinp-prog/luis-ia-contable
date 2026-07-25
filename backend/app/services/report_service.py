@@ -23,6 +23,7 @@ from app.models.audit_log import AuditLog
 from app.models.client import Client
 from app.models.declaration import Declaration
 from app.models.declaration_document import DeclarationDocumentItem
+from app.models.operational_task import OperationalTask
 from app.models.professional_fee import (
     ProfessionalFeeAgreement,
     ProfessionalFeeCharge,
@@ -46,6 +47,7 @@ REPORT_TYPES = (
     "FEE_RECEIPTS",
     "CLIENTS",
     "AUDIT_LOG",
+    "TASKS",
 )
 
 
@@ -188,6 +190,24 @@ def _build(tenant_id: uuid.UUID, report_type: str, *, tax_period_id, client_id) 
             AuditLog.entity_id, AuditLog.created_at,
         ).where(AuditLog.tenant_id == tenant_id)
         return columns, query.order_by(AuditLog.created_at.desc())
+
+    if report_type == "TASKS":
+        columns = [
+            "id", "title", "task_type", "priority", "status", "assigned_to",
+            "due_at", "created_at", "completed_at", "client_id", "days_to_complete",
+        ]
+        days_to_complete = (OperationalTask.completed_at - OperationalTask.created_at).label(
+            "days_to_complete"
+        )
+        query = select(
+            OperationalTask.id, OperationalTask.title, OperationalTask.task_type,
+            OperationalTask.priority, OperationalTask.status, OperationalTask.assigned_to,
+            OperationalTask.due_at, OperationalTask.created_at, OperationalTask.completed_at,
+            OperationalTask.client_id, days_to_complete,
+        ).where(OperationalTask.tenant_id == tenant_id)
+        if client_id is not None:
+            query = query.where(OperationalTask.client_id == client_id)
+        return columns, query.order_by(OperationalTask.due_at.asc())
 
     raise UnknownReportTypeError(f"Tipo de reporte desconocido: {report_type}")
 

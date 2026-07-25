@@ -4,12 +4,12 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.core import clock
-from app.core.permissions import Permission, require_permission
+from app.core.permissions import Permission, has_permission, require_permission
 from app.db.session import get_db
 from app.models.user import User
 from app.repositories import declaration_repository
-from app.schemas.dashboard import DashboardOut, DashboardRow
-from app.services import dashboard_service, declaration_risk
+from app.schemas.dashboard import DashboardOut, DashboardRow, TaskDashboardSummary
+from app.services import dashboard_service, declaration_risk, task_agenda_service
 
 router = APIRouter(prefix="/api/v1/dashboard", tags=["dashboard"])
 
@@ -92,4 +92,12 @@ def monthly_dashboard(
         )
         rows.append(row)
 
-    return DashboardOut(items=rows, total=total, limit=limit, offset=offset)
+    task_summary = None
+    if has_permission(current_user, Permission.TASK_READ):
+        task_summary = TaskDashboardSummary(
+            **task_agenda_service.compute_task_summary_for_dashboard(
+                db, current_user.tenant_id, current_user.id, clock.utcnow()
+            )
+        )
+
+    return DashboardOut(items=rows, total=total, limit=limit, offset=offset, task_summary=task_summary)

@@ -43,6 +43,14 @@ class Permission(str, enum.Enum):
     PROFESSIONAL_FEE_VOID = "professional_fee:void"
     REPORT_EXPORT = "report:export"
     DASHBOARD_READ = "dashboard:read"
+    TASK_READ = "task:read"
+    TASK_CREATE = "task:create"
+    TASK_UPDATE = "task:update"
+    TASK_COMPLETE = "task:complete"
+    TASK_ASSIGN = "task:assign"
+    TASK_CANCEL = "task:cancel"
+    TASK_SYNC = "task:sync"
+    ALERT_READ = "alert:read"
 
 
 _READ_PERMISSIONS: frozenset[Permission] = frozenset(
@@ -58,6 +66,9 @@ _READ_PERMISSIONS: frozenset[Permission] = frozenset(
         Permission.TAX_PAYMENT_READ,
         Permission.PROFESSIONAL_FEE_READ,
         Permission.DASHBOARD_READ,
+        Permission.TASK_READ,
+        Permission.ALERT_READ,
+        Permission.TASK_SYNC,
     }
 )
 
@@ -78,6 +89,8 @@ _CONTADOR_ONLY_ADDITIONS: frozenset[Permission] = frozenset(
         Permission.TAX_PAYMENT_VOID,
         Permission.PROFESSIONAL_FEE_WRITE,
         Permission.PROFESSIONAL_FEE_VOID,
+        Permission.TASK_ASSIGN,
+        Permission.TASK_CANCEL,
     }
 )
 
@@ -85,6 +98,9 @@ _ASISTENTE_EXTRA_ADDITIONS: frozenset[Permission] = frozenset(
     {
         Permission.DOCUMENT_ITEM_WRITE,
         Permission.REPORT_EXPORT,
+        Permission.TASK_CREATE,
+        Permission.TASK_UPDATE,
+        Permission.TASK_COMPLETE,
     }
 )
 

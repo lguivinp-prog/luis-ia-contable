@@ -101,7 +101,33 @@ Una fila por declaración (nunca se duplica aunque tenga varios documentos, pago
 
 ## Reportes (`/reports`)
 
-Exporta datos del tenant (declaraciones, documentos, determinaciones, pagos tributarios, acuerdos/cargos/pagos/recibos de honorarios, contribuyentes, registro de auditoría) en CSV o Excel. Cada exportación queda registrada en el historial de auditoría; el número de filas exportables tiene un límite configurable por el equipo técnico.
+Exporta datos del tenant (declaraciones, documentos, determinaciones, pagos tributarios, acuerdos/cargos/pagos/recibos de honorarios, contribuyentes, tareas operativas, registro de auditoría) en CSV o Excel. Cada exportación queda registrada en el historial de auditoría; el número de filas exportables tiene un límite configurable por el equipo técnico.
+
+## Tareas (`/tasks`) y Agenda (`/agenda`)
+
+Visible para los 3 roles (Administrador, Contador, Asistente).
+
+- **Lista de tareas** (`/tasks`): filtra por estado, prioridad, balde de vencimiento (Vencidas/Vencen hoy/
+  Próximos 7 días) y responsable (Asignadas a mí/Sin responsable). El botón "Sincronizar" genera de forma
+  idempotente las tareas automáticas pendientes (presentación de declaraciones, recopilación de documentos
+  solicitados/observados, cobranza de honorarios vencidos) — ejecutarlo varias veces nunca duplica tareas.
+- **Nueva tarea** (`/tasks/new`): título, descripción, tipo, prioridad, fecha/hora de vencimiento y un
+  selector opcional de cliente ("Sin cliente" o uno de los clientes del tenant). Una tarea manual nunca se
+  vincula directamente a una declaración/documento/cobranza específica — eso solo lo hace la sincronización
+  automática.
+- **Detalle de tarea** (`/tasks/[id]`): contenido, historial completo (quién/cuándo/qué cambió, incluidas las
+  mutaciones automáticas de la sincronización), comentarios, y acciones (iniciar, completar, cancelar con
+  motivo, reprogramar, reasignar). Una tarea generada automáticamente que se marca completada/cancelada por
+  la propia sincronización (porque su fuente ya no requiere trabajo) queda visible como resuelta
+  automáticamente en el historial.
+- **Autorización del Asistente**: puede ver todas las tareas del despacho, pero solo puede iniciar/completar/
+  reprogramar/comentar las que tiene asignadas a sí mismo — sobre cualquier otra, los botones aparecen
+  deshabilitados (no ocultos) con un mensaje explicando por qué. No puede reasignar ni cancelar ninguna
+  tarea, ni asignar una tarea nueva a otra persona (solo a sí mismo o sin responsable).
+- **Agenda** (`/agenda`): vista agrupada por Vencidas/Vencen hoy/Próximos 7 días, con los mismos conteos que
+  las tarjetas del tablero mensual — nunca un cálculo distinto entre ambas pantallas.
+- **Tablero mensual**: incluye tarjetas de tareas (Vencidas, Vencen hoy, Próximos 7 días, Urgentes, Sin
+  responsable, Asignadas a mí) que enlazan directamente a la lista de tareas ya filtrada.
 
 ## Gestión de usuarios (`/users`, solo Administrador)
 
@@ -122,7 +148,7 @@ Visible únicamente para el rol Administrador (el enlace "Usuarios" no aparece p
 
 ## Qué todavía no hace el sistema
 
-Esta versión no gestiona notificaciones, ni integraciones con Google/Gmail/WhatsApp/SUNAT Operaciones en Línea, ni presenta declaraciones o realiza pagos reales. Desde Bloque 5 los documentos sí se almacenan como archivos reales (PDF/JPG/PNG/DOCX/XLSX, con reemplazo versionado y eliminación lógica); lo que no existe todavía es restauración de una versión eliminada, previsualización embebida de Office, ni purga física automática de archivos eliminados. Las rectificatorias tributarias quedan excluidas del producto por decisión funcional del propietario (no reaparecen como pendiente). Ver [ROADMAP.md](ROADMAP.md).
+Esta versión no envía notificaciones por correo/SMS/push (las tareas y alertas solo se ven dentro de la aplicación), ni tiene integraciones con Google/Gmail/WhatsApp/SUNAT Operaciones en Línea, ni presenta declaraciones o realiza pagos reales. Desde Bloque 5 los documentos sí se almacenan como archivos reales (PDF/JPG/PNG/DOCX/XLSX, con reemplazo versionado y eliminación lógica); lo que no existe todavía es restauración de una versión eliminada, previsualización embebida de Office, ni purga física automática de archivos eliminados. Las rectificatorias tributarias quedan excluidas del producto por decisión funcional del propietario (no reaparecen como pendiente). Ver [ROADMAP.md](ROADMAP.md).
 
 ## Cerrar sesión
 

@@ -20,9 +20,17 @@ const NAV_ITEMS = [
 export function Sidebar() {
   const pathname = usePathname();
   const { user } = useCurrentUser();
-  const navItems = hasPermission(user, "user:read")
-    ? [...NAV_ITEMS, { href: "/users", label: "Usuarios" }]
-    : NAV_ITEMS;
+  let navItems = NAV_ITEMS;
+  if (hasPermission(user, "task:read")) {
+    navItems = [
+      ...navItems,
+      { href: "/tasks", label: "Tareas" },
+      { href: "/agenda", label: "Agenda" },
+    ];
+  }
+  if (hasPermission(user, "user:read")) {
+    navItems = [...navItems, { href: "/users", label: "Usuarios" }];
+  }
 
   return (
     <nav

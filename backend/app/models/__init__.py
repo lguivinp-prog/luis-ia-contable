@@ -21,6 +21,12 @@ from app.models.declaration_generation import (
 )
 from app.models.login_attempt import LoginAttempt
 from app.models.obligation import ClientObligation, ObligationCatalog
+from app.models.operational_task import (
+    OperationalTask,
+    TaskChangeHistory,
+    TaskComment,
+    TaskGenerationRun,
+)
 from app.models.professional_fee import (
     ProfessionalFeeAgreement,
     ProfessionalFeeAgreementHistory,
@@ -67,6 +73,7 @@ __all__ = [
     "FilingHistory",
     "LoginAttempt",
     "ObligationCatalog",
+    "OperationalTask",
     "ProfessionalFeeAgreement",
     "ProfessionalFeeAgreementHistory",
     "ProfessionalFeeCharge",
@@ -89,6 +96,9 @@ __all__ = [
     "TaxScheduleImportRun",
     "TaxScheduleSource",
     "TaxScheduleVersion",
+    "TaskChangeHistory",
+    "TaskComment",
+    "TaskGenerationRun",
     "Tenant",
     "User",
 ]

@@ -48,6 +48,11 @@ class TaxPayment(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __table_args__ = (
         UniqueConstraint("id", "tenant_id", name="uq_tax_payments_id_tenant"),
         UniqueConstraint("tenant_id", "idempotency_key", name="uq_tax_payments_idempotency_key"),
+        # Auxiliar para la FK compuesta de operational_tasks (Fase 2/Bloque 1,
+        # migracion 0014) -- forma 5 (pago + declaracion), ver ADR-0057.
+        UniqueConstraint(
+            "id", "tenant_id", "declaration_id", name="uq_tax_payments_id_tenant_declaration"
+        ),
         CheckConstraint("amount > 0", name="ck_tax_payments_amount_positive"),
         CheckConstraint(
             "overpayment_amount IS NULL OR overpayment_amount > 0",

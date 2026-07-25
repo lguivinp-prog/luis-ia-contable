@@ -53,14 +53,14 @@ En esta entrega, las columnas `sol_username_encrypted`, `sol_password_encrypted`
 ## RBAC real: catálogo de permisos y aplicación en routers (Bloque 4, ADR-0050/ADR-0051/ADR-0052)
 
 El sistema implementa RBAC real sobre los tres roles fijos (`admin`/`contador`/`asistente`, `CHECK
-ck_users_role`). `Permission(str, enum.Enum)` (`backend/app/core/permissions.py`) declara 31 permisos
-explícitos (30 desde Bloque 4, más `document:file_manage` desde Bloque 5, ver más abajo); `ROLE_PERMISSIONS`
-es el único mapa rol→permisos, sin tabla relacional (`admin`=31, `contador`=28, `asistente`=13).
-`has_permission`/`check_permission` fallan **cerrado**: un rol o permiso no
-reconocido nunca autoriza por defecto. `require_permission(permission)` es la dependencia que se aplica en
-la firma de cada endpoint mutante o de lectura de los 15 routers existentes; reemplaza por completo a la
-antigua `ensure_admin_role` (eliminada), incluido su único uso previo (cierre excepcional de una declaración,
-ahora gateado por `Permission.DECLARATION_CLOSE_OVERRIDE`).
+ck_users_role`). `Permission(str, enum.Enum)` (`backend/app/core/permissions.py`) declara 39 permisos
+explícitos (30 desde Bloque 4, `document:file_manage` desde Bloque 5, 8 permisos de tareas operativas desde
+Fase 2/Bloque 1 — ver más abajo); `ROLE_PERMISSIONS` es el único mapa rol→permisos, sin tabla relacional
+(`admin`=39, `contador`=36, `asistente`=19). `has_permission`/`check_permission` fallan **cerrado**: un rol o
+permiso no reconocido nunca autoriza por defecto. `require_permission(permission)` es la dependencia que se
+aplica en la firma de cada endpoint mutante o de lectura de todos los routers existentes; reemplaza por
+completo a la antigua `ensure_admin_role` (eliminada), incluido su único uso previo (cierre excepcional de una
+declaración, ahora gateado por `Permission.DECLARATION_CLOSE_OVERRIDE`).
 
 **Contraseña temporal**: el alta de usuario y el restablecimiento administrativo de contraseña fijan
 `must_change_password=true`; la dependencia `require_password_ready` (prerequisito de `require_permission`)
@@ -76,13 +76,30 @@ Un usuario no puede desactivarse ni cambiar su propio rol.
 **Cobertura estructural verificada**: `test_route_permission_coverage.py` recorre `app.routes` y falla si
 cualquier endpoint bajo `/api/v1/` no declara `require_permission` y no está en la allowlist cerrada
 `EXEMPT_ROUTES` (los 8 endpoints de autoservicio de `auth.py` + 2 de `health.py` — nunca una exención por
-prefijo). `test_permission_matrix_api.py` confirma 200/403 real para los 31 permisos.
+prefijo). `test_permission_matrix_api.py` confirma 200/403 real para los 39 permisos.
 
 **Gateo frontend como UX, no como control de acceso**: `hasPermission(user, permission)`
 (`frontend/src/lib/permissions.ts`) consume `permissions: list[str]` calculado por el backend en
 `GET /auth/me` — no existe copia del mapa de roles en TypeScript. Oculta o deshabilita controles mutantes en
 la interfaz para reducir fricción, pero cada endpoint sigue protegido en el backend independientemente del
 estado visual del cliente.
+
+## Gestión operativa de tareas: autorización por fila (Fase 2, Bloque 1, ADR-0057 a ADR-0061)
+
+8 permisos nuevos (`task:read/create/update/complete/assign/cancel/sync`, `alert:read`); `task:sync` se
+concede a los 3 roles (cualquiera puede disparar/consultar una sincronización idempotente); `task:assign`/
+`task:cancel` quedan reservados a `admin`/`contador`.
+
+**Única excepción del repositorio al patrón "permiso de rol, nunca de fila"**: `task:read` sigue siendo
+permiso de rol puro (lectura total del tenant para los 3 roles), pero `task:update`/`task:complete` para el
+rol `asistente` exigen además, bajo `lock_exact_task` con `populate_existing=True`, que
+`task.assigned_to == current_user.id` con el valor recién releído — nunca un valor leído antes del bloqueo.
+Operar una tarea ajena o sin responsable devuelve 403 (nunca 404, ya que la tarea es legible vía `task:read`;
+ni 409). El frontend refleja esto deshabilitando (nunca solo ocultando) los controles mutantes sobre tareas
+ajenas, con un mensaje explicativo. `POST .../comments` adquiere el mismo bloqueo de fila aunque no mute la
+tarea, precisamente para resolver de forma determinista la carrera entre un comentario del asistente y una
+reasignación concurrente por un admin/contador (verificado con una prueba de concurrencia real que fuerza
+ambos órdenes). Ver ADR-0061 para el detalle completo y su justificación acotada.
 
 ## Almacenamiento real de documentos (Bloque 5, ADR-0053 a ADR-0056)
 

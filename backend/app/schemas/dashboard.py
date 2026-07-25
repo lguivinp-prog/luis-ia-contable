@@ -23,8 +23,23 @@ class DashboardRow(DeclarationOut):
     fee_worst_collection_risk: str | None = None
 
 
+class TaskDashboardSummary(BaseModel):
+    """Extension aditiva del tablero (Fase 2, Bloque 1, Seccion 21 del
+    plan): ningun campo tributario existente cambia. Usa exactamente la
+    misma semantica de `task_agenda_service.compute_agenda_summary` --
+    nunca recalculada localmente en el frontend."""
+
+    overdue_tasks: int
+    due_today: int
+    due_next_7_days: int
+    urgent_tasks: int
+    unassigned_tasks: int
+    assigned_to_me: int
+
+
 class DashboardOut(BaseModel):
     items: list[DashboardRow]
     total: int
     limit: int
     offset: int
+    task_summary: TaskDashboardSummary | None = None

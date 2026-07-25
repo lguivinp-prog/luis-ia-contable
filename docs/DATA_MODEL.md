@@ -366,6 +366,43 @@ logical_file_id, version)`; **índice único parcial** `UNIQUE(tenant_id, logica
 `declaration_document_items.file_metadata` no cambia de esquema ni de contrato — sigue siendo notas
 descriptivas heredadas, nunca evidencia física (ver arriba y ADR-0054).
 
+## Fase 2, Bloque 1 — Gestión operativa de tareas (migración 0014)
+
+### `operational_tasks` (ADR-0057/ADR-0058)
+
+Tarea materializada con ciclo de vida propio. `client_id`/`declaration_id`/`declaration_document_item_id`/
+`professional_fee_charge_id`/`professional_fee_agreement_id`/`tax_payment_id` — todos nullable, con 11 FK
+compuestas que solo permiten 5 formas estructurales mutuamente excluyentes (`ck_operational_tasks_
+source_shape`): sin ancla (client_id opcional, tareas manuales), declaración sola, ítem+declaración,
+honorario (cadena `charge → agreement → client` verificada con 2 FK), pago+declaración. `title`/
+`description`/`task_type`/`priority`/`status`/`assigned_to`/`created_by`; `due_at`/`due_has_time`/
+`source_due_at`/`due_is_overridden`/`starts_at`; `completed_at`/`completed_by`/`cancelled_at`/`cancelled_by`/
+`cancellation_reason`/`resolution_origin`; `generation_key`/`is_system_generated`/`generation_run_id`;
+`version INT` (concurrencia optimista, `CHECK >= 1`). `OVERDUE` nunca es una columna — siempre `due_at <
+clock.utcnow() AND status NOT IN ('COMPLETED','CANCELLED')`.
+
+7 `CHECK` con nombre exacto: `ck_operational_tasks_fee_pair_coherence`, `_source_shape`,
+`_client_required_with_anchor` (defensa redundante contra `MATCH SIMPLE` con columnas `NULL`),
+`_generated_source_matches_type`, `_generation_coherence`, `_source_due_coherence`,
+`_status_resolution_coherence`, `_starts_before_due`. `UNIQUE(id, tenant_id)` y, para
+`generation_key`, un **índice único parcial** `uq_operational_tasks_tenant_generation_key` —
+`UNIQUE (tenant_id, generation_key) WHERE generation_key IS NOT NULL` — nunca un `UniqueConstraint`
+completo: las filas con `generation_key IS NULL` (tareas manuales) ni siquiera son evaluadas por el índice.
+
+### `task_generation_runs`, `task_change_history`, `task_comments` (ADR-0057/ADR-0059)
+
+`task_generation_runs`: resumen mínimo por ejecución de sincronización (`trigger_source`
+`MANUAL`/`LOGIN`/`AGENDA_OPEN`/`DASHBOARD_OPEN`/`CLI`, `triggered_by` NULL solo si `CLI`, `summary JSONB`).
+`task_change_history`: tabla consolidada única para toda mutación (10 `event_type`, 8 `CHECK` de coherencia
+por tipo de evento con `IS DISTINCT FROM` — exige cambio de valor real, no solo presencia de columnas
+pobladas). `task_comments`: append-only, `CHECK (length(trim(body)) BETWEEN 1 AND 4000)`.
+
+### Constraints auxiliares en tablas preexistentes (no destructivas)
+
+`uq_declaration_document_items_id_tenant_client_declaration`, `uq_tax_payments_id_tenant_declaration`,
+`uq_professional_fee_charges_id_tenant_agreement`, `uq_professional_fee_agreements_id_tenant_client` —
+soportan las FK compuestas de `operational_tasks` hacia esas 4 tablas.
+
 ## Diagrama de relaciones (esta entrega)
 
 ```
@@ -397,10 +434,16 @@ clients 1──n professional_fee_agreements 1──n professional_fee_agreement
 professional_fee_agreements 1──n professional_fee_charges 1──n professional_fee_charge_status_history
 professional_fee_charges 1──n professional_fee_payments 1──n professional_fee_payment_history
 professional_fee_charges 1──n professional_receipts
+
+task_generation_runs 1──n operational_tasks (via generation_run_id, solo tareas generadas)
+operational_tasks 1──n task_change_history, task_comments
+operational_tasks n──1 clients (opcional), n──1 declarations (opcional), n──1 declaration_document_items
+    (opcional), n──1 professional_fee_charges + professional_fee_agreements (opcional, par verificado),
+    n──1 tax_payments (opcional) -- exactamente 1 de las 5 formas estructurales, ver Fase 2/Bloque 1 arriba
 ```
 
 ## Entidades planificadas para fases futuras (no implementadas aún)
 
-`client_contacts`, `client_tax_profiles`, `client_credentials` (bóveda real), `client_settings`, `communications`, `communication_templates`, `notifications`, `notification_deadlines`, `cases`, `tasks`, `calendar_events`, `drive_folders`, `email_messages`, `integration_accounts`, `integration_sync_runs`, `automation_jobs`, `backup_runs`, `ai_prompt_templates`, `ai_analysis_results`, `system_settings`. RBAC (roles/permisos por rol fijo) ya está implementado desde Bloque 4 sin tablas relacionales propias (`Permission`/`ROLE_PERMISSIONS` declarativos, ver ADR-0050); `roles`/`user_roles` solo se revisitarían si en el futuro se necesitan roles personalizados configurables por tenant (Fase 6, comercialización multi-despacho).
+`client_contacts`, `client_tax_profiles`, `client_credentials` (bóveda real), `client_settings`, `communications`, `communication_templates`, `notifications`, `notification_deadlines`, `cases`, `calendar_events`, `drive_folders`, `email_messages`, `integration_accounts`, `integration_sync_runs`, `automation_jobs`, `backup_runs`, `ai_prompt_templates`, `ai_analysis_results`, `system_settings`. RBAC (roles/permisos por rol fijo) ya está implementado desde Bloque 4 sin tablas relacionales propias (`Permission`/`ROLE_PERMISSIONS` declarativos, ver ADR-0050); `roles`/`user_roles` solo se revisitarían si en el futuro se necesitan roles personalizados configurables por tenant (Fase 7, comercialización multi-despacho). `tasks`/`internal_alerts` ya no figuran aquí: implementadas en Fase 2, Bloque 1 como `operational_tasks` (materializadas) + alertas 100% derivadas sin tabla propia (ver ADR-0057/ADR-0060). `calendar_events` sigue pendiente para cuando se integre Google Calendar (Fase 3) — la agenda interna de Fase 2/Bloque 1 (`GET /tasks/agenda-summary`) es una vista derivada de `operational_tasks`, no una tabla de eventos de calendario propia.
 
-Estas tablas se diseñarán en detalle y se migrarán en los bloques de Fase 1 posteriores y en las Fases 2–6, siguiendo las mismas convenciones (`tenant_id`, sin `float` para montos, timestamps con zona horaria, historial de estados donde aplique).
+Estas tablas se diseñarán en detalle y se migrarán en los bloques de Fase 1 posteriores y en las Fases 3–7, siguiendo las mismas convenciones (`tenant_id`, sin `float` para montos, timestamps con zona horaria, historial de estados donde aplique).

@@ -114,6 +114,30 @@ export const GENERATION_RUN_STATUS_SEMAPHORE: Record<string, SemaphoreEntry> = {
   FAILED: { label: "Fallido", color: "rojo" },
 };
 
+export const TASK_STATUS_SEMAPHORE: Record<string, SemaphoreEntry> = {
+  PENDING: { label: "Pendiente", color: "gris" },
+  IN_PROGRESS: { label: "En proceso", color: "amarillo" },
+  COMPLETED: { label: "Completada", color: "verde" },
+  CANCELLED: { label: "Cancelada", color: "rojo" },
+};
+
+export const TASK_PRIORITY_SEMAPHORE: Record<string, SemaphoreEntry> = {
+  LOW: { label: "Baja", color: "gris" },
+  NORMAL: { label: "Normal", color: "verde" },
+  HIGH: { label: "Alta", color: "amarillo" },
+  URGENT: { label: "Urgente", color: "rojo" },
+};
+
+export const TASK_TYPE_LABEL: Record<string, string> = {
+  DECLARATION_FILING: "Presentación de declaración",
+  DOCUMENT_COLLECTION: "Recopilación de documento",
+  TAX_PAYMENT_FOLLOWUP: "Seguimiento de pago tributario",
+  FEE_COLLECTION: "Cobranza de honorarios",
+  CLIENT_FOLLOWUP: "Seguimiento de cliente",
+  INTERNAL_REVIEW: "Revisión interna",
+  GENERAL: "General",
+};
+
 interface StatusSemaphoreProps {
   status: string;
   map: Record<string, SemaphoreEntry>;

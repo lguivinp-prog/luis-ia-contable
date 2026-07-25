@@ -164,6 +164,15 @@ class DeclarationDocumentItem(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         UniqueConstraint(
             "id", "tenant_id", "client_id", name="uq_declaration_document_items_id_tenant_client"
         ),
+        # Auxiliar para la FK compuesta de operational_tasks (Fase 2/Bloque 1,
+        # migracion 0014) -- forma 3 (item + declaracion), ver ADR-0057.
+        UniqueConstraint(
+            "id",
+            "tenant_id",
+            "client_id",
+            "declaration_id",
+            name="uq_declaration_document_items_id_tenant_client_declaration",
+        ),
         UniqueConstraint(
             "tenant_id",
             "declaration_id",

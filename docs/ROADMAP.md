@@ -71,23 +71,52 @@ operativo real del estudio. Esta exclusión no afecta la funcionalidad ya existe
 determinaciones tributarias, la corrección administrativa de presentación, los historiales de estado y la
 auditoría asociada se conservan tal como están implementadas (ver ADR-0038/0039 y `docs/USER_MANUAL.md`).
 
-## Fase 2 — Google y comunicaciones (pendiente)
+## Fase 2 — Gestión operativa interna: tareas, agenda y alertas ✅ (esta entrega)
+
+**Bloque 1 ✅: tareas operativas, responsables, agenda interna y alertas derivadas**
+- **Modelo híbrido**: `operational_tasks` materializadas (ciclo de vida propio, comentarios, historial) +
+  `OVERDUE`/baldes de agenda siempre calculados en vivo, nunca persistidos — mismo principio que
+  `declaration_risk.py`/`professional_fee_risk.py` (ADR-0057). 5 formas estructurales de FK compuesta en vez
+  de `source_type`/`source_id`; cadena de 2 FK verificada `charge → agreement → client` para honorarios.
+- **Ciclo de vida y concurrencia**: 4 estados sin reapertura (`PENDING`/`IN_PROGRESS`/`COMPLETED`/
+  `CANCELLED`), bloqueo de fila exacta (`populate_existing=True`) + versión optimista para toda acción
+  humana, orden global determinista de 12 fases para evitar interbloqueos entre sincronizaciones
+  concurrentes, rechazo explícito de mutaciones sin cambio real (`409 TASK_NO_CHANGES`) (ADR-0058).
+- **Generación automática idempotente**: 3 reglas (`DECLARATION_FILING`, `DOCUMENT_COLLECTION` — incluye
+  `OBSERVED`, `FEE_COLLECTION`) vía `ON CONFLICT DO NOTHING RETURNING`, resolución automática con mapeo
+  exhaustivo y precedencia explícita, realineación de vencimiento, CLI multitenant explícito
+  (`--tenant-id` obligatorio, transacción propia) que comparte servicio con `POST /tasks/sync` — cero lógica
+  duplicada (ADR-0059).
+- **Agenda y alertas**: helper centralizado de zona horaria (`America/Lima`), semántica única de "vencido"
+  sin variante local en ninguna capa, filtros canónicos `time_bucket`/`assigned_to` en `GET /tasks`, alertas
+  100% derivadas sin tabla propia y sin doble conteo de honorarios ya materializados en tareas
+  `FEE_COLLECTION` (ADR-0060).
+- **Permisos**: 8 permisos nuevos (`task:read/create/update/complete/assign/cancel/sync`, `alert:read`),
+  `task:sync` concedido a los 3 roles; autorización por fila del asistente (única excepción del repositorio
+  al patrón "permiso de rol, nunca de fila"), incluida la carrera comentario-vs-reasignación resuelta con el
+  mismo bloqueo de fila (ADR-0061).
+- **Frontend**: `/tasks`, `/tasks/[id]`, `/tasks/new` (con selector opcional de cliente para tareas
+  manuales), `/agenda`, extensión aditiva del tablero mensual con `task_summary` — ningún campo tributario
+  existente cambia.
+- **Reportes**: 11º tipo de reporte (`TASKS`), cliente siempre resuelto de forma denormalizada.
+
+## Fase 3 — Google y comunicaciones (pendiente)
 
 OAuth Google, Google Calendar, Google Drive (estructura documental), WhatsApp asistido, plantillas de mensajes, sincronización, copias cifradas en Drive.
 
-## Fase 3 — Gmail y notificaciones (pendiente)
+## Fase 4 — Gmail y notificaciones (pendiente)
 
 Gmail de solo lectura, filtros y asociación por RUC, descarga controlada de adjuntos, bandeja de notificaciones, niveles de riesgo, expedientes, IA opcional para clasificación/resumen (nunca como única fuente de verdad).
 
-## Fase 4 — Bóveda y acceso SOL supervisado (pendiente)
+## Fase 5 — Bóveda y acceso SOL supervisado (pendiente)
 
 Bóveda criptográfica de credenciales (AES-256-GCM + Argon2id + DPAPI), automatización de navegador con Playwright estrictamente supervisada (consulta de régimen, buzón, descargas — nunca presentación ni pago), detención automática ante CAPTCHA o cambios inesperados.
 
-## Fase 5 — SIRE y controles especializados (pendiente)
+## Fase 6 — SIRE y controles especializados (pendiente)
 
 Adaptadores para RVIE, RCE, AFPnet, EsSalud, ITAN, Renta Anual 710, fraccionamientos, contratos, poderes. Nunca presentación ni aceptación automática de registros.
 
-## Fase 6 — Multiusuario y comercialización (pendiente)
+## Fase 7 — Multiusuario y comercialización (pendiente)
 
 Tenants, usuarios, roles, permisos, separación de datos real entre despachos, portal web en la nube, número empresarial y WhatsApp Cloud API, políticas de privacidad, exportación/eliminación de datos, despliegue comercial.
 

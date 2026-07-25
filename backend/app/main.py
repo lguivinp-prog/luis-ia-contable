@@ -13,6 +13,7 @@ from app.routers import (
     document_integrity,
     health,
     obligations,
+    operational_tasks,
     professional_fees,
     reports,
     tax_assessments,
@@ -57,3 +58,4 @@ app.include_router(reports.router)
 app.include_router(dashboard.router)
 app.include_router(users.router)
 app.include_router(document_integrity.router)
+app.include_router(operational_tasks.router)

@@ -1,3 +1,5 @@
+import type { TaskDashboardSummary } from "@/lib/types/task";
+
 export type TaxPeriodType = "MONTHLY" | "ANNUAL" | "SPECIAL";
 
 export interface TaxPeriod {
@@ -153,6 +155,7 @@ export interface DashboardOut {
   total: number;
   limit: number;
   offset: number;
+  task_summary: TaskDashboardSummary | null;
 }
 
 export interface DeclarationHistoryOut {

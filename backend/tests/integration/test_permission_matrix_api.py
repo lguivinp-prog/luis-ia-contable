@@ -198,6 +198,56 @@ CASES = [
         "contador_client",
         "asistente_client",
     ),
+    ("task:read", "GET", "/api/v1/tasks", None, "asistente_client", None),
+    (
+        "task:create",
+        "POST",
+        "/api/v1/tasks",
+        {},
+        "asistente_client",
+        None,
+    ),
+    (
+        "task:update",
+        "PATCH",
+        f"/api/v1/tasks/{DUMMY_ID}",
+        {},
+        "asistente_client",
+        None,
+    ),
+    (
+        "task:complete",
+        "POST",
+        f"/api/v1/tasks/{DUMMY_ID}/complete",
+        {},
+        "asistente_client",
+        None,
+    ),
+    (
+        "task:assign",
+        "POST",
+        f"/api/v1/tasks/{DUMMY_ID}/reassign",
+        {},
+        "contador_client",
+        "asistente_client",
+    ),
+    (
+        "task:cancel",
+        "POST",
+        f"/api/v1/tasks/{DUMMY_ID}/cancel",
+        {},
+        "contador_client",
+        "asistente_client",
+    ),
+    (
+        "task:sync",
+        "POST",
+        "/api/v1/tasks/sync",
+        {"trigger_source": "MANUAL"},
+        "asistente_client",
+        None,
+    ),
+    ("alert:read", "GET", "/api/v1/tasks/alerts-summary", None, "asistente_client", None),
 ]
 
 
@@ -218,14 +268,14 @@ def test_permission_matrix(
         )
 
 
-def test_matrix_covers_all_31_permissions() -> None:
+def test_matrix_covers_all_39_permissions() -> None:
     from app.core.permissions import Permission
 
     covered = {case[0] for case in CASES}
     all_permissions = {p.value for p in Permission}
     missing = all_permissions - covered
     assert not missing, f"permisos sin caso de prueba en la matriz: {sorted(missing)}"
-    assert len(CASES) >= 31
+    assert len(CASES) >= 39
 
 
 def test_asistente_role_is_real_and_distinct(asistente_user) -> None:

@@ -13,8 +13,8 @@ class _FakeUser:
         self.role = role
 
 
-def test_permission_enum_has_31_values() -> None:
-    assert len(list(Permission)) == 31
+def test_permission_enum_has_39_values() -> None:
+    assert len(list(Permission)) == 39
 
 
 def test_admin_has_every_permission() -> None:
@@ -27,12 +27,14 @@ def test_contador_lacks_user_management_and_close_override() -> None:
     assert Permission.USER_MANAGE not in contador_permissions
     assert Permission.DECLARATION_CLOSE_OVERRIDE not in contador_permissions
     assert Permission.DOCUMENT_FILE_MANAGE in contador_permissions
-    assert len(contador_permissions) == 28
+    assert Permission.TASK_ASSIGN in contador_permissions
+    assert Permission.TASK_CANCEL in contador_permissions
+    assert len(contador_permissions) == 36
 
 
 def test_asistente_is_read_only_plus_document_item_write_and_reports() -> None:
     asistente_permissions = ROLE_PERMISSIONS["asistente"]
-    assert len(asistente_permissions) == 13
+    assert len(asistente_permissions) == 19
     assert Permission.DOCUMENT_ITEM_WRITE in asistente_permissions
     assert Permission.REPORT_EXPORT in asistente_permissions
     assert Permission.DOCUMENT_MANAGE not in asistente_permissions
@@ -40,6 +42,12 @@ def test_asistente_is_read_only_plus_document_item_write_and_reports() -> None:
     assert Permission.CLIENT_WRITE not in asistente_permissions
     assert Permission.TAX_PAYMENT_WRITE not in asistente_permissions
     assert Permission.USER_READ not in asistente_permissions
+    assert Permission.TASK_CREATE in asistente_permissions
+    assert Permission.TASK_UPDATE in asistente_permissions
+    assert Permission.TASK_COMPLETE in asistente_permissions
+    assert Permission.TASK_SYNC in asistente_permissions
+    assert Permission.TASK_ASSIGN not in asistente_permissions
+    assert Permission.TASK_CANCEL not in asistente_permissions
 
 
 @pytest.mark.parametrize("role", ["admin", "contador", "asistente"])

@@ -82,6 +82,48 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
   extremo a extremo de backup/restauración con corrección de un error real encontrado en el proceso (`extract`
   intentaba eliminar el punto de montaje del volumen en sí, no solo su contenido).
 
+> **Cierre de Fase 1**: commit `5cd1fe5222c68e3eb74e46062b815dadc2bc302c` en `master`, etiqueta
+> `v0.5.0-alpha.1`. A partir de aquí, `docs/ROADMAP.md` renumera las fases posteriores (ver Fase 2 abajo).
+
+### Fase 2, Bloque 1 — Gestión operativa de tareas, responsables, agenda interna y alertas
+
+- **Modelo híbrido**: `operational_tasks` (migración `0014`) materializadas con ciclo de vida propio, más
+  `task_change_history`, `task_comments`, `task_generation_runs`. 11 FK compuestas + 7 `CHECK` en
+  `operational_tasks` (5 formas estructurales en vez de `source_type`/`source_id`), cadena de 2 FK verificada
+  `charge → agreement → client` para honorarios, 4 constraints auxiliares no destructivas en tablas
+  preexistentes, 2 `UNIQUE(id, tenant_id)` internas (ADR-0057).
+- **Ciclo de vida y concurrencia**: 4 estados sin reapertura, bloqueo de fila exacta (`populate_existing`) +
+  versión optimista, orden global determinista de 12 fases (inserción por `generation_key ASC`, bloqueo de
+  existentes por `id ASC`) para evitar interbloqueos entre sincronizaciones concurrentes, rechazo de
+  mutaciones sin cambio real (`409 TASK_NO_CHANGES`) (ADR-0058).
+- **Generación automática idempotente**: 3 reglas (`DECLARATION_FILING`, `DOCUMENT_COLLECTION` — incluye
+  `OBSERVED`, `FEE_COLLECTION`) vía `ON CONFLICT DO NOTHING RETURNING`, resolución automática con precedencia
+  explícita, realineación de vencimiento, CLI multitenant (`app/cli/sync_operational_tasks.py`,
+  `--tenant-id` obligatorio, transacción propia con commit único/rollback ante cualquier excepción) que
+  invoca el mismo servicio que `POST /tasks/sync` (ADR-0059).
+- **Agenda y alertas**: `app/core/timezone.py` centraliza `America/Lima`; semántica única de "vencido" sin
+  variante local; filtros canónicos `time_bucket`/`assigned_to` (`me`/`unassigned`/UUID) en `GET /tasks`;
+  `GET /tasks/agenda-summary` y `GET /tasks/alerts-summary` derivados sin tabla propia y sin doble conteo de
+  honorarios (ADR-0060).
+- **Permisos**: 8 permisos nuevos (`Permission` pasa de 31 a 39 valores: `admin`=39, `contador`=36,
+  `asistente`=19), `task:sync` concedido a los 3 roles; autorización por fila del asistente — única
+  excepción del repositorio al patrón "permiso de rol, nunca de fila" — incluida la carrera
+  comentario-vs-reasignación resuelta con el mismo bloqueo de fila (ADR-0061).
+- **Tareas manuales con cliente opcional**: `POST /tasks` acepta `client_id` opcional e inmutable (nunca en
+  `PATCH`), validado contra el mismo tenant; `/tasks/new` incluye selector "Sin cliente"/clientes del tenant.
+- **Frontend**: `/tasks` (lista + filtros canónicos + sincronización manual), `/tasks/[id]` (contenido,
+  historial, comentarios, acciones con botones deshabilitados —no solo ocultos— para el asistente sobre
+  tareas ajenas), `/tasks/new`, `/agenda`, extensión aditiva de `/dashboard` con `task_summary`.
+- **Reportes**: 11º tipo (`TASKS`), cliente siempre resuelto de forma denormalizada, incluida la cadena de
+  honorarios.
+- **Migración** `0014_operational_tasks` — cadena lineal desde `0013`, verificada upgrade/downgrade/
+  re-upgrade.
+- ADRs 0057–0061.
+- Backend: suite completa verificada tras cada dominio (551+ pruebas), incluidas pruebas de concurrencia
+  real con dos conexiones (completar/cancelar/reasignar/reprogramar concurrentes, carrera
+  comentario-vs-reasignación en ambos órdenes, inserción concurrente de `generation_key` sin interbloqueo) y
+  pruebas con reloj congelado para las fronteras exactas de los baldes de agenda.
+
 ## [0.2.0] - 2026-07-22 - Fase 1 bloque 2
 
 ### Añadido

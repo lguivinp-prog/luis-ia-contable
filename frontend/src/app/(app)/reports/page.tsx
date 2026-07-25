@@ -17,6 +17,7 @@ const REPORT_TYPE_OPTIONS = [
   { value: "FEE_RECEIPTS", label: "Recibos de honorarios" },
   { value: "CLIENTS", label: "Contribuyentes" },
   { value: "AUDIT_LOG", label: "Registro de auditoría" },
+  { value: "TASKS", label: "Tareas operativas" },
 ];
 
 const FORMAT_OPTIONS = [

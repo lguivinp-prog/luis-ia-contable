@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
+import type { TaskDashboardSummary } from "@/lib/types/task";
+
 import { Pagination } from "@/components/ui/Pagination";
 import { Select } from "@/components/ui/Select";
 import { Table } from "@/components/ui/Table";
@@ -16,6 +18,7 @@ import {
   WORKFLOW_STATUS_SEMAPHORE,
 } from "@/components/ui/StatusSemaphore";
 import { apiClient, ApiError } from "@/lib/apiClient";
+import { buildTaskSummaryCards } from "@/lib/taskDashboardLinks";
 import type { DashboardOut, DashboardRow, TaxPeriod } from "@/lib/types/declaration";
 
 const LIMIT = 20;
@@ -134,6 +137,7 @@ export default function DashboardPage() {
         <p>Cargando…</p>
       ) : (
         <>
+          {dashboard.task_summary && <TaskSummaryCards summary={dashboard.task_summary} />}
           <div style={{ overflowX: "auto" }}>
             <Table
               columns={[
@@ -237,6 +241,30 @@ export default function DashboardPage() {
           <Pagination total={dashboard.total} limit={LIMIT} offset={offset} onOffsetChange={setOffset} />
         </>
       )}
+    </div>
+  );
+}
+
+function TaskSummaryCards({ summary }: { summary: TaskDashboardSummary }) {
+  const cards = buildTaskSummaryCards(summary);
+  return (
+    <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
+      {cards.map((card) => (
+        <Link
+          key={card.label}
+          href={card.href}
+          style={{
+            display: "block",
+            border: "1px solid var(--border)",
+            borderRadius: "8px",
+            padding: "0.75rem 1rem",
+            minWidth: "120px",
+          }}
+        >
+          <div style={{ fontSize: "1.5rem", fontWeight: 700 }}>{card.value}</div>
+          <div style={{ fontSize: "0.8rem", color: "var(--muted)" }}>{card.label}</div>
+        </Link>
+      ))}
     </div>
   );
 }

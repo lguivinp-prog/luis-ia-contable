@@ -48,6 +48,36 @@ def test_clients_report_contains_created_client(auth_client, db_session, tenant)
     assert "Cliente para reporte" in response.text
 
 
+def test_tasks_report_resolves_client_for_fee_collection_task(
+    auth_client, db_session, tenant, admin_user
+) -> None:
+    from datetime import date
+
+    from app.schemas.task import TaskDueInput
+    from app.services import operational_task_service
+
+    client = make_client(db_session, tenant.id, name="Cliente reporte tareas")
+
+    task = operational_task_service.create_task(
+        db_session,
+        tenant.id,
+        admin_user,
+        title="Cobrar honorario reporte",
+        description=None,
+        task_type="FEE_COLLECTION",
+        priority="URGENT",
+        due=TaskDueInput(due_date=date(2026, 2, 15)),
+        assigned_to=None,
+        client_id=client.id,
+    )
+    db_session.commit()
+
+    response = auth_client.post("/api/v1/reports/export", json={"report_type": "TASKS", "format": "csv"})
+    assert response.status_code == 200
+    assert str(task.id) in response.text
+    assert str(client.id) in response.text
+
+
 def test_unknown_report_type_returns_422(auth_client) -> None:
     response = auth_client.post(
         "/api/v1/reports/export", json={"report_type": "NO_EXISTE", "format": "csv"}
