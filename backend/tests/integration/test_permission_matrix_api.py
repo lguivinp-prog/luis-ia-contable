@@ -1,5 +1,5 @@
 """Matriz 200/403 por permiso (Bloque 4, Seccion 7/Dominio C del plan): al
-menos 1 caso por cada uno de los 30 permisos, contra rutas y payloads reales.
+menos 1 caso por cada uno de los 42 permisos, contra rutas y payloads reales.
 
 Estrategia: FastAPI resuelve las sub-dependencias (`Depends`, incluido
 `require_permission`) ANTES de validar el cuerpo del request -- por lo que un
@@ -264,6 +264,14 @@ CASES = [
         "asistente_client",
         None,
     ),
+    (
+        "communication:draft",
+        "GET",
+        "/api/v1/communications/templates",
+        None,
+        "asistente_client",
+        None,
+    ),
 ]
 
 
@@ -284,14 +292,15 @@ def test_permission_matrix(
         )
 
 
-def test_matrix_covers_all_41_permissions() -> None:
+def test_matrix_covers_all_42_permissions() -> None:
+    """Fase 3, Bloque 3.2 (ver ADR-0067): agrega communication:draft (41 -> 42)."""
     from app.core.permissions import Permission
 
     covered = {case[0] for case in CASES}
     all_permissions = {p.value for p in Permission}
     missing = all_permissions - covered
     assert not missing, f"permisos sin caso de prueba en la matriz: {sorted(missing)}"
-    assert len(CASES) >= 41
+    assert len(CASES) >= 42
 
 
 def test_asistente_role_is_real_and_distinct(asistente_user) -> None:

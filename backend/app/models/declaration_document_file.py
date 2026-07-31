@@ -51,6 +51,16 @@ class DeclarationDocumentFile(Base, UUIDPrimaryKeyMixin, TimestampMixin):
             "logical_file_id",
             name="uq_declaration_document_files_chain_scope",
         ),
+        # Auxiliar no destructiva (agregada en la migracion 0016, Fase 3 /
+        # Bloque 3.2, ver ADR-0067): permite que `communication_drafts`
+        # declare una FK compuesta de solo 3 columnas hacia este archivo --
+        # la UNIQUE de arriba tiene 6 columnas y no sirve como destino de esa
+        # FK mas angosta. Debe reflejarse aqui ademas de en la migracion: las
+        # pruebas usan Base.metadata.create_all(), que construye el esquema
+        # desde el modelo, no desde las migraciones.
+        UniqueConstraint(
+            "id", "tenant_id", "client_id", name="uq_declaration_document_files_id_tenant_client"
+        ),
         UniqueConstraint(
             "tenant_id", "logical_file_id", "version", name="uq_declaration_document_files_chain_version"
         ),

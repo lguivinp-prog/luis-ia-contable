@@ -14,6 +14,11 @@ _SENSITIVE_FIELD_NAMES = {
     "client_secret",
     "id_token",
     "code_verifier",
+    # ---- Fase 3, Bloque 3.2: comunicaciones asistidas por WhatsApp ----
+    "message_body",
+    "recipient_phone",
+    "recipient_phone_e164",
+    "wa_url",
 }
 
 

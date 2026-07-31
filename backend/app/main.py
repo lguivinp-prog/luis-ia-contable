@@ -6,6 +6,7 @@ from app.core.security import get_dummy_password_hash
 from app.routers import (
     auth,
     clients,
+    communications,
     dashboard,
     declaration_documents,
     declaration_generation,
@@ -61,3 +62,4 @@ app.include_router(users.router)
 app.include_router(document_integrity.router)
 app.include_router(operational_tasks.router)
 app.include_router(google_integrations.router)
+app.include_router(communications.router)

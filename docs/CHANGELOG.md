@@ -34,6 +34,57 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 - Logs locales redactados con retención simple: `logs/startup/startup-<fecha>.log`.
 - ADR-0066.
 
+### Fase 3, Bloque 3.2 — Comunicaciones asistidas por WhatsApp (ver ADR-0067)
+
+> Adelantado en la secuencia de ejecución de la Fase 3 frente a Calendar/Drive (diferidos como Bloques 3.3/3.4)
+> porque no depende de Google — ver reordenamiento en `docs/ROADMAP.md`. Cambios sin commitear, pendientes de
+> revisión.
+
+- **Borradores de comunicación** (`communication_drafts`, migración `0016`): ciclo de vida
+  `DRAFT`→`OPEN_REQUESTED`→`MARKED_SENT` (o `DISCARDED` desde `DRAFT`/`OPEN_REQUESTED`), concurrencia
+  optimista (`expected_version` + `SELECT...FOR UPDATE`), snapshot congelado de teléfono/texto al crear el
+  borrador. Sin WhatsApp Business API, sin WhatsApp Cloud API, sin automatización ni scraping de WhatsApp Web,
+  sin envío automatizado de ningún tipo.
+- **Sin estado `OPENED_EXTERNALLY`**: el sistema no puede verificar si WhatsApp realmente abrió, se entregó o
+  se leyó. Terminología honesta obligatoria en toda la UI: "Se solicitó abrir WhatsApp", "Marcado como enviado
+  por ti", "Pendiente de confirmación manual" — nunca "WhatsApp abierto", "Mensaje enviado" sin calificador,
+  "Entregado", "Recibido", "Leído" ni "Confirmado por WhatsApp", verificado por una prueba automatizada
+  (`communicationTerminology.test.ts`) que escanea el código fuente real de las pantallas.
+- **Normalización conservadora de teléfono** (`whatsapp_phone_normalization.py`): reglas de conveniencia solo
+  para Perú (9 dígitos con "9" inicial, u 11 dígitos con prefijo "51"); cualquier otro caso ambiguo exige
+  formato E.164 explícito (`WHATSAPP_NUMBER_REQUIRED`/`INVALID_WHATSAPP_NUMBER`).
+- **Catálogo de 5 plantillas versionado en código** (`app/domain/communication_templates.py`), no en una tabla
+  editable: `GENERAL_MESSAGE`, `OBLIGATION_DUE_REMINDER`, `DOCUMENT_REQUEST`, `PAYMENT_PENDING_REMINDER`,
+  `TASK_FOLLOW_UP`. Allowlist explícita de 7 variables seguras; nunca inserta contraseñas, credenciales SOL,
+  tokens, datos bancarios ni el contenido íntegro de un documento.
+- **Validación de fuentes**: `related_task_id`/`related_document_file_id` opcionales, con verificación de que
+  pertenecen al mismo cliente y tenant (`SOURCE_CLIENT_MISMATCH`/`SOURCE_NOT_FOUND`), y de que el asistente
+  solo referencia tareas propias (`SOURCE_NOT_ACCESSIBLE`). Nueva UNIQUE auxiliar no destructiva sobre
+  `declaration_document_files` (`uq_declaration_document_files_id_tenant_client`) para poder usar una FK
+  compuesta de solo 3 columnas — reflejada tanto en la migración como en el modelo ORM.
+- **Enlace `wa.me` nunca persistido**: se calcula únicamente dentro de `POST .../mark-open-requested`, con
+  codificación `urllib.parse.quote` verificada contra espacios/tildes/"ñ"/saltos de línea/"?"/"&"/Unicode;
+  `CommunicationDraftOut` omite `recipient_phone_e164` (solo expone `recipient_phone_display`).
+- **Permiso nuevo** `communication:draft` (3 roles): `admin=42`, `contador=39`, `asistente=22`. Ownership por
+  fila del asistente (solo sus propios borradores) — segunda excepción documentada del repositorio al patrón
+  "permiso de rol, nunca de fila" (la primera es `operational_tasks`, ver ADR-0061).
+- **8 endpoints** bajo `/api/v1/communications`: `GET /templates`, `POST /templates/{code}/preview`,
+  `POST /drafts`, `GET /drafts`, `GET /drafts/{id}`, `POST /drafts/{id}/mark-open-requested`,
+  `POST /drafts/{id}/mark-sent`, `POST /drafts/{id}/discard`. Sin endpoint automático de envío.
+- **Frontend**: `/communications` (bandeja con filtro por estado), `/communications/new` (borrador con
+  selección opcional de plantilla + previsualización), `/communications/[id]` (detalle con "Abrir en
+  WhatsApp"/"Marcar como enviado"/"Descartar"). `window.open(wa_url, "_blank", "noopener,noreferrer")` con
+  fallback de enlace manual si el navegador bloquea la ventana emergente; `wa_url` nunca se guarda en
+  `localStorage`/`sessionStorage`.
+- **Auditoría redactada**: `COMMUNICATION_DRAFT_CREATE`/`COMMUNICATION_OPEN_REQUEST`/
+  `COMMUNICATION_MARK_SENT`/`COMMUNICATION_DISCARD` nunca registran el cuerpo completo, la URL `wa.me` ni el
+  teléfono completo (máximo un sufijo de 4 dígitos).
+- **Pruebas**: 2 archivos de constraints/migración, 2 unitarios (normalización/plantillas), matriz de permisos
+  actualizada, endpoints completos (fuentes/estados/wa.me/auditoría), concurrencia real con dos conexiones
+  PostgreSQL (`mark-open-requested`/`mark-sent`/`discard`), y 4 archivos frontend incluida la prueba
+  anti-terminología prohibida.
+- ADR-0067.
+
 ### Fase 3, Bloque 3.1 — Fundamento de integraciones y conexión OAuth Google (identidad)
 
 > Cerrado como infraestructura Google **preparada pero desactivada por configuración**

@@ -137,15 +137,46 @@ responsable, agenda y tablero con las tarjetas canónicas).
 Frontend: `settings-integrations-google.test.tsx` (Vitest) — estados conectado/desconectado/`NEEDS_REAUTH`,
 gating por permiso, ausencia de cualquier token en el DOM/estado de React, manejo de `google_status`/
 `google_error` en la URL de retorno. **Nota:** este archivo no existe todavía — el proyecto no tiene una
-convención de pruebas de componente (`.tsx`, React Testing Library) establecida (los 57 tests actuales son
-todos de lógica pura en `src/lib/*.test.ts`); introducirla para una sola pantalla no se justificó en esta
-ronda, así que el mensaje "Google no configurado" solo queda verificado por inspección directa del código y
-manualmente en navegador, no por una prueba automática de componente.
+convención de pruebas de componente (`.tsx`, React Testing Library) establecida (los tests actuales son todos
+de lógica pura en `src/lib/*.test.ts` — 57 al cierre de este bloque, ampliados en bloques posteriores);
+introducirla para una sola pantalla no se justificó en esta ronda, así que el mensaje "Google no configurado"
+solo queda verificado por inspección directa del código y manualmente en navegador, no por una prueba
+automática de componente. El mismo criterio (sin componentes React renderizados) se mantiene en el Bloque 3.2
+de comunicaciones — ver más abajo.
 
 **PowerShell (backup/restore, Bloque 3.1)**: `scripts/tests/Test-GoogleIntegrationKeyReconciliation.ps1`
 (invoca la función real usada por `restore.ps1`; manifiesto sin `fingerprint` nunca se considera compatible
 aunque el `key_id` coincida) y `scripts/tests/Test-NativeStepErrorHandling.ps1` (stderr con exit code 0 nunca
 aborta bajo `$ErrorActionPreference="Stop"`; exit code distinto de cero sigue siendo detectable).
+
+## Pruebas de comunicaciones asistidas por WhatsApp (Fase 3, Bloque 3.2, ver ADR-0067)
+
+| Archivo | Cubre |
+|---|---|
+| `test_migration_0016_whatsapp_communications.py` | Upgrade/downgrade/re-upgrade `0015→0016→0015→0016`; la 1 `UNIQUE` + 6 `CHECK` + 6 FK compuestas + 4 índices de `communication_drafts`; la `UNIQUE` auxiliar no destructiva sobre `declaration_document_files` |
+| `test_communication_draft_constraints.py` | Intentos SQL/ORM directos: `channel`/`status` fuera de la allowlist, `version` no positiva, `body` vacío/&gt;4000 caracteres, formato E.164 inválido, coherencia de estado por fila (incluido que `DISCARDED` admite `open_requested_at` `NULL` o `NOT NULL`), FK de `client_id`/`related_task_id`/`related_document_file_id` hacia otro tenant o cliente distinto |
+| `test_whatsapp_phone_normalization.py` (unit) | Los 6 pasos exactos del algoritmo: `None`/vacío → `WHATSAPP_NUMBER_REQUIRED`; E.164 explícito aceptado; 9 dígitos empezando en 9 → `+51`; 11 dígitos con prefijo `51` → `+`; prefijo `00`→`+`; espacios/guiones/paréntesis se recortan sin alterar el `display`; número corto ambiguo, o de 9/11 dígitos sin el patrón peruano, o E.164 con primer dígito `0` → `INVALID_WHATSAPP_NUMBER` |
+| `test_communication_templates.py` (unit) | 5 plantillas, todas versión 1, todas sus variables dentro de `ALLOWED_VARIABLES`, ausencia de datos sensibles hardcodeados en el texto; renderizado determinista; variable no declarada → `UnknownTemplateVariableError`; variable admitida pero ausente → cadena vacía, nunca excepción |
+| `test_permissions.py` (unit) | `communication:draft` concedido a los 3 roles; totales exactos `admin=42`/`contador=39`/`asistente=22` |
+| `test_permission_matrix_api.py` | Caso 200/403 de `communication:draft` incluido en la matriz de 42 permisos |
+| `test_communications_router.py` | Catálogo de plantillas (5 ítems); previsualización nunca persiste nada y reporta `WHATSAPP_NUMBER_REQUIRED` cuando el cliente no tiene teléfono; creación de borrador (éxito, teléfono ausente/inválido, cliente de otro tenant → `404 SOURCE_NOT_FOUND`, tarea de otro cliente → `422 SOURCE_CLIENT_MISMATCH`, tarea asignada a otro asistente → `403 SOURCE_NOT_ACCESSIBLE`, documento de otro cliente → `422 SOURCE_CLIENT_MISMATCH`); ownership real del asistente en `GET /drafts` y `GET /drafts/{id}`; máquina de estados completa (`mark-open-requested` idempotente sin incrementar versión ni cambiar la URL, `409 VERSION_CONFLICT`, `mark-sent` exige `OPEN_REQUESTED` previo, `409 INVALID_COMMUNICATION_TRANSITION` en transiciones inválidas, `discard` desde `DRAFT`/`OPEN_REQUESTED`); codificación exacta de la URL `wa.me` (espacios/tildes/`ñ`/saltos de línea/`?`/`&`/Unicode nunca literales en la query string); auditoría sin cuerpo completo/teléfono/`wa.me` en `metadata` |
+| `test_communication_draft_concurrency.py` | Dos conexiones PostgreSQL reales con `threading.Event` (sin `sleep`): dos `mark-open-requested` concurrentes (una gana, la otra `409 VERSION_CONFLICT`); dos `mark-sent` concurrentes tras `OPEN_REQUESTED`; `mark-sent` vs `discard` concurrentes — exactamente una transición gana en cada caso |
+
+Frontend (Vitest, lógica pura en `src/lib/*.test.ts`, mismo criterio que el resto del proyecto — sin
+componentes React renderizados): `communicationDraftPayload.test.ts` (omisión de campos opcionales vacíos),
+`communicationMutationError.test.ts` (clasificación de `VERSION_CONFLICT`/`INVALID_COMMUNICATION_TRANSITION`/
+códigos conocidos), `communicationDraftOwnership.test.ts` (ownership visual del asistente), y
+`communicationTerminology.test.ts` — **prueba obligatoria** que escanea el código fuente real de las 3
+pantallas de comunicaciones y falla si aparece cualquiera de las frases prohibidas ("WhatsApp abierto",
+"Mensaje enviado" sin calificador, "Entregado", "Recibido", "Leído", "Confirmado por WhatsApp"), o si las 3
+frases honestas obligatorias ("Se solicitó abrir WhatsApp", "Marcado como enviado por ti", "Pendiente de
+confirmación manual") no aparecen en ningún archivo escaneado.
+
+**Manual (obligatorio, nunca automatizado)**: flujo completo de 17 pasos en navegador real con un cliente de
+prueba — crear borrador con y sin plantilla, previsualizar, abrir en WhatsApp, marcar como enviado, descartar,
+verificar ownership del asistente. **Nunca enviar un mensaje real a un cliente real durante esta prueba** —
+usar un número de prueba propio, o detenerse antes de presionar "Enviar" dentro de la propia aplicación de
+WhatsApp.
 
 ## Pruebas de arranque local y sincronización (bloque transversal, ver ADR-0066)
 

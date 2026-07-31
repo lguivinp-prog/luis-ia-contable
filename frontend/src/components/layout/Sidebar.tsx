@@ -34,6 +34,9 @@ export function Sidebar() {
   if (hasPermission(user, "integration:connect")) {
     navItems = [...navItems, { href: "/settings/integrations", label: "Integraciones" }];
   }
+  if (hasPermission(user, "communication:draft")) {
+    navItems = [...navItems, { href: "/communications", label: "Comunicaciones" }];
+  }
 
   return (
     <nav

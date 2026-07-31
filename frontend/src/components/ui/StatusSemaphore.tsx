@@ -128,6 +128,13 @@ export const TASK_PRIORITY_SEMAPHORE: Record<string, SemaphoreEntry> = {
   URGENT: { label: "Urgente", color: "rojo" },
 };
 
+export const COMMUNICATION_DRAFT_STATUS_SEMAPHORE: Record<string, SemaphoreEntry> = {
+  DRAFT: { label: "Borrador", color: "gris" },
+  OPEN_REQUESTED: { label: "Se solicitó abrir WhatsApp", color: "amarillo" },
+  MARKED_SENT: { label: "Marcado como enviado por ti", color: "verde" },
+  DISCARDED: { label: "Descartado", color: "rojo" },
+};
+
 export const TASK_TYPE_LABEL: Record<string, string> = {
   DECLARATION_FILING: "Presentación de declaración",
   DOCUMENT_COLLECTION: "Recopilación de documento",

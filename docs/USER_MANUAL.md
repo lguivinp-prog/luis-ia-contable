@@ -195,6 +195,42 @@ despacho ve ni puede operar tu conexión — es individual por usuario.
 no afecta a esta conexión de solo identidad, pero sí afectará más adelante a Calendar/Drive (autorizaciones
 que expiran a los 7 días hasta que el proyecto se verifique).
 
+## Comunicaciones asistidas por WhatsApp (`/communications`) — Fase 3, Bloque 3.2
+
+Visible para quien tenga el permiso de comunicaciones (los 3 roles). El asistente solo ve y opera sus propios
+borradores; admin y contador ven todos los del despacho.
+
+**Este sistema nunca envía un mensaje de WhatsApp por ti.** No usa WhatsApp Business API, no usa WhatsApp
+Cloud API, no automatiza ni "scrapea" WhatsApp Web. Lo único que hace es prepararte el texto y, cuando tú lo
+pidas, abrir un enlace de WhatsApp para que **tú** revises y envíes el mensaje a mano desde tu propia
+aplicación.
+
+**Bandeja (`/communications`)**: lista de borradores con filtro por estado. Botón "Nuevo borrador".
+
+**Nuevo borrador (`/communications/new`)**: elige un cliente (obligatorio); opcionalmente vincula una tarea o
+un documento del mismo cliente. Puedes partir de una plantilla (5 disponibles: mensaje general, recordatorio
+de vencimiento, solicitud de documento, recordatorio de pago pendiente, seguimiento de tarea) — completas las
+variables que pida y presionas "Previsualizar texto" para generar el mensaje; el texto queda siempre editable
+después. También puedes redactar libremente sin plantilla. Si el cliente no tiene un número de WhatsApp
+registrado, o el registrado no es válido, puedes indicar uno manualmente para este borrador (no se guarda en
+la ficha del cliente). Ninguna plantilla incluye automáticamente contraseñas, claves SOL, datos bancarios ni
+el contenido completo de un documento.
+
+**Detalle de un borrador (`/communications/[id]`)**: muestra el texto completo y el número de destinatario.
+
+- **"Abrir en WhatsApp"**: registra que **se solicitó** abrir WhatsApp y abre una pestaña nueva con el enlace
+  `wa.me` ya armado con el texto. El sistema **no puede verificar** que WhatsApp realmente se abrió — por eso
+  el estado se llama "Se solicitó abrir WhatsApp", nunca "WhatsApp abierto". Si tu navegador bloquea la
+  ventana emergente, aparece un enlace manual para abrirla tú mismo; el estado ya quedó registrado igual.
+  Mientras el borrador está en este estado, la pantalla indica "Pendiente de confirmación manual".
+- **"Marcar como enviado"**: aparece solo después de "Abrir en WhatsApp". Es una **declaración tuya**, no una
+  confirmación del sistema — por eso el texto es siempre "Marcado como enviado por ti", nunca "Mensaje
+  enviado" a secas. El sistema no puede saber si WhatsApp realmente entregó, ni si el cliente lo leyó.
+- **"Descartar"**: disponible mientras el borrador no se haya marcado como enviado; pide confirmación.
+
+**Nunca envíes un mensaje real a un cliente real durante una prueba o demostración** — usa un número de
+prueba propio, o detente antes de presionar "Enviar" dentro de la propia aplicación de WhatsApp.
+
 ## Qué todavía no hace el sistema
 
 Esta versión no envía notificaciones por correo/SMS/push (las tareas y alertas solo se ven dentro de la aplicación), ni sincroniza con Google Calendar/Drive, ni tiene integraciones con Gmail/WhatsApp/SUNAT Operaciones en Línea, ni presenta declaraciones o realiza pagos reales. Desde Bloque 5 los documentos sí se almacenan como archivos reales (PDF/JPG/PNG/DOCX/XLSX, con reemplazo versionado y eliminación lógica); lo que no existe todavía es restauración de una versión eliminada, previsualización embebida de Office, ni purga física automática de archivos eliminados. Las rectificatorias tributarias quedan excluidas del producto por decisión funcional del propietario (no reaparecen como pendiente). Ver [ROADMAP.md](ROADMAP.md).

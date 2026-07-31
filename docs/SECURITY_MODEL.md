@@ -110,11 +110,12 @@ configuración antes de operar con esos bloques.
 ## RBAC real: catálogo de permisos y aplicación en routers (Bloque 4, ADR-0050/ADR-0051/ADR-0052)
 
 El sistema implementa RBAC real sobre los tres roles fijos (`admin`/`contador`/`asistente`, `CHECK
-ck_users_role`). `Permission(str, enum.Enum)` (`backend/app/core/permissions.py`) declara 41 permisos
+ck_users_role`). `Permission(str, enum.Enum)` (`backend/app/core/permissions.py`) declara 42 permisos
 explícitos (30 desde Bloque 4, `document:file_manage` desde Bloque 5, 8 permisos de tareas operativas desde
-Fase 2/Bloque 1, `integration:connect`/`integration:disconnect` desde Fase 3/Bloque 3.1 — ver más abajo);
-`ROLE_PERMISSIONS` es el único mapa rol→permisos, sin tabla relacional (`admin`=41, `contador`=38,
-`asistente`=21). `has_permission`/`check_permission` fallan **cerrado**: un rol o
+Fase 2/Bloque 1, `integration:connect`/`integration:disconnect` desde Fase 3/Bloque 3.1, `communication:draft`
+desde Fase 3/Bloque 3.2 — ver más abajo);
+`ROLE_PERMISSIONS` es el único mapa rol→permisos, sin tabla relacional (`admin`=42, `contador`=39,
+`asistente`=22). `has_permission`/`check_permission` fallan **cerrado**: un rol o
 permiso no reconocido nunca autoriza por defecto. `require_permission(permission)` es la dependencia que se
 aplica en la firma de cada endpoint mutante o de lectura de todos los routers existentes; reemplaza por
 completo a la antigua `ensure_admin_role` (eliminada), incluido su único uso previo (cierre excepcional de una
@@ -134,7 +135,7 @@ Un usuario no puede desactivarse ni cambiar su propio rol.
 **Cobertura estructural verificada**: `test_route_permission_coverage.py` recorre `app.routes` y falla si
 cualquier endpoint bajo `/api/v1/` no declara `require_permission` y no está en la allowlist cerrada
 `EXEMPT_ROUTES` (los 8 endpoints de autoservicio de `auth.py` + 2 de `health.py` — nunca una exención por
-prefijo). `test_permission_matrix_api.py` confirma 200/403 real para los 41 permisos.
+prefijo). `test_permission_matrix_api.py` confirma 200/403 real para los 42 permisos.
 
 **Gateo frontend como UX, no como control de acceso**: `hasPermission(user, permission)`
 (`frontend/src/lib/permissions.ts`) consume `permissions: list[str]` calculado por el backend en
@@ -158,6 +159,35 @@ ajenas, con un mensaje explicativo. `POST .../comments` adquiere el mismo bloque
 tarea, precisamente para resolver de forma determinista la carrera entre un comentario del asistente y una
 reasignación concurrente por un admin/contador (verificado con una prueba de concurrencia real que fuerza
 ambos órdenes). Ver ADR-0061 para el detalle completo y su justificación acotada.
+
+## Comunicaciones asistidas por WhatsApp: ownership y redacción (Fase 3, Bloque 3.2, ADR-0067)
+
+1 permiso nuevo (`communication:draft`), concedido a los 3 roles por igual — la restricción real no es de
+permiso sino de fila: `admin`/`contador` ven y operan todos los borradores del tenant; el rol `asistente` solo
+los que él mismo creó (`communication_drafts.created_by == current_user.id`). Operar un borrador ajeno
+devuelve 403 `DRAFT_NOT_OWNED` (nunca 404, el borrador es legible por otros roles del mismo tenant). Esta es
+la **segunda** excepción del repositorio al patrón "permiso de rol, nunca de fila" (la primera es la de
+`operational_tasks`, ver ADR-0061) — cada una documentada en su propio ADR, sin generalizar el precedente
+automáticamente a bloques futuros.
+
+**Sin llamadas a proveedores externos, sin excepción de ADR-0037**: a diferencia del callback OAuth de Google
+(ADR-0065), construir un enlace `wa.me` es una operación puramente local — no hay ninguna llamada HTTP lenta
+que justifique una excepción al patrón estándar de una sola transacción por endpoint.
+
+**Redacción estricta en auditoría y logs**: ninguna entrada de `AuditLog` para
+`COMMUNICATION_DRAFT_CREATE`/`COMMUNICATION_OPEN_REQUEST`/`COMMUNICATION_MARK_SENT`/`COMMUNICATION_DISCARD`
+incluye el cuerpo completo del mensaje, la URL `wa.me` completa (que embebería ese mismo cuerpo) ni el
+teléfono completo — como máximo un sufijo `***####` de 4 dígitos. `backend/app/core/logging.py` extiende
+`_SENSITIVE_FIELD_NAMES` con `message_body`, `recipient_phone`, `recipient_phone_e164`, `wa_url`.
+`CommunicationDraftOut` (la forma expuesta por GET/list) omite deliberadamente `recipient_phone_e164` — solo
+expone `recipient_phone_display`; el E.164 canónico que alimenta la URL nunca sale de un endpoint `GET`.
+
+**El backend nunca abre WhatsApp ni confirma envío**: `POST .../mark-open-requested` solo calcula y devuelve
+el enlace `wa.me` — abrirlo es una acción exclusiva del navegador del usuario (`window.open`, nunca
+`window.location.href`, para no abandonar la aplicación). `POST .../mark-sent` es una autodeclaración humana,
+nunca una verificación real de entrega. Ver ADR-0067 para la justificación completa de por qué no existe un
+estado que implique confirmación de WhatsApp, y `communicationTerminology.test.ts` para la prueba automatizada
+que impide reintroducir esa terminología en el frontend.
 
 ## Almacenamiento real de documentos (Bloque 5, ADR-0053 a ADR-0056)
 

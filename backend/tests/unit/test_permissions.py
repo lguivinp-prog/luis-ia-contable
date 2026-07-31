@@ -13,8 +13,9 @@ class _FakeUser:
         self.role = role
 
 
-def test_permission_enum_has_41_values() -> None:
-    assert len(list(Permission)) == 41
+def test_permission_enum_has_42_values() -> None:
+    """Fase 3, Bloque 3.2 (ver ADR-0067): agrega communication:draft (41 -> 42)."""
+    assert len(list(Permission)) == 42
 
 
 def test_admin_has_every_permission() -> None:
@@ -29,12 +30,13 @@ def test_contador_lacks_user_management_and_close_override() -> None:
     assert Permission.DOCUMENT_FILE_MANAGE in contador_permissions
     assert Permission.TASK_ASSIGN in contador_permissions
     assert Permission.TASK_CANCEL in contador_permissions
-    assert len(contador_permissions) == 38
+    assert Permission.COMMUNICATION_DRAFT in contador_permissions
+    assert len(contador_permissions) == 39
 
 
 def test_asistente_is_read_only_plus_document_item_write_and_reports() -> None:
     asistente_permissions = ROLE_PERMISSIONS["asistente"]
-    assert len(asistente_permissions) == 21
+    assert len(asistente_permissions) == 22
     assert Permission.DOCUMENT_ITEM_WRITE in asistente_permissions
     assert Permission.REPORT_EXPORT in asistente_permissions
     assert Permission.DOCUMENT_MANAGE not in asistente_permissions
@@ -62,6 +64,14 @@ def test_every_role_can_connect_and_disconnect_google_integration(role) -> None:
     no por rol."""
     assert has_permission(_FakeUser(role), Permission.INTEGRATION_CONNECT)
     assert has_permission(_FakeUser(role), Permission.INTEGRATION_DISCONNECT)
+
+
+@pytest.mark.parametrize("role", ["admin", "contador", "asistente"])
+def test_every_role_can_draft_communications(role) -> None:
+    """Fase 3, Bloque 3.2 (ver ADR-0067): communication:draft se concede a
+    los 3 roles; la restriccion real del asistente (solo sus propios
+    borradores) se aplica por ownership en el servicio, no por permiso."""
+    assert has_permission(_FakeUser(role), Permission.COMMUNICATION_DRAFT)
 
 
 def test_unknown_role_has_no_permissions() -> None:

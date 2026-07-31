@@ -115,16 +115,31 @@ auditoría asociada se conservan tal como están implementadas (ver ADR-0038/003
 
 OAuth Google, Google Calendar, Google Drive (estructura documental), WhatsApp asistido, plantillas de mensajes, sincronización, copias cifradas en Drive.
 
-Dividida en 4 bloques incrementales (ver `docs/DECISIONS/ADR-0062` a `ADR-0065`): **Bloque 3.1 ✅** (etiqueta
-`v0.7.0-alpha.1`) — fundamento de integraciones y conexión OAuth Google de solo identidad (`openid`+`email`),
-sin Calendar/Drive todavía. Cerrado como infraestructura **preparada pero desactivada por configuración**
-(`GOOGLE_LIVE_VALIDATION_DEFERRED`, ver ADR-0063): sin `GOOGLE_OAUTH_CLIENT_ID`/`GOOGLE_OAUTH_CLIENT_SECRET`
-reales, el sistema reporta `configured=false` y el resto de la aplicación funciona con normalidad; el spike de
-PKCE real y el smoke test contra una cuenta Google real quedan diferidos hasta que el usuario disponga de un
-proyecto Google Cloud, y son obligatorios antes de iniciar el Bloque 3.2. Bloque 3.2 — autorización incremental
-de Calendar y sincronización unidireccional de tareas. Bloque 3.3 — autorización incremental de Drive y
-exportación explícita de documentos. Bloque 3.4 — comunicaciones asistidas por WhatsApp (`wa.me`), sin
-credenciales propias ni envío automatizado.
+Dividida en 4 bloques incrementales. **Reordenamiento formal de ejecución** (ver ADR-0067): dado que el
+usuario todavía no dispone de un proyecto Google Cloud, el Bloque de comunicaciones asistidas por WhatsApp —
+que no depende de Google en absoluto — se adelanta y pasa a ser el **Bloque 3.2 real** (migración `0016`);
+Calendar y Drive quedan **diferidos**, conservando su contenido funcional intacto, y se renumeran como
+Bloque 3.3 (futura migración `0017`) y Bloque 3.4 (futura migración `0018`) respectivamente. Este es un
+reordenamiento de secuencia de ejecución, nunca una eliminación de alcance: Calendar y Drive siguen
+formando parte de la Fase 3 tal como se planificaron.
+
+- **Bloque 3.1 ✅** (etiqueta `v0.7.0-alpha.1`, migración `0015`, ver `docs/DECISIONS/ADR-0062` a `ADR-0065`)
+  — fundamento de integraciones y conexión OAuth Google de solo identidad (`openid`+`email`), sin Calendar/
+  Drive todavía. Cerrado como infraestructura **preparada pero desactivada por configuración**
+  (`GOOGLE_LIVE_VALIDATION_DEFERRED`, ver ADR-0063): sin `GOOGLE_OAUTH_CLIENT_ID`/`GOOGLE_OAUTH_CLIENT_SECRET`
+  reales, el sistema reporta `configured=false` y el resto de la aplicación funciona con normalidad; el spike
+  de PKCE real y el smoke test contra una cuenta Google real quedan diferidos hasta que el usuario disponga
+  de un proyecto Google Cloud, y son obligatorios antes de habilitar Calendar/Drive.
+- **Bloque 3.2** (migración `0016`, ver ADR-0067) — comunicaciones asistidas por WhatsApp mediante enlace
+  `wa.me`: borradores editables con plantillas versionadas en código, apertura manual en WhatsApp
+  (`OPEN_REQUESTED`) y confirmación manual de envío (`MARKED_SENT`, siempre una declaración humana, nunca
+  verificada por el sistema) — sin WhatsApp Business API, sin WhatsApp Cloud API, sin automatización ni
+  scraping de ningún tipo, sin envío automatizado. No depende de Google ni de internet para preparar
+  mensajes.
+- **Bloque 3.3 — diferido** (futura migración `0017`; próximo ADR disponible, número 0068, se creará recién
+  cuando se implemente) — autorización incremental de Calendar y sincronización unidireccional de tareas.
+- **Bloque 3.4 — diferido** (futura migración `0018`; siguiente ADR disponible, número 0069, se creará recién
+  cuando se implemente) — autorización incremental de Drive y exportación explícita de documentos.
 
 ## Fase 4 — Gmail y notificaciones (pendiente)
 

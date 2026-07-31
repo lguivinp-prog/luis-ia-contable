@@ -1,5 +1,6 @@
 from app.models.audit_log import AuditLog
 from app.models.client import Client
+from app.models.communication_draft import CommunicationDraft
 from app.models.declaration import (
     Declaration,
     DeclarationAssignmentHistory,
@@ -63,6 +64,7 @@ __all__ = [
     "ClientDocumentRequirement",
     "ClientObligation",
     "ClientTaxCategory",
+    "CommunicationDraft",
     "Declaration",
     "DeclarationAssignmentHistory",
     "DeclarationDocumentFile",
