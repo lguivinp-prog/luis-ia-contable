@@ -44,6 +44,41 @@ Arquitectura prevista:
 
 En esta entrega, las columnas `sol_username_encrypted`, `sol_password_encrypted`, `sol_cipher_version` existen en el modelo `clients` pero no tienen lógica de lectura/escritura: cualquier intento lanza `NotImplementedError`.
 
+## Estado de la integración Google (`GOOGLE_LIVE_VALIDATION_DEFERRED`, ver ADR-0063)
+
+El Bloque 3.1 está implementado y verificado en su totalidad contra `FakeOAuthProvider` (sin ninguna llamada
+de red), pero **no se afirma que la conexión Google real haya sido validada**: el spike de aceptación de PKCE
+por un cliente OAuth de Google real y el smoke test end-to-end con una cuenta Google real quedan diferidos —
+el usuario no dispone todavía de un proyecto Google Cloud. Mientras `GOOGLE_OAUTH_CLIENT_ID`/
+`GOOGLE_OAUTH_CLIENT_SECRET` estén vacíos, `app.core.dependencies.get_oauth_provider()` nunca construye el
+adaptador real, incluso si `GOOGLE_OAUTH_PROVIDER` quedara mal configurado. `GET /integrations/google/status`
+expone `configured: bool` calculado solo a partir de esas dos variables (sin tocar la clave de cifrado ni la
+red); mientras sea `false`, la interfaz muestra "Google no configurado en este entorno" en vez de ofrecer un
+botón de conexión que termine en un `409`. La ausencia de estas credenciales no afecta ninguna función local
+del sistema (tareas, declaraciones, honorarios, documentos, agenda). Esta validación real será obligatoria
+antes de habilitar los Bloques 3.2 (Calendar) o 3.3 (Drive).
+
+## Cifrado de credenciales de integración (Fase 3, Bloque 3.1 — implementado, ver ADR-0064)
+
+Independiente de la bóveda SOL (todavía sin implementar): `access_token`/`refresh_token`/`code_verifier` de la
+integración OAuth Google se cifran con AES-256-GCM en un sobre versionado (`format_version` + nonce de 12
+bytes + ciphertext+tag), con AAD obligatorio que ata cada secreto a su fila/tabla/tenant/usuario/tipo de
+token (`backend/app/core/integration_crypto.py`). Una sola clave activa por instalación
+(`INTEGRATION_TOKEN_ENCRYPTION_KEY` + `INTEGRATION_TOKEN_KEY_ID`), sin rotación automática en v1. Si Google
+está configurado pero la clave falta o es inválida, la integración falla cerrada
+(`INTEGRATION_MISCONFIGURED`) sin persistir ningún token; el resto del sistema no se ve afectado. Un
+fingerprint HMAC-SHA256 no secreto de la clave activa se guarda en el manifiesto de backup para detectar, al
+restaurar, si el entorno de destino tiene una clave real distinta aunque reutilice la misma etiqueta
+`key_id` — en ese caso las conexiones Google se purgan y pasan a `NEEDS_REAUTH`.
+
+### Riesgo operativo — modo Testing de Google Cloud
+Un proyecto OAuth de Google Cloud en estado "Testing" (no verificado, no "Production") tiene reglas distintas
+según el scope: `openid`/`email` (Bloque 3.1, identidad) son scopes básicos, no sujetos a la expiración de 7
+días de `refresh_token` que sí aplica a scopes sensibles como Calendar/Drive (Bloques 3.2/3.3) mientras el
+proyecto no esté verificado. Un smoke test inicial exitoso al ampliar a Calendar/Drive no demuestra que la
+conexión persista más allá de una semana si el proyecto sigue en Testing — debe documentarse en el manual de
+configuración antes de operar con esos bloques.
+
 ## Acceso desde la red local (LAN)
 
 - **Deshabilitado por defecto.** Los puertos de `docker-compose.yml` se exponen solo en `localhost` durante esta fase.
@@ -53,10 +88,11 @@ En esta entrega, las columnas `sol_username_encrypted`, `sol_password_encrypted`
 ## RBAC real: catálogo de permisos y aplicación en routers (Bloque 4, ADR-0050/ADR-0051/ADR-0052)
 
 El sistema implementa RBAC real sobre los tres roles fijos (`admin`/`contador`/`asistente`, `CHECK
-ck_users_role`). `Permission(str, enum.Enum)` (`backend/app/core/permissions.py`) declara 39 permisos
+ck_users_role`). `Permission(str, enum.Enum)` (`backend/app/core/permissions.py`) declara 41 permisos
 explícitos (30 desde Bloque 4, `document:file_manage` desde Bloque 5, 8 permisos de tareas operativas desde
-Fase 2/Bloque 1 — ver más abajo); `ROLE_PERMISSIONS` es el único mapa rol→permisos, sin tabla relacional
-(`admin`=39, `contador`=36, `asistente`=19). `has_permission`/`check_permission` fallan **cerrado**: un rol o
+Fase 2/Bloque 1, `integration:connect`/`integration:disconnect` desde Fase 3/Bloque 3.1 — ver más abajo);
+`ROLE_PERMISSIONS` es el único mapa rol→permisos, sin tabla relacional (`admin`=41, `contador`=38,
+`asistente`=21). `has_permission`/`check_permission` fallan **cerrado**: un rol o
 permiso no reconocido nunca autoriza por defecto. `require_permission(permission)` es la dependencia que se
 aplica en la firma de cada endpoint mutante o de lectura de todos los routers existentes; reemplaza por
 completo a la antigua `ensure_admin_role` (eliminada), incluido su único uso previo (cierre excepcional de una
@@ -76,7 +112,7 @@ Un usuario no puede desactivarse ni cambiar su propio rol.
 **Cobertura estructural verificada**: `test_route_permission_coverage.py` recorre `app.routes` y falla si
 cualquier endpoint bajo `/api/v1/` no declara `require_permission` y no está en la allowlist cerrada
 `EXEMPT_ROUTES` (los 8 endpoints de autoservicio de `auth.py` + 2 de `health.py` — nunca una exención por
-prefijo). `test_permission_matrix_api.py` confirma 200/403 real para los 39 permisos.
+prefijo). `test_permission_matrix_api.py` confirma 200/403 real para los 41 permisos.
 
 **Gateo frontend como UX, no como control de acceso**: `hasPermission(user, permission)`
 (`frontend/src/lib/permissions.ts`) consume `permissions: list[str]` calculado por el backend en

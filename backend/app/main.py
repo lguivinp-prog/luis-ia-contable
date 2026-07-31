@@ -11,6 +11,7 @@ from app.routers import (
     declaration_generation,
     declarations,
     document_integrity,
+    google_integrations,
     health,
     obligations,
     operational_tasks,
@@ -59,3 +60,4 @@ app.include_router(dashboard.router)
 app.include_router(users.router)
 app.include_router(document_integrity.router)
 app.include_router(operational_tasks.router)
+app.include_router(google_integrations.router)

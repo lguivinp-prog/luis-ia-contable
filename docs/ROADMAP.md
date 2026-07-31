@@ -100,9 +100,20 @@ auditoría asociada se conservan tal como están implementadas (ver ADR-0038/003
   existente cambia.
 - **Reportes**: 11º tipo de reporte (`TASKS`), cliente siempre resuelto de forma denormalizada.
 
-## Fase 3 — Google y comunicaciones (pendiente)
+## Fase 3 — Google y comunicaciones (en desarrollo)
 
 OAuth Google, Google Calendar, Google Drive (estructura documental), WhatsApp asistido, plantillas de mensajes, sincronización, copias cifradas en Drive.
+
+Dividida en 4 bloques incrementales (ver `docs/DECISIONS/ADR-0062` a `ADR-0065`): **Bloque 3.1 ✅** (etiqueta
+`v0.7.0-alpha.1`) — fundamento de integraciones y conexión OAuth Google de solo identidad (`openid`+`email`),
+sin Calendar/Drive todavía. Cerrado como infraestructura **preparada pero desactivada por configuración**
+(`GOOGLE_LIVE_VALIDATION_DEFERRED`, ver ADR-0063): sin `GOOGLE_OAUTH_CLIENT_ID`/`GOOGLE_OAUTH_CLIENT_SECRET`
+reales, el sistema reporta `configured=false` y el resto de la aplicación funciona con normalidad; el spike de
+PKCE real y el smoke test contra una cuenta Google real quedan diferidos hasta que el usuario disponga de un
+proyecto Google Cloud, y son obligatorios antes de iniciar el Bloque 3.2. Bloque 3.2 — autorización incremental
+de Calendar y sincronización unidireccional de tareas. Bloque 3.3 — autorización incremental de Drive y
+exportación explícita de documentos. Bloque 3.4 — comunicaciones asistidas por WhatsApp (`wa.me`), sin
+credenciales propias ni envío automatizado.
 
 ## Fase 4 — Gmail y notificaciones (pendiente)
 

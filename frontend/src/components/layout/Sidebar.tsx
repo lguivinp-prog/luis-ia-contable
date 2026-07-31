@@ -31,6 +31,9 @@ export function Sidebar() {
   if (hasPermission(user, "user:read")) {
     navItems = [...navItems, { href: "/users", label: "Usuarios" }];
   }
+  if (hasPermission(user, "integration:connect")) {
+    navItems = [...navItems, { href: "/settings/integrations", label: "Integraciones" }];
+  }
 
   return (
     <nav

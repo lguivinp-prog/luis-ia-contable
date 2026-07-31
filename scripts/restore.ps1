@@ -55,14 +55,22 @@ $pgDb = Get-EnvValue -RepoRoot $RepoRoot -Name "POSTGRES_DB"
 
 function Restore-From {
     param([string]$SourceDir, [string]$VolumeBackupId)
-    Get-Content (Join-Path $SourceDir "database.sql") | docker compose exec -T db psql -U $pgUser -d $pgDb | Out-Null
+    Invoke-NativeStep {
+        Get-Content (Join-Path $SourceDir "database.sql") | docker compose exec -T db psql -U $pgUser -d $pgDb
+    } | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "psql fallo restaurando database.sql (codigo $LASTEXITCODE)"
+    }
     Invoke-DocumentStorageCli -CliArgs @("extract", "--input", "/backups/$VolumeBackupId/volume.tar.gz", "--confirm") | Out-Null
 }
 
 Push-Location $RepoRoot
 try {
     Write-Host "Deteniendo backend..." -ForegroundColor Cyan
-    docker compose stop backend | Out-Null
+    Invoke-NativeStep { docker compose stop backend } | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "No se pudo detener el backend antes de restaurar (codigo $LASTEXITCODE)"
+    }
 
     $safetyId = "pre_restore_$(Get-Date -Format 'yyyyMMdd_HHmmss')"
     Write-Host "Capturando snapshot de seguridad del estado actual ($safetyId) antes de restaurar..." -ForegroundColor Cyan
@@ -113,13 +121,23 @@ try {
         }
 
         Write-Host "Reversion exitosa: el estado anterior a la restauracion fue recuperado." -ForegroundColor Yellow
-        docker compose start backend | Out-Null
+        Invoke-NativeStep { docker compose start backend } | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "ADVERTENCIA: no se pudo reiniciar el backend automaticamente (codigo $LASTEXITCODE) -- reinicialo manualmente con 'docker compose start backend'." -ForegroundColor Red
+        }
         Write-Host "Backend reiniciado sobre el estado ANTERIOR (la restauracion solicitada no se aplico)." -ForegroundColor Yellow
         exit 1
     }
 
-    Write-Host "Restauracion completada y verificada. Reiniciando backend..." -ForegroundColor Green
-    docker compose start backend | Out-Null
+    Write-Host "Restauracion completada y verificada." -ForegroundColor Green
+    $sourceManifest = Get-Content $manifestFile | ConvertFrom-Json
+    Invoke-GoogleIntegrationKeyReconciliation -SourceManifest $sourceManifest -PgUser $pgUser -PgDb $pgDb
+
+    Write-Host "Reiniciando backend..." -ForegroundColor Cyan
+    Invoke-NativeStep { docker compose start backend } | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "ADVERTENCIA: no se pudo reiniciar el backend automaticamente (codigo $LASTEXITCODE) -- reinicialo manualmente con 'docker compose start backend'." -ForegroundColor Red
+    }
     Write-Host "Restauracion completada." -ForegroundColor Green
 } finally {
     Pop-Location

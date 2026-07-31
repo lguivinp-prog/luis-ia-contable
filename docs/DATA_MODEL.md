@@ -442,8 +442,26 @@ operational_tasks n──1 clients (opcional), n──1 declarations (opcional),
     n──1 tax_payments (opcional) -- exactamente 1 de las 5 formas estructurales, ver Fase 2/Bloque 1 arriba
 ```
 
+## Fase 3, Bloque 3.1 — Fundamento de integraciones y conexión OAuth Google (identidad)
+
+```
+google_oauth_connections (Bloque 3.1, ver ADR-0062)
+  - una fila por usuario (UNIQUE(tenant_id, user_id)), reutilizada a través de reconexiones/reemplazos de cuenta
+  - status: ACTIVE | NEEDS_REAUTH | DISCONNECTED (CHECK de coherencia por estado, ver ADR-0062)
+  - access_token_encrypted/refresh_token_encrypted: sobre AES-256-GCM versionado con AAD (ADR-0064), nunca en claro
+  - scopes_granted (JSONB array); capacidades derivadas (identity/calendar/drive_authorized) nunca almacenadas
+  - UNIQUE(tenant_id, google_account_id): una cuenta Google no puede conectarse dos veces en el mismo tenant
+
+google_oauth_authorization_attempts (Bloque 3.1, ver ADR-0063)
+  - state_hash (UNIQUE, SHA-256 del `state`, nunca el valor crudo); code_verifier_encrypted purgado al consumir
+  - status: PENDING | PROCESSING | SUCCEEDED | FAILED; TTL de 10 minutos; append-only en la práctica
+```
+
+`google_oauth_connections` reemplaza al placeholder genérico `integration_accounts` de la lista de entidades
+planificadas — la integración Google real usa un modelo específico, no una tabla genérica de cuentas externas.
+
 ## Entidades planificadas para fases futuras (no implementadas aún)
 
-`client_contacts`, `client_tax_profiles`, `client_credentials` (bóveda real), `client_settings`, `communications`, `communication_templates`, `notifications`, `notification_deadlines`, `cases`, `calendar_events`, `drive_folders`, `email_messages`, `integration_accounts`, `integration_sync_runs`, `automation_jobs`, `backup_runs`, `ai_prompt_templates`, `ai_analysis_results`, `system_settings`. RBAC (roles/permisos por rol fijo) ya está implementado desde Bloque 4 sin tablas relacionales propias (`Permission`/`ROLE_PERMISSIONS` declarativos, ver ADR-0050); `roles`/`user_roles` solo se revisitarían si en el futuro se necesitan roles personalizados configurables por tenant (Fase 7, comercialización multi-despacho). `tasks`/`internal_alerts` ya no figuran aquí: implementadas en Fase 2, Bloque 1 como `operational_tasks` (materializadas) + alertas 100% derivadas sin tabla propia (ver ADR-0057/ADR-0060). `calendar_events` sigue pendiente para cuando se integre Google Calendar (Fase 3) — la agenda interna de Fase 2/Bloque 1 (`GET /tasks/agenda-summary`) es una vista derivada de `operational_tasks`, no una tabla de eventos de calendario propia.
+`client_contacts`, `client_tax_profiles`, `client_credentials` (bóveda real), `client_settings`, `communications`, `communication_templates`, `notifications`, `notification_deadlines`, `cases`, `calendar_events`, `drive_folders`, `email_messages`, `integration_sync_runs`, `automation_jobs`, `backup_runs`, `ai_prompt_templates`, `ai_analysis_results`, `system_settings`. RBAC (roles/permisos por rol fijo) ya está implementado desde Bloque 4 sin tablas relacionales propias (`Permission`/`ROLE_PERMISSIONS` declarativos, ver ADR-0050); `roles`/`user_roles` solo se revisitarían si en el futuro se necesitan roles personalizados configurables por tenant (Fase 7, comercialización multi-despacho). `tasks`/`internal_alerts` ya no figuran aquí: implementadas en Fase 2, Bloque 1 como `operational_tasks` (materializadas) + alertas 100% derivadas sin tabla propia (ver ADR-0057/ADR-0060). `calendar_events` sigue pendiente para cuando se integre Google Calendar (Fase 3) — la agenda interna de Fase 2/Bloque 1 (`GET /tasks/agenda-summary`) es una vista derivada de `operational_tasks`, no una tabla de eventos de calendario propia.
 
 Estas tablas se diseñarán en detalle y se migrarán en los bloques de Fase 1 posteriores y en las Fases 3–7, siguiendo las mismas convenciones (`tenant_id`, sin `float` para montos, timestamps con zona horaria, historial de estados donde aplique).

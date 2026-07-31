@@ -121,6 +121,37 @@ manualmente en navegador con roles `admin` y `asistente` reales (creación sin/c
 completo con historial, comentarios, botones deshabilitados —no ocultos— del asistente sobre una tarea sin
 responsable, agenda y tablero con las tarjetas canónicas).
 
+## Pruebas de integración Google OAuth (Fase 3, Bloque 3.1)
+
+| Archivo | Cubre |
+|---|---|
+| `test_migration_0015_google_oauth.py` | Upgrade/downgrade/re-upgrade `0014→0015→0014→0015`; las 4 `UNIQUE` + 7 `CHECK` de `google_oauth_connections` y la 1 `UNIQUE` + 7 `CHECK` de `google_oauth_authorization_attempts` |
+| `test_google_oauth_constraints.py` | Intentos SQL/ORM directos: coherencia de estado (`ACTIVE`/`NEEDS_REAUTH`/`DISCONNECTED`), allowlist de `reauth_reason` (sin `INSUFFICIENT_SCOPE`), coherencia de la máquina de estados del intento (`PENDING`/`PROCESSING`/`SUCCEEDED`/`FAILED`), formato de `state_hash`, `scopes_granted`/`requested_scopes` como array JSON, FK multitenant |
+| `test_integration_crypto.py` | Sobre AES-256-GCM: AAD incorrecto (fila/tabla/tenant/usuario/tipo de token distinto) falla la autenticación; clave inválida/ausente → `IntegrationKeyMissingError`; fingerprint estable para la misma clave y distinto para claves distintas |
+| `test_google_oauth_service.py` | Flujo de 12 pasos del callback con `FakeOAuthProvider`: `state` inexistente/ya consumido → `INVALID_STATE` sin escritura; `state` expirado → purga + `FAILED`/`STATE_EXPIRED`; `error` de Google → `FAILED`/`AUTHORIZATION_DENIED`; `code_verifier` irrecuperable tras consumir el `state`; `email_verified=false` → rechazo; `sub` vacío → rechazo defensivo (`USERINFO_FAILED`); primera conexión sin `refresh_token` → `REFRESH_TOKEN_REQUIRED`, ninguna conexión `ACTIVE` creada; reconexión desde `NEEDS_REAUTH` sin `refresh_token` → mismo error, conexión sin cambios y sin incrementar `version` (`test_reconnect_from_needs_reauth_without_refresh_token_fails`, distinta de la incremental sobre `ACTIVE` que sí conserva su refresh_token); autorización incremental sin `refresh_token` → se conserva el cifrado existente; `sub` distinto sobre `ACTIVE`/`NEEDS_REAUTH` → 409 `GOOGLE_ACCOUNT_MISMATCH`; reemplazo de cuenta tras `DISCONNECTED` → `first_connected_at` no cambia, `version` incrementa, auditoría `INTEGRATION_GOOGLE_ACCOUNT_REPLACED`; desconexión con revocación exitosa y con revocación fallida (best-effort); desactivación de usuario limpia la conexión sin llamar a Google |
+| `test_google_oauth_api.py` | Matriz de permisos 200/403 (`integration:connect`/`integration:disconnect`, totales 41/38/21); ownership (nunca la conexión de otro usuario); `capability=CALENDAR`/`DRIVE` → 422 en este bloque; Google no configurado → `409 INTEGRATION_MISCONFIGURED` en `authorize`; `GET /status` con `configured: bool` (nunca `500`, incluso sin ninguna configuración de integración presente); callback con `state` desconocido/reutilizado → redirección con error, nunca `500` sin manejar; ausencia de tokens en cualquier respuesta JSON |
+| `test_oauth_provider_selection.py` (unit) | `get_oauth_provider()` nunca selecciona el adaptador real sin `client_id`+`client_secret` presentes, aunque `GOOGLE_OAUTH_PROVIDER="google"`; `is_google_oauth_configured()` refleja exactamente la presencia de ambas credenciales |
+| `test_google_oauth_concurrency.py` | Dos conexiones PostgreSQL reales: doble callback con el mismo `state` (una gana, la otra `INVALID_STATE`); dos usuarios intentando conectar la misma cuenta Google (`UNIQUE(tenant_id, google_account_id)`) |
+| `test_logging_redaction_google.py` | Captura de logging real de un callback completo (éxito y fallo): ausencia de `code`/`state` crudo/tokens en cualquier registro |
+
+Frontend: `settings-integrations-google.test.tsx` (Vitest) — estados conectado/desconectado/`NEEDS_REAUTH`,
+gating por permiso, ausencia de cualquier token en el DOM/estado de React, manejo de `google_status`/
+`google_error` en la URL de retorno. **Nota:** este archivo no existe todavía — el proyecto no tiene una
+convención de pruebas de componente (`.tsx`, React Testing Library) establecida (los 57 tests actuales son
+todos de lógica pura en `src/lib/*.test.ts`); introducirla para una sola pantalla no se justificó en esta
+ronda, así que el mensaje "Google no configurado" solo queda verificado por inspección directa del código y
+manualmente en navegador, no por una prueba automática de componente.
+
+**PowerShell (backup/restore, Bloque 3.1)**: `scripts/tests/Test-GoogleIntegrationKeyReconciliation.ps1`
+(invoca la función real usada por `restore.ps1`; manifiesto sin `fingerprint` nunca se considera compatible
+aunque el `key_id` coincida) y `scripts/tests/Test-NativeStepErrorHandling.ps1` (stderr con exit code 0 nunca
+aborta bajo `$ErrorActionPreference="Stop"`; exit code distinto de cero sigue siendo detectable).
+
+**Validación manual no incluida en la suite automática (`GOOGLE_LIVE_VALIDATION_DEFERRED`, ver ADR-0063)**: el
+spike de aceptación real de PKCE por Google y el smoke test end-to-end contra una cuenta Google real requieren
+un cliente OAuth real y una cuenta Google, que el usuario todavía no dispone — no se ejecutan en CI ni en esta
+suite, y son obligatorios antes de habilitar los Bloques 3.2/3.3.
+
 ## Pruebas de arranque (smoke)
 
 - `backend/tests/smoke/test_app_boot.py`: la aplicación FastAPI arranca sin excepciones; `/api/v1/health/live` y `/api/v1/health/ready` responden 200.

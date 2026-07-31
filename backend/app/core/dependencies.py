@@ -4,6 +4,9 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.file_storage import FileStorageBackend, LocalFileStorageBackend
 from app.db.session import get_db
+from app.domain.google_oauth.fake_provider import FakeOAuthProvider
+from app.domain.google_oauth.google_provider import GoogleOAuthProvider
+from app.domain.google_oauth.provider import OAuthProvider
 from app.domain.ruc_lookup.fake_provider import FakeRucLookupProvider
 from app.domain.ruc_lookup.provider import RucLookupProvider
 from app.domain.ruc_lookup.sunat_provider import SunatRucLookupProvider
@@ -22,6 +25,42 @@ def get_ruc_lookup_provider() -> RucLookupProvider:
     if settings.ruc_lookup_provider == "sunat":
         return SunatRucLookupProvider()
     return FakeRucLookupProvider()
+
+
+# Instancia unica de proceso: a diferencia de FakeRucLookupProvider (puro,
+# sin estado), FakeOAuthProvider guarda codigos/tokens en memoria entre la
+# peticion que los registra (setup de prueba) y la peticion que los consume
+# (callback) -- debe ser el mismo objeto en ambas, nunca una instancia nueva
+# por peticion.
+_fake_oauth_provider_singleton: FakeOAuthProvider | None = None
+
+
+def get_fake_oauth_provider_singleton() -> FakeOAuthProvider:
+    global _fake_oauth_provider_singleton
+    if _fake_oauth_provider_singleton is None:
+        _fake_oauth_provider_singleton = FakeOAuthProvider()
+    return _fake_oauth_provider_singleton
+
+
+def reset_fake_oauth_provider_singleton() -> None:
+    """Solo para aislamiento entre pruebas."""
+    global _fake_oauth_provider_singleton
+    _fake_oauth_provider_singleton = None
+
+
+def get_oauth_provider() -> OAuthProvider:
+    # El adaptador real nunca se selecciona sin credenciales reales, aunque
+    # GOOGLE_OAUTH_PROVIDER="google" quede mal configurado (ver
+    # GOOGLE_LIVE_VALIDATION_DEFERRED, ADR-0063): sin client_id/client_secret
+    # cualquier llamada real fallaria de todas formas, asi que se evita
+    # construir ese adaptador desde el origen.
+    if (
+        settings.google_oauth_provider == "google"
+        and settings.google_oauth_client_id
+        and settings.google_oauth_client_secret
+    ):
+        return GoogleOAuthProvider()
+    return get_fake_oauth_provider_singleton()
 
 
 def get_file_storage() -> FileStorageBackend:

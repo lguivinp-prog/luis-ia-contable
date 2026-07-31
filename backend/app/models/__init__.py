@@ -19,6 +19,10 @@ from app.models.declaration_generation import (
     DeclarationGenerationRun,
     DeclarationGenerationRunItem,
 )
+from app.models.google_oauth import (
+    GoogleOAuthAuthorizationAttempt,
+    GoogleOAuthConnection,
+)
 from app.models.login_attempt import LoginAttempt
 from app.models.obligation import ClientObligation, ObligationCatalog
 from app.models.operational_task import (
@@ -71,6 +75,8 @@ __all__ = [
     "DocumentItemStatusHistory",
     "DocumentRequirementCatalog",
     "FilingHistory",
+    "GoogleOAuthAuthorizationAttempt",
+    "GoogleOAuthConnection",
     "LoginAttempt",
     "ObligationCatalog",
     "OperationalTask",

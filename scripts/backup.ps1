@@ -51,12 +51,18 @@ $pgDb = Get-EnvValue -RepoRoot $RepoRoot -Name "POSTGRES_DB"
 Push-Location $RepoRoot
 try {
     Write-Host "Deteniendo backend (captura sin escrituras concurrentes)..." -ForegroundColor Cyan
-    docker compose stop backend | Out-Null
+    Invoke-NativeStep { docker compose stop backend } | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "No se pudo detener el backend antes del backup (codigo $LASTEXITCODE)"
+    }
 
     try {
         $databaseFile = Join-Path $BackupDir "database.sql"
         Write-Host "Volcando base de datos..." -ForegroundColor Cyan
-        $dumpLines = docker compose exec -T db pg_dump -U $pgUser --clean --if-exists $pgDb
+        $dumpLines = Invoke-NativeStep { docker compose exec -T db pg_dump -U $pgUser --clean --if-exists $pgDb }
+        if ($LASTEXITCODE -ne 0) {
+            throw "pg_dump fallo (codigo $LASTEXITCODE) -- backup abortado"
+        }
         [System.IO.File]::WriteAllLines($databaseFile, $dumpLines, (New-Object System.Text.UTF8Encoding $false))
         $databaseSha256 = (Get-FileHash -Path $databaseFile -Algorithm SHA256).Hash.ToLower()
 
@@ -67,7 +73,10 @@ try {
         $verifyResult = Invoke-DocumentStorageCli -CliArgs @("verify")
 
         Write-Host "Obteniendo revision de Alembic..." -ForegroundColor Cyan
-        $alembicOutput = docker compose run --rm -T --no-deps backend alembic current
+        $alembicOutput = Invoke-NativeStep { docker compose run --rm -T --no-deps backend alembic current }
+        if ($LASTEXITCODE -ne 0) {
+            throw "alembic current fallo (codigo $LASTEXITCODE) -- backup abortado"
+        }
         $alembicHead = ($alembicOutput | Select-Object -Last 1).ToString().Trim()
 
         # Version/commit de la aplicacion en el momento del backup (Seccion 14 del
@@ -85,6 +94,14 @@ try {
 
         $verificationOk = Test-IntegrityVerificationOk -VerifyResult $verifyResult
 
+        # Fase 3 / Bloque 3.1 (ADR-0064): key_id + fingerprint de la clave de
+        # cifrado activa de credenciales de integracion -- nunca la clave en
+        # si. Si la integracion no esta configurada en este entorno, ambos
+        # campos quedan null explicitamente (no es un error del backup).
+        $integrationKeyInfo = Invoke-IntegrationKeyInfoCli
+        $integrationTokenKeyId = $integrationKeyInfo.key_id
+        $integrationTokenKeyFingerprint = $integrationKeyInfo.fingerprint
+
         $manifest = [ordered]@{
             backup_id               = $BackupId
             created_at_utc          = (Get-Date).ToUniversalTime().ToString("o")
@@ -94,6 +111,8 @@ try {
             volume_sha256           = $archiveResult.volume_sha256
             document_file_row_count = $verifyResult.total_rows
             blob_count              = $archiveResult.blob_count
+            integration_token_key_id          = $integrationTokenKeyId
+            integration_token_key_fingerprint = $integrationTokenKeyFingerprint
             verification            = [ordered]@{
                 ok            = $verificationOk
                 verified_ok   = $verifyResult.verified_ok
@@ -113,7 +132,10 @@ try {
     } finally {
         if (-not $Internal) {
             Write-Host "Reiniciando backend..." -ForegroundColor Cyan
-            docker compose start backend | Out-Null
+            Invoke-NativeStep { docker compose start backend } | Out-Null
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "ADVERTENCIA: no se pudo reiniciar el backend automaticamente (codigo $LASTEXITCODE) -- reinicialo manualmente con 'docker compose start backend'." -ForegroundColor Red
+            }
         }
     }
 } finally {

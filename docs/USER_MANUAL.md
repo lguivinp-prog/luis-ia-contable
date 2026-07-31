@@ -146,9 +146,32 @@ Visible únicamente para el rol Administrador (el enlace "Usuarios" no aparece p
 - **Restablecer contraseña**: exige un motivo; define una nueva contraseña temporal, revoca todas las
   sesiones del usuario objetivo, y lo obliga a cambiarla en su próximo inicio de sesión.
 
+## Integración con Google (`/settings/integrations/google`) — Fase 3, Bloque 3.1
+
+**Estado actual: diferida (`GOOGLE_LIVE_VALIDATION_DEFERRED`).** Mientras el despacho no registre un proyecto
+de Google Cloud con credenciales OAuth reales (`GOOGLE_OAUTH_CLIENT_ID`/`GOOGLE_OAUTH_CLIENT_SECRET` en
+`.env`), la pantalla muestra "Google no configurado en este entorno" y no ofrece el botón de conexión — no
+hay ningún botón que termine en un error. Esto **no afecta ninguna otra función del sistema**: tareas,
+declaraciones, honorarios, documentos y agenda funcionan con total normalidad sin Google configurado. Una vez
+que el despacho registre esas credenciales, la integración queda disponible sin necesidad de ningún cambio de
+código.
+
+Visible para quien tenga el permiso de integraciones (los 3 roles en este bloque). Permite conectar tu propia
+cuenta de Google **únicamente para verificar tu identidad** (correo verificado) — todavía no sincroniza
+Calendar ni Drive, eso llega en bloques posteriores de la Fase 3. Al conectar, se te redirige a Google para
+autorizar; al volver, la pantalla muestra el correo de la cuenta conectada y el estado. "Desconectar" pide
+confirmación explícita y revoca el acceso en Google en la medida de lo posible (si la revocación remota falla,
+la conexión igual queda desconectada localmente). Si la conexión requiere reautorización (por ejemplo, tras
+una revocación desde tu cuenta de Google), la pantalla lo indica y ofrece "Reconectar". Nadie más en el
+despacho ve ni puede operar tu conexión — es individual por usuario.
+
+**Nota operativa**: si el proyecto de Google Cloud del despacho está en modo "Testing" (no verificado), esto
+no afecta a esta conexión de solo identidad, pero sí afectará más adelante a Calendar/Drive (autorizaciones
+que expiran a los 7 días hasta que el proyecto se verifique).
+
 ## Qué todavía no hace el sistema
 
-Esta versión no envía notificaciones por correo/SMS/push (las tareas y alertas solo se ven dentro de la aplicación), ni tiene integraciones con Google/Gmail/WhatsApp/SUNAT Operaciones en Línea, ni presenta declaraciones o realiza pagos reales. Desde Bloque 5 los documentos sí se almacenan como archivos reales (PDF/JPG/PNG/DOCX/XLSX, con reemplazo versionado y eliminación lógica); lo que no existe todavía es restauración de una versión eliminada, previsualización embebida de Office, ni purga física automática de archivos eliminados. Las rectificatorias tributarias quedan excluidas del producto por decisión funcional del propietario (no reaparecen como pendiente). Ver [ROADMAP.md](ROADMAP.md).
+Esta versión no envía notificaciones por correo/SMS/push (las tareas y alertas solo se ven dentro de la aplicación), ni sincroniza con Google Calendar/Drive, ni tiene integraciones con Gmail/WhatsApp/SUNAT Operaciones en Línea, ni presenta declaraciones o realiza pagos reales. Desde Bloque 5 los documentos sí se almacenan como archivos reales (PDF/JPG/PNG/DOCX/XLSX, con reemplazo versionado y eliminación lógica); lo que no existe todavía es restauración de una versión eliminada, previsualización embebida de Office, ni purga física automática de archivos eliminados. Las rectificatorias tributarias quedan excluidas del producto por decisión funcional del propietario (no reaparecen como pendiente). Ver [ROADMAP.md](ROADMAP.md).
 
 ## Cerrar sesión
 

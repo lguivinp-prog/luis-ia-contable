@@ -4,6 +4,38 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
 ## [Unreleased]
 
+### Fase 3, Bloque 3.1 — Fundamento de integraciones y conexión OAuth Google (identidad)
+
+> Cerrado como infraestructura Google **preparada pero desactivada por configuración**
+> (`GOOGLE_LIVE_VALIDATION_DEFERRED`, ver ADR-0063) — etiqueta `v0.7.0-alpha.1`.
+
+- **Conexión OAuth Google de solo identidad** (`openid`+`email`): migración `0015` con `google_oauth_connections`
+  (ciclo de vida `ACTIVE`/`NEEDS_REAUTH`/`DISCONNECTED`, reemplazo de cuenta tras desconexión) y
+  `google_oauth_authorization_attempts` (máquina de estados `PENDING`/`PROCESSING`/`SUCCEEDED`/`FAILED` con
+  PKCE persistido y purgado al consumir el `state`).
+- **Cifrado de credenciales de integración**: sobre AES-256-GCM versionado con AAD por fila/tabla/tenant/
+  usuario/tipo de token, y fingerprint HMAC-SHA256 de la clave activa para backup/restore (ver ADR-0064).
+- **Adaptadores** `OAuthProvider`/`FakeOAuthProvider`/`GoogleOAuthProvider` (vía `httpx` directo, sin SDK
+  oficial de Google). El adaptador real nunca se selecciona sin `GOOGLE_OAUTH_CLIENT_ID`/
+  `GOOGLE_OAUTH_CLIENT_SECRET` presentes, aunque `GOOGLE_OAUTH_PROVIDER` quedara mal configurado.
+- **Permisos nuevos** `integration:connect`/`integration:disconnect` (3 roles): `admin=41`, `contador=38`,
+  `asistente=21`.
+- **4 endpoints** bajo `/api/v1/integrations/google`: `status` (incluye `configured: bool`), `authorize`
+  (capacidad `IDENTITY` únicamente en este bloque), `callback`, `disconnect`.
+- **Frontend**: `/settings/integrations` y `/settings/integrations/google` — muestra "Google no configurado
+  en este entorno" y oculta el botón de conexión cuando `configured=false`, sin ofrecer nunca un botón que
+  termine en error.
+- **Backup/restore**: manifiesto extendido con `integration_token_key_id`/`integration_token_key_fingerprint`;
+  reconciliación automática a `NEEDS_REAUTH` cuando la clave de cifrado no coincide tras un restore. Corregido
+  además un problema de manejo de stderr/exit code de PowerShell 5.1 en `backup.ps1`/`restore.ps1`/
+  `_backup_lib.ps1` (`Invoke-NativeStep`), pre-existente desde antes de este bloque.
+- ADR-0062 a ADR-0065.
+- **Validación pendiente (`GOOGLE_LIVE_VALIDATION_DEFERRED`)**: el spike de aceptación real de PKCE por Google
+  y el smoke test end-to-end contra una cuenta Google real quedan diferidos — el usuario no dispone todavía de
+  un proyecto Google Cloud ni de un cliente OAuth real. Obligatorio antes de habilitar los Bloques 3.2/3.3
+  (Calendar/Drive) o de usar Google con usuarios reales. La ausencia de estas credenciales no afecta ninguna
+  función local del sistema.
+
 ### Fase 1, Bloque 3.1 — Ciclo operativo (periodos y declaraciones)
 
 > Documentado retroactivamente: implementado y verificado en el commit `565a3f7` (etiqueta `v0.3.0-alpha.1`), no se había registrado en este archivo hasta ahora.

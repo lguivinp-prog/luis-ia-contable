@@ -248,6 +248,22 @@ CASES = [
         None,
     ),
     ("alert:read", "GET", "/api/v1/tasks/alerts-summary", None, "asistente_client", None),
+    (
+        "integration:connect",
+        "GET",
+        "/api/v1/integrations/google/status",
+        None,
+        "asistente_client",
+        None,
+    ),
+    (
+        "integration:disconnect",
+        "POST",
+        "/api/v1/integrations/google/disconnect",
+        None,
+        "asistente_client",
+        None,
+    ),
 ]
 
 
@@ -268,14 +284,14 @@ def test_permission_matrix(
         )
 
 
-def test_matrix_covers_all_39_permissions() -> None:
+def test_matrix_covers_all_41_permissions() -> None:
     from app.core.permissions import Permission
 
     covered = {case[0] for case in CASES}
     all_permissions = {p.value for p in Permission}
     missing = all_permissions - covered
     assert not missing, f"permisos sin caso de prueba en la matriz: {sorted(missing)}"
-    assert len(CASES) >= 39
+    assert len(CASES) >= 41
 
 
 def test_asistente_role_is_real_and_distinct(asistente_user) -> None:

@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from app.core.security import hash_password
 from app.models.user import User
 from app.repositories import user_repository
-from app.services import auth_service
+from app.services import auth_service, google_oauth_service
 
 
 class UserNotFoundError(Exception):
@@ -146,6 +146,9 @@ def deactivate_user(
     target.deactivated_by = actor.id
     target.deactivation_reason = reason
     auth_service.revoke_all_sessions(db, target.id)
+    # Fase 3 / Bloque 3.1: limpia localmente cualquier conexion Google del
+    # usuario desactivado -- nunca llama a Google (ver Seccion 7 del plan v3).
+    google_oauth_service.disconnect_for_user_deactivation(db, tenant_id=tenant_id, user_id=target_id)
     db.flush()
     return target
 

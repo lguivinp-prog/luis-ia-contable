@@ -56,6 +56,28 @@ class Settings(BaseSettings):
     document_storage_root: str = "/var/lib/luis-ia-contable/documents"
     document_file_max_bytes: int = 15_000_000
 
+    # ---- Fase 3 / Bloque 3.1: integracion Google OAuth (ADR-0062/0063) ----
+    # Vacios por defecto: sin estos dos valores la integracion queda
+    # deliberadamente no configurada (INTEGRATION_MISCONFIGURED en el momento
+    # de uso, nunca un fallo silencioso ni un valor de relleno).
+    google_oauth_client_id: str = ""
+    google_oauth_client_secret: str = ""
+    google_oauth_provider: Literal["fake", "google"] = "fake"
+    # Base publica usada para construir redirect_uri (ej. http://localhost:8000).
+    # Nunca se envia al frontend como parte de un payload de configuracion.
+    app_public_base_url: str = "http://localhost:8000"
+    # A donde el callback redirige al navegador tras procesar la respuesta de
+    # Google (el frontend corre en un origen distinto al backend).
+    frontend_public_base_url: str = "http://localhost:3000"
+
+    # ---- Cifrado de credenciales de integracion (ADR-0064) ----
+    # Clave base64 de 32 bytes decodificados. Vacia por defecto: si Google
+    # esta configurado pero esta clave falta o es invalida, los endpoints de
+    # integracion fallan cerrado (INTEGRATION_MISCONFIGURED) -- ver
+    # app/core/integration_crypto.py.
+    integration_token_encryption_key: str = ""
+    integration_token_key_id: str = "v1"
+
 
 @lru_cache
 def get_settings() -> Settings:

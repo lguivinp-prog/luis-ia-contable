@@ -51,6 +51,9 @@ class Permission(str, enum.Enum):
     TASK_CANCEL = "task:cancel"
     TASK_SYNC = "task:sync"
     ALERT_READ = "alert:read"
+    # ---- Fase 3, Bloque 3.1: integracion Google OAuth (identidad) ----
+    INTEGRATION_CONNECT = "integration:connect"
+    INTEGRATION_DISCONNECT = "integration:disconnect"
 
 
 _READ_PERMISSIONS: frozenset[Permission] = frozenset(
@@ -69,6 +72,8 @@ _READ_PERMISSIONS: frozenset[Permission] = frozenset(
         Permission.TASK_READ,
         Permission.ALERT_READ,
         Permission.TASK_SYNC,
+        Permission.INTEGRATION_CONNECT,
+        Permission.INTEGRATION_DISCONNECT,
     }
 )
 
