@@ -4,6 +4,36 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
 ## [Unreleased]
 
+### Bloque transversal — Arranque y sincronización local (ver ADR-0066)
+
+> Cerrado tras la ronda de correcciones operativas del checkpoint — etiqueta `v0.7.1-alpha.1`.
+
+- **Un único punto de entrada de arranque**: `scripts/start-luis-ia-contable.ps1` (acceso directo de
+  escritorio o tarea de inicio de sesión de Windows). **Orden robusto y corregido**: PostgreSQL primero
+  (`docker compose up -d db` + healthcheck) → `alembic upgrade head` en un contenedor efímero (nunca depende
+  de que el servicio `backend` de larga duración esté saludable) → `docker compose up -d backend frontend` +
+  healthchecks → sincronización local → navegador. Probado de forma reproducible partiendo de una base de
+  datos atrasada en `0014`.
+- **`backend/app/cli/startup_sync.py`**: descubre todos los tenants, procesa cada uno en su propia
+  transacción independiente (orden determinista por UUID), reutiliza `task_generation_service.
+  sync_operational_tasks` (cero lógica de dominio nueva), exclusión mutua vía `pg_try_advisory_lock` de
+  PostgreSQL, integraciones externas no implementadas se reportan como `SKIPPED_NOT_IMPLEMENTED` sin ninguna
+  llamada de red y sin afectar el arranque local.
+- **Resultado clasificado en 4 valores** (`StartupSyncResult`, exit code documentado): `SUCCESS`/
+  `SKIPPED_LOCKED` (0, abre el navegador), `PARTIAL_FAILURE` (2, abre el navegador igual con advertencia clara
+  y sin ocultar qué tenant falló), `FATAL_FAILURE` (1, nunca abre el navegador).
+- **Nunca invocado desde el ciclo de vida de FastAPI** (lifespan/startup/import/migración/GET) — ver
+  ADR-0066.
+- **Tolerancia a Docker Desktop arrancando**: sondeo de `docker info` con timeout configurable
+  (`-DockerEngineTimeoutSeconds`) y mensaje "Esperando Docker Desktop..."; la tarea de inicio automático
+  aplica además un retraso real al disparador (`-LogonDelaySeconds`, 30s por defecto) y
+  `MultipleInstancesPolicy=IgnoreNew`.
+- `scripts/stop-luis-ia-contable.ps1` (conserva volúmenes/datos), `scripts/create-desktop-shortcut.ps1`,
+  `scripts/install-autostart.ps1`/`uninstall-autostart.ps1` (tarea del Programador de tareas de Windows para
+  el usuario actual, sin contraseña ni privilegios elevados, idempotente).
+- Logs locales redactados con retención simple: `logs/startup/startup-<fecha>.log`.
+- ADR-0066.
+
 ### Fase 3, Bloque 3.1 — Fundamento de integraciones y conexión OAuth Google (identidad)
 
 > Cerrado como infraestructura Google **preparada pero desactivada por configuración**

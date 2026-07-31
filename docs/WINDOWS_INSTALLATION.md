@@ -44,13 +44,59 @@
 
 7. Iniciar sesión con las credenciales del administrador ficticio definidas en tu archivo `.env` (`DEV_SEED_ADMIN_EMAIL` / `DEV_SEED_ADMIN_PASSWORD`).
 
-## Detener el sistema
+## Uso diario (recomendado): un solo acceso directo
+
+Una vez completada la instalación inicial (pasos 1-3 arriba), el día a día no requiere recordar ninguna
+secuencia de comandos — ver ADR-0066. Crea el acceso directo una sola vez:
+
+```powershell
+.\scripts\create-desktop-shortcut.ps1
+```
+
+Esto crea "Luis IA Contable.lnk" en tu escritorio. A partir de ahí, un doble clic:
+
+1. verifica que Docker esté disponible y en ejecución;
+2. levanta los 3 servicios (`docker compose up -d`);
+3. espera a que PostgreSQL, el backend y el frontend estén saludables (con un plazo máximo, nunca una espera
+   indefinida);
+4. aplica las migraciones pendientes (`alembic upgrade head`);
+5. sincroniza la información local (tareas operativas generadas/actualizadas/resueltas desde declaraciones,
+   documentos y honorarios — nunca integraciones externas, que todavía no existen o están diferidas);
+6. abre `http://localhost:<FRONTEND_PORT>` en tu navegador por defecto.
+
+Si algo falla, la ventana muestra un mensaje claro (nunca una traza técnica) y permanece abierta para que
+puedas leerlo; el detalle completo queda en `logs\startup\startup-<fecha>.log`.
+
+Para detener el sistema conservando todos los datos:
+
+```powershell
+.\scripts\stop-luis-ia-contable.ps1
+```
+
+### Inicio automático al iniciar sesión de Windows (opcional)
+
+```powershell
+.\scripts\install-autostart.ps1
+```
+
+Registra la tarea "Luis IA Contable - Inicio local" en el Programador de tareas de Windows, para el usuario
+actual únicamente (no requiere guardar tu contraseña ni privilegios de administrador). Para desactivarlo:
+
+```powershell
+.\scripts\uninstall-autostart.ps1
+```
+
+El acceso directo manual sigue funcionando exactamente igual, este de arranque automático nunca es obligatorio
+para poder usar el sistema.
+
+## Detener el sistema (script original)
 
 ```powershell
 .\scripts\stop.ps1
 ```
 
 Esto detiene los contenedores sin borrar los datos de la base de datos (el volumen de Postgres persiste).
+Equivalente a `stop-luis-ia-contable.ps1` de la sección anterior.
 
 ## Copias de seguridad
 
@@ -76,7 +122,9 @@ Para restaurar (**acción destructiva**, sobrescribe los datos actuales; pide co
 
 ## Arranque automático con Windows (Programador de tareas)
 
-Pendiente de configurar como tarea programada en un bloque posterior; por ahora el arranque es manual mediante `scripts/start.ps1`.
+Ver "Uso diario (recomendado)" arriba: `scripts\install-autostart.ps1` / `scripts\uninstall-autostart.ps1`
+(ADR-0066). Es opcional; el acceso directo manual (`scripts\create-desktop-shortcut.ps1`) funciona
+exactamente igual sin instalarlo.
 
 ## Solución de problemas
 

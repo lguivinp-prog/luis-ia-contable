@@ -48,12 +48,22 @@ Para detener el sistema:
 
 Instrucciones completas y solución de problemas en [docs/WINDOWS_INSTALLATION.md](docs/WINDOWS_INSTALLATION.md).
 
+### Uso diario: un solo acceso directo (ver ADR-0066)
+
+Tras la instalación inicial, `scripts\create-desktop-shortcut.ps1` crea un acceso directo que levanta los
+servicios, aplica migraciones, sincroniza la información local y abre el navegador con un solo doble clic —
+opcionalmente también al iniciar sesión de Windows (`scripts\install-autostart.ps1`). Ver
+"Uso diario" en [docs/WINDOWS_INSTALLATION.md](docs/WINDOWS_INSTALLATION.md).
+
 ## Scripts disponibles
 
 | Script | Propósito |
 |---|---|
 | `scripts/install.ps1` | Primera instalación: crea `.env`, construye imágenes Docker |
 | `scripts/start.ps1` / `stop.ps1` / `restart.ps1` | Encender / apagar / reiniciar el stack |
+| `scripts/start-luis-ia-contable.ps1` / `stop-luis-ia-contable.ps1` | Orquestador de uso diario: levanta servicios, migra, sincroniza información local y abre el navegador / detiene conservando los datos (ADR-0066) |
+| `scripts/create-desktop-shortcut.ps1` | Crea el acceso directo de escritorio para el orquestador de arranque |
+| `scripts/install-autostart.ps1` / `uninstall-autostart.ps1` | Activa/desactiva el arranque automático al iniciar sesión de Windows (opcional) |
 | `scripts/migrate.ps1` | Aplica migraciones de base de datos (Alembic) |
 | `scripts/seed.ps1` | Carga datos ficticios de desarrollo (idempotente) |
 | `scripts/backup.ps1` / `restore.ps1` | Copia de seguridad y restauración de la base de datos |

@@ -58,6 +58,28 @@ botón de conexión que termine en un `409`. La ausencia de estas credenciales n
 del sistema (tareas, declaraciones, honorarios, documentos, agenda). Esta validación real será obligatoria
 antes de habilitar los Bloques 3.2 (Calendar) o 3.3 (Drive).
 
+## Orquestador de arranque local (bloque transversal, ver ADR-0066)
+
+`scripts/start-luis-ia-contable.ps1`/`stop-luis-ia-contable.ps1` y la tarea opcional de inicio automático de
+Windows (`scripts/install-autostart.ps1`) se ejecutan siempre en el contexto del usuario actual de Windows,
+nunca con privilegios elevados por diseño (`RunLevel Limited`), y nunca almacenan la contraseña de esa cuenta
+de Windows (`LogonType Interactive`, la tarea solo corre mientras el usuario tiene sesión iniciada). El
+`ExecutionPolicy Bypass` del acceso directo de escritorio se aplica únicamente al proceso invocado por ese
+acceso directo, nunca cambia la política de ejecución de PowerShell del sistema.
+
+La sincronización de arranque (`backend/app/cli/startup_sync.py`) nunca realiza ninguna llamada de red — toda
+integración externa (Google Calendar/Drive, SUNAT SOL, Gmail, WhatsApp) se reporta como no implementada/no
+configurada sin contactar ningún servicio, y nunca bloquea el uso local del sistema. Los logs locales
+(`logs/startup/startup-<fecha>.log`) están redactados por diseño: nunca registran contraseñas, tokens,
+`client_secret`, claves de cifrado, el contenido de un archivo `.env`, contenido de documentos, ni números
+telefónicos completos — solo estado de servicios, migraciones aplicadas, identificadores de tenant
+(prefijo corto de UUID), conteos de tareas y errores normalizados. Se aplica retención simple (máximo 14
+archivos), nunca crecimiento indefinido.
+
+Exclusión mutua entre dos inicios simultáneos: `pg_try_advisory_lock` de PostgreSQL con una clave de dominio
+fija, nunca un mecanismo del sistema operativo — se libera siempre, incluso ante una excepción o un apagado
+abrupto (el servidor libera los advisory locks de sesión al cerrarse esa conexión).
+
 ## Cifrado de credenciales de integración (Fase 3, Bloque 3.1 — implementado, ver ADR-0064)
 
 Independiente de la bóveda SOL (todavía sin implementar): `access_token`/`refresh_token`/`code_verifier` de la

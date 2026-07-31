@@ -2,6 +2,32 @@
 
 > Cubre las pantallas implementadas en Fase 1, Bloques 1 a 5 (verificadas en navegador). Se ampliará en cada fase siguiente.
 
+## Iniciar y detener el sistema (bloque transversal de operación local, ver ADR-0066)
+
+Con el acceso directo "Luis IA Contable" en el escritorio (creado una sola vez con
+`scripts\create-desktop-shortcut.ps1`), un doble clic levanta todo, aplica actualizaciones pendientes,
+sincroniza la información local (tareas operativas) y abre la aplicación en el navegador — nunca es necesario
+recordar comandos. Opcionalmente, `scripts\install-autostart.ps1` hace que esto mismo ocurra automáticamente
+al iniciar sesión en Windows.
+
+Para detener el sistema (conservando todos los datos) se usa `scripts\stop-luis-ia-contable.ps1`, o
+simplemente se apaga/suspende el equipo con normalidad. Ninguna de las dos acciones borra información.
+
+**Qué se sincroniza automáticamente al iniciar**: tareas operativas generadas o actualizadas a partir de
+declaraciones, documentos y honorarios pendientes (lo mismo que ya hace la sincronización manual desde
+`/tasks`), incluida la resolución automática de tareas cuya fuente ya quedó terminal. **Qué NO se sincroniza
+todavía**: nada relacionado con Google Calendar/Drive, Gmail, WhatsApp o SUNAT Operaciones en Línea — ninguna
+de esas integraciones existe todavía en el sistema (ver [ROADMAP.md](ROADMAP.md)); su ausencia nunca impide
+usar el resto de la aplicación.
+
+**Funcionamiento sin internet**: iniciar el sistema, aplicar actualizaciones, sincronizar la información local
+y usar la aplicación funciona igual con o sin conexión a internet — ninguna función local depende de una
+integración externa.
+
+**Si algo falla al iniciar**: la ventana muestra un mensaje breve y claro (nunca un detalle técnico) y
+permanece abierta para que puedas leerlo; el detalle completo de esa ejecución queda guardado en
+`logs\startup\startup-<fecha>.log` (nunca contiene contraseñas, tokens ni claves).
+
 ## Roles y permisos (Bloque 4)
 
 El sistema tiene tres roles fijos: **Administrador** (acceso completo, incluida la gestión de usuarios y el

@@ -2,6 +2,17 @@
 
 Cada fase se implementa de forma independiente, con su propia documentación, migraciones, pruebas y criterios de aceptación. No se avanza a la siguiente fase si la anterior no compila, no inicia o no supera sus pruebas esenciales.
 
+## Bloque transversal — Arranque y sincronización local ✅ (ver ADR-0066)
+
+No pertenece a ninguna fase numerada — es infraestructura operativa que aplica a todas las fases por igual.
+Un único punto de entrada (`scripts/start-luis-ia-contable.ps1`, acceso directo de escritorio o tarea opcional
+de inicio de sesión de Windows) levanta los servicios, aplica migraciones, sincroniza la información local
+(`backend/app/cli/startup_sync.py`, reutilizando `task_generation_service.sync_operational_tasks` sin lógica
+de dominio nueva) y abre la interfaz. Exclusión mutua entre dos inicios simultáneos vía advisory lock de
+PostgreSQL. Integraciones externas no implementadas (Google Calendar/Drive, SUNAT SOL, Gmail, WhatsApp) se
+omiten sin ninguna llamada de red y sin bloquear el arranque local — la ausencia de internet nunca impide usar
+el sistema.
+
 ## Fase 0 — Fundamentos ✅ (esta entrega)
 
 Documentación base, arquitectura, modelo de amenazas, modelo de datos, estructura de repositorio, Docker Compose, backend/frontend iniciales, health checks, scripts Windows, `.env.example`, CI local (`scripts/test.ps1`).
