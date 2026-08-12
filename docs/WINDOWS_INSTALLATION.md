@@ -112,6 +112,14 @@ Para restaurar (**acción destructiva**, sobrescribe los datos actuales; pide co
 .\scripts\restore.ps1 -BackupFile "backups\backup_20260722_102802.sql"
 ```
 
+Las 5 tablas de la bóveda de credenciales SOL (Fase 5, Bloque 5.1: `sol_vaults`, `sol_vault_key_slots`,
+`sol_vault_data_keys`, `sol_vault_invitations`, `client_sol_credentials`) quedan incluidas de forma
+transparente en este volcado completo de PostgreSQL — no requieren ningún paso adicional, a diferencia de los
+tokens de integración con Google (que sí dependen de una clave de cifrado externa al volcado, ver
+`docs/SECURITY_MODEL.md`). Tras restaurar, todas las bóvedas quedan bloqueadas igual que tras cualquier
+reinicio del backend (el registro de desbloqueo en memoria nunca forma parte de un volcado SQL) — cada
+usuario debe volver a desbloquear su bóveda con su propia contraseña personal.
+
 ## Reiniciar el entorno de desarrollo desde cero
 
 ```powershell

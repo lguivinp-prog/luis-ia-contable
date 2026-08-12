@@ -1,5 +1,6 @@
 from app.models.audit_log import AuditLog
 from app.models.client import Client
+from app.models.client_sol_credential import ClientSolCredential
 from app.models.communication_draft import CommunicationDraft
 from app.models.declaration import (
     Declaration,
@@ -43,6 +44,12 @@ from app.models.professional_fee import (
 )
 from app.models.security_event import SecurityEvent
 from app.models.session import Session
+from app.models.sol_vault import (
+    SolVault,
+    SolVaultDataKey,
+    SolVaultInvitation,
+    SolVaultKeySlot,
+)
 from app.models.tax_assessment import TaxAssessment, TaxAssessmentHistory
 from app.models.tax_category import ClientTaxCategory, TaxCategoryCatalog
 from app.models.tax_payment import TaxPayment, TaxPaymentHistory
@@ -63,6 +70,7 @@ __all__ = [
     "Client",
     "ClientDocumentRequirement",
     "ClientObligation",
+    "ClientSolCredential",
     "ClientTaxCategory",
     "CommunicationDraft",
     "Declaration",
@@ -91,6 +99,10 @@ __all__ = [
     "ProfessionalReceipt",
     "SecurityEvent",
     "Session",
+    "SolVault",
+    "SolVaultDataKey",
+    "SolVaultInvitation",
+    "SolVaultKeySlot",
     "TaxAssessment",
     "TaxAssessmentHistory",
     "TaxCategoryCatalog",

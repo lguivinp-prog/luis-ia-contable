@@ -1,8 +1,10 @@
 from fastapi import FastAPI
 
 from app.core.config import get_settings
+from app.core.error_handlers import install_error_handlers
 from app.core.logging import configure_logging
 from app.core.security import get_dummy_password_hash
+from app.core.sol_vault_worker_gate import enforce_single_worker_gate
 from app.routers import (
     auth,
     clients,
@@ -18,6 +20,7 @@ from app.routers import (
     operational_tasks,
     professional_fees,
     reports,
+    sol_vault,
     tax_assessments,
     tax_categories,
     tax_payments,
@@ -29,11 +32,21 @@ from app.routers import (
 settings = get_settings()
 configure_logging(settings.log_level)
 
+# Fail-closed antes de construir la aplicacion: VaultUnlockRegistry es
+# memoria de un unico proceso (ver ADR-0071) -- mas de un worker
+# desincronizaria los desbloqueos de la boveda SOL entre procesos.
+enforce_single_worker_gate(settings.backend_workers)
+
 app = FastAPI(
     title="Luis IA Contable API",
     version="0.1.0",
     description="API de control contable, tributario y documental para un contador independiente peruano.",
 )
+
+# Redacta valores sensibles (contrasena de boveda, codigo de recuperacion,
+# credenciales SOL, etc.) del cuerpo de las respuestas 422 -- ver
+# ADR-0068, Seccion 19.
+install_error_handlers(app)
 
 
 @app.on_event("startup")
@@ -63,3 +76,5 @@ app.include_router(document_integrity.router)
 app.include_router(operational_tasks.router)
 app.include_router(google_integrations.router)
 app.include_router(communications.router)
+app.include_router(sol_vault.router)
+app.include_router(sol_vault.credential_router)

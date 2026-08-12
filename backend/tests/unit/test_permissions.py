@@ -13,9 +13,10 @@ class _FakeUser:
         self.role = role
 
 
-def test_permission_enum_has_42_values() -> None:
-    """Fase 3, Bloque 3.2 (ver ADR-0067): agrega communication:draft (41 -> 42)."""
-    assert len(list(Permission)) == 42
+def test_permission_enum_has_51_values() -> None:
+    """Fase 5, Bloque 5.1 (ver ADR-0068): agrega los 9 permisos sol_vault:*/
+    sol_credential:* (42 -> 51)."""
+    assert len(list(Permission)) == 51
 
 
 def test_admin_has_every_permission() -> None:
@@ -31,7 +32,13 @@ def test_contador_lacks_user_management_and_close_override() -> None:
     assert Permission.TASK_ASSIGN in contador_permissions
     assert Permission.TASK_CANCEL in contador_permissions
     assert Permission.COMMUNICATION_DRAFT in contador_permissions
-    assert len(contador_permissions) == 39
+    assert Permission.SOL_VAULT_UNLOCK in contador_permissions
+    assert Permission.SOL_CREDENTIAL_CREATE in contador_permissions
+    assert Permission.SOL_VAULT_INITIALIZE not in contador_permissions
+    assert Permission.SOL_VAULT_MANAGE_USERS not in contador_permissions
+    assert Permission.SOL_VAULT_RECOVER not in contador_permissions
+    assert Permission.SOL_VAULT_ROTATE not in contador_permissions
+    assert len(contador_permissions) == 44
 
 
 def test_asistente_is_read_only_plus_document_item_write_and_reports() -> None:
@@ -43,6 +50,15 @@ def test_asistente_is_read_only_plus_document_item_write_and_reports() -> None:
     assert Permission.DOCUMENT_FILE_MANAGE not in asistente_permissions
     assert Permission.CLIENT_WRITE not in asistente_permissions
     assert Permission.TAX_PAYMENT_WRITE not in asistente_permissions
+    assert Permission.SOL_VAULT_UNLOCK not in asistente_permissions
+    assert Permission.SOL_CREDENTIAL_READ not in asistente_permissions
+    assert Permission.SOL_CREDENTIAL_CREATE not in asistente_permissions
+    assert Permission.SOL_CREDENTIAL_UPDATE not in asistente_permissions
+    assert Permission.SOL_CREDENTIAL_DISABLE not in asistente_permissions
+    assert Permission.SOL_VAULT_INITIALIZE not in asistente_permissions
+    assert Permission.SOL_VAULT_MANAGE_USERS not in asistente_permissions
+    assert Permission.SOL_VAULT_RECOVER not in asistente_permissions
+    assert Permission.SOL_VAULT_ROTATE not in asistente_permissions
     assert Permission.USER_READ not in asistente_permissions
     assert Permission.TASK_CREATE in asistente_permissions
     assert Permission.TASK_UPDATE in asistente_permissions

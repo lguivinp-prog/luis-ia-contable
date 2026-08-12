@@ -231,9 +231,60 @@ el contenido completo de un documento.
 **Nunca envíes un mensaje real a un cliente real durante una prueba o demostración** — usa un número de
 prueba propio, o detente antes de presionar "Enviar" dentro de la propia aplicación de WhatsApp.
 
+## Bóveda de credenciales SOL (`/settings/sol-vault`) — Fase 5, Bloque 5.1
+
+Visible para quien tenga permiso `sol_vault:unlock` (admin y contador; el asistente no tiene ningún acceso a
+esta pantalla ni a las credenciales SOL de ningún cliente). Guarda de forma cifrada el usuario y la
+contraseña SOL de tus clientes, protegidos detrás de tu propia contraseña personal de bóveda.
+
+**La bóveda se bloquea al reiniciar la aplicación.** Esto es intencional, no un error: nadie puede dejar la
+bóveda "abierta" de forma permanente en el servidor — cada reinicio exige volver a desbloquearla con tu
+contraseña personal.
+
+**Inicializar** (solo administrador, una vez por despacho): elige tu contraseña personal de bóveda (mínimo 14
+caracteres, puede ser una frase fácil de recordar, sin necesidad de símbolos raros). Inmediatamente después
+verás un **código de recuperación**, mostrado **una única vez** — no podrás volver a verlo nunca. **Guarda el
+código de recuperación fuera de esta computadora** (papel, gestor de contraseñas, otro dispositivo). Debes
+reingresarlo para confirmar que lo guardaste correctamente antes de continuar.
+
+**Desbloquear / bloquear**: con tu contraseña personal. Puedes bloquear manualmente en cualquier momento
+desde el mismo botón. Una contraseña incorrecta aplica una breve espera creciente antes de permitir otro
+intento (mismo mecanismo que el bloqueo de inicio de sesión).
+
+**Cambiar tu contraseña personal**: en cualquier momento, mientras la bóveda esté desbloqueada.
+
+**Si pierdes el acceso** (contraseña olvidada y no queda ningún otro usuario con acceso activo): la bóveda
+pasa a "Requiere recuperación". Usa tu código de recuperación guardado para elegir una contraseña nueva. Un
+administrador puede generar un código de recuperación nuevo en cualquier momento (también mostrado una única
+vez, con el mismo paso de confirmación).
+
+**Invitar a otro usuario** (solo administrador): selecciona al usuario del despacho, se genera una
+invitación; comparte con esa persona el identificador de la invitación (no hay un aviso automático). Esa
+persona la acepta desde la sección "Aceptar una invitación", eligiendo su propia contraseña personal —
+**nunca comparte ni conoce tu contraseña**. Si tú te bloqueas antes de que la persona invitada acepte,
+deberás "Reautorizar" la invitación tras volver a desbloquear tu bóveda.
+
+**Rotar la clave de cifrado** (solo administrador): recifra todas las credenciales SOL del despacho bajo una
+clave nueva; pide confirmación previa. No cambia tu contraseña personal ni la de nadie más — sigues
+desbloqueando con la misma contraseña de siempre.
+
+### Credencial SOL de un cliente (`/clients/[id]/sol-credential`)
+
+Desde la ficha de un cliente, botón "Credencial SOL" (visible con permiso `sol_credential:read`).
+
+**Luis IA Contable nunca muestra nuevamente una contraseña SOL guardada.** No existe ningún botón "ver" ni
+"copiar" contraseña — una vez guardada, solo puedes reemplazarla escribiendo una nueva.
+
+Al registrar o actualizar una credencial, indicas el tipo (secundaria — recomendada, con permisos delegados
+propios del despacho — o principal, con RUC propio o excepcional con autorización explícita del cliente),
+usuario y contraseña SOL, y el motivo de la autorización. **La credencial quedará pendiente de validación
+hasta comprobarla mediante un acceso supervisado posterior** — esta versión guarda y cifra la credencial, pero
+no verifica todavía que funcione contra SUNAT (eso corresponde a un bloque futuro, no implementado). Puedes
+deshabilitarla en cualquier momento si el cliente cambia su clave o termina la relación.
+
 ## Qué todavía no hace el sistema
 
-Esta versión no envía notificaciones por correo/SMS/push (las tareas y alertas solo se ven dentro de la aplicación), ni sincroniza con Google Calendar/Drive, ni tiene integraciones con Gmail/WhatsApp/SUNAT Operaciones en Línea, ni presenta declaraciones o realiza pagos reales. Desde Bloque 5 los documentos sí se almacenan como archivos reales (PDF/JPG/PNG/DOCX/XLSX, con reemplazo versionado y eliminación lógica); lo que no existe todavía es restauración de una versión eliminada, previsualización embebida de Office, ni purga física automática de archivos eliminados. Las rectificatorias tributarias quedan excluidas del producto por decisión funcional del propietario (no reaparecen como pendiente). Ver [ROADMAP.md](ROADMAP.md).
+Esta versión no envía notificaciones por correo/SMS/push (las tareas y alertas solo se ven dentro de la aplicación), ni sincroniza con Google Calendar/Drive, ni tiene integraciones con Gmail/SUNAT Operaciones en Línea, ni presenta declaraciones o realiza pagos reales. La bóveda de credenciales SOL (Fase 5, Bloque 5.1) guarda y cifra credenciales, pero todavía no las valida contra SUNAT ni automatiza ningún acceso — no hay Playwright, no hay Buzón SOL, no hay sesiones de acceso SOL reales. Desde Bloque 5 los documentos sí se almacenan como archivos reales (PDF/JPG/PNG/DOCX/XLSX, con reemplazo versionado y eliminación lógica); lo que no existe todavía es restauración de una versión eliminada, previsualización embebida de Office, ni purga física automática de archivos eliminados. Las rectificatorias tributarias quedan excluidas del producto por decisión funcional del propietario (no reaparecen como pendiente). Ver [ROADMAP.md](ROADMAP.md).
 
 ## Cerrar sesión
 

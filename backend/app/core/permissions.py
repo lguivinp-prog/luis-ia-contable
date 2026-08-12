@@ -56,6 +56,16 @@ class Permission(str, enum.Enum):
     INTEGRATION_DISCONNECT = "integration:disconnect"
     # ---- Fase 3, Bloque 3.2: comunicaciones asistidas por WhatsApp ----
     COMMUNICATION_DRAFT = "communication:draft"
+    # ---- Fase 5, Bloque 5.1: boveda de credenciales SOL (ver ADR-0068) ----
+    SOL_VAULT_INITIALIZE = "sol_vault:initialize"
+    SOL_VAULT_MANAGE_USERS = "sol_vault:manage_users"
+    SOL_VAULT_RECOVER = "sol_vault:recover"
+    SOL_VAULT_ROTATE = "sol_vault:rotate"
+    SOL_VAULT_UNLOCK = "sol_vault:unlock"
+    SOL_CREDENTIAL_READ = "sol_credential:read"
+    SOL_CREDENTIAL_CREATE = "sol_credential:create"
+    SOL_CREDENTIAL_UPDATE = "sol_credential:update"
+    SOL_CREDENTIAL_DISABLE = "sol_credential:disable"
 
 
 _READ_PERMISSIONS: frozenset[Permission] = frozenset(
@@ -99,6 +109,12 @@ _CONTADOR_ONLY_ADDITIONS: frozenset[Permission] = frozenset(
         Permission.PROFESSIONAL_FEE_VOID,
         Permission.TASK_ASSIGN,
         Permission.TASK_CANCEL,
+        # ---- Fase 5, Bloque 5.1: admin + contador, nunca asistente ----
+        Permission.SOL_VAULT_UNLOCK,
+        Permission.SOL_CREDENTIAL_READ,
+        Permission.SOL_CREDENTIAL_CREATE,
+        Permission.SOL_CREDENTIAL_UPDATE,
+        Permission.SOL_CREDENTIAL_DISABLE,
     }
 )
 

@@ -135,6 +135,32 @@ export const COMMUNICATION_DRAFT_STATUS_SEMAPHORE: Record<string, SemaphoreEntry
   DISCARDED: { label: "Descartado", color: "rojo" },
 };
 
+export const SOL_VAULT_STATUS_SEMAPHORE: Record<string, SemaphoreEntry> = {
+  NOT_INITIALIZED: { label: "No inicializada", color: "gris" },
+  ACTIVE: { label: "Activa", color: "verde" },
+  RECOVERY_REQUIRED: { label: "Requiere recuperación", color: "rojo" },
+  DISABLED: { label: "Deshabilitada", color: "rojo" },
+};
+
+export const SOL_CREDENTIAL_STATUS_SEMAPHORE: Record<string, SemaphoreEntry> = {
+  NEEDS_VALIDATION: { label: "Pendiente de validación", color: "amarillo" },
+  ACTIVE: { label: "Activa", color: "verde" },
+  INVALID: { label: "Inválida", color: "rojo" },
+  DISABLED: { label: "Deshabilitada", color: "gris" },
+};
+
+export const SOL_VAULT_SLOT_STATUS_SEMAPHORE: Record<string, SemaphoreEntry> = {
+  ACTIVE: { label: "Activo", color: "verde" },
+  REVOKED: { label: "Revocado", color: "gris" },
+};
+
+export const SOL_VAULT_INVITATION_STATUS_SEMAPHORE: Record<string, SemaphoreEntry> = {
+  PENDING: { label: "Pendiente", color: "amarillo" },
+  ACCEPTED: { label: "Aceptada", color: "verde" },
+  EXPIRED: { label: "Vencida", color: "rojo" },
+  CANCELLED: { label: "Cancelada", color: "gris" },
+};
+
 export const TASK_TYPE_LABEL: Record<string, string> = {
   DECLARATION_FILING: "Presentación de declaración",
   DOCUMENT_COLLECTION: "Recopilación de documento",

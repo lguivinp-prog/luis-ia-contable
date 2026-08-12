@@ -78,6 +78,13 @@ class Settings(BaseSettings):
     integration_token_encryption_key: str = ""
     integration_token_key_id: str = "v1"
 
+    # ---- Fase 5 / Bloque 5.1: boveda SOL (ADR-0068/0071) ----
+    # `VaultUnlockRegistry` vive en memoria de un unico proceso -- 1 es el
+    # unico valor aceptado (ver app/core/sol_vault_worker_gate.py). El
+    # Dockerfile ya arranca uvicorn sin `--workers`, es decir con 1 proceso
+    # real por defecto; este valor documenta y verifica esa realidad.
+    backend_workers: int = 1
+
 
 @lru_cache
 def get_settings() -> Settings:

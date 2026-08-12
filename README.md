@@ -2,7 +2,7 @@
 
 Aplicación peruana de control contable, tributario, documental y de honorarios profesionales para un contador independiente. Arquitectura local-first (Windows 11 + Docker), preparada para evolucionar a una plataforma multiusuario y multidespacho.
 
-> **Estado actual:** Fase 0 (fundamentos) + Fase 1, Bloques 1 y 2 (núcleo operativo: autenticación endurecida con bloqueo de intentos fallidos y CSRF, contribuyentes, catálogo de obligaciones, categorías tributarias del cliente, motor de cronogramas tributarios versionado). Ver [docs/ROADMAP.md](docs/ROADMAP.md) para el detalle de fases.
+> **Estado actual:** Fases 0 a 2 completas (núcleo operativo, cronogramas tributarios, declaraciones, documentos, impuestos, honorarios, RBAC real, gestión operativa de tareas/agenda); Fase 3 en desarrollo (OAuth Google — solo identidad —, comunicaciones asistidas por WhatsApp; Calendar/Drive diferidos); Fase 5, Bloque 5.1 completo (bóveda cifrada de credenciales SOL por cliente — Argon2id + AES-256-GCM, recuperación en dos pasos, invitaciones de dos actores, rotación de clave de datos; sin Playwright ni acceso real a SUNAT todavía). Ver [docs/ROADMAP.md](docs/ROADMAP.md) para el detalle de fases.
 
 ## Qué es y qué NO es
 

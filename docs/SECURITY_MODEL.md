@@ -4,7 +4,7 @@
 
 1. **Control humano sobre toda actuación sensible.** El sistema nunca presenta declaraciones, realiza pagos, solicita fraccionamientos, modifica datos del RUC, ni responde notificaciones automáticamente.
 2. **Ningún secreto en texto plano** — en código, JSON, logs, capturas, prompts de IA, mensajes de error o backups sin cifrar.
-3. **Separación entre sesión de aplicación y bóveda de credenciales.** El usuario puede consultar información general sin desbloquear la bóveda; necesita desbloquearla explícitamente para acceder a credenciales SOL (Fase 4).
+3. **Separación entre sesión de aplicación y bóveda de credenciales.** El usuario puede consultar información general sin desbloquear la bóveda; necesita desbloquearla explícitamente para operar sobre credenciales SOL (Fase 5, Bloque 5.1 — implementado, ver más abajo).
 4. **Aislamiento por tenant** en cada consulta, incluso con un solo tenant activo hoy.
 
 ## Autenticación (implementado en esta entrega)
@@ -31,18 +31,53 @@
 - Rota en cada login, se borra en logout, se invalida automáticamente al revocarse la sesión.
 - Toda mutación (`POST`/`PUT`/`PATCH`/`DELETE`) la exige; la API nunca depende únicamente del middleware del frontend para esta protección.
 
-## Bóveda de credenciales SOL (diseño — Fase 4, no implementado)
+## Bóveda de credenciales SOL (Fase 5, Bloque 5.1 — implementado, ver ADR-0068 a ADR-0071)
 
-Arquitectura prevista:
-1. Clave de cifrado de datos (DEK) aleatoria por instalación.
-2. Cada secreto se cifra con AES-256-GCM (cifrado autenticado, nonce único por operación).
-3. La DEK se protege con una clave derivada de la contraseña maestra mediante Argon2id.
-4. Protección adicional opcional ligada al equipo mediante Windows DPAPI.
-5. Versión de esquema criptográfico almacenada junto al secreto, para permitir rotación.
-6. Los secretos se limpian de memoria tan pronto como sea razonablemente posible.
-7. Ninguna credencial SOL se envía al frontend salvo en una operación estrictamente controlada y auditada.
+Jerarquía de tres niveles: contraseña personal del usuario → (Argon2id) → KEK del slot → (AES-256-GCM) →
+`vault_root_key` (envuelta, una copia por slot: `USER` o `RECOVERY`) → (AES-256-GCM) → `credential_dek`
+(envuelta bajo `vault_root_key`, versionada) → (AES-256-GCM, por campo) → `sol_username`/`sol_password`.
+`vault_root_key` nunca cifra directamente una credencial y nunca rota en operación ordinaria; solo
+`credential_dek` rota (ADR-0070). Cada capa usa AES-256-GCM con sobre versionado (`format_version` + nonce de
+12 bytes nuevo en cada operación + ciphertext+tag) y AAD obligatorio construido de forma determinista y
+centralizada, atando cada secreto a su fila/tabla/tenant/identificador — mover un ciphertext a otro contexto
+falla la autenticación GCM de inmediato. Argon2id vía `argon2.low_level.hash_secret_raw` (nunca
+`PasswordHasher`), parámetros productivos fijos: `memory_cost_kib=393216` (384 MiB), `time_cost=2`,
+`parallelism=1`, `hash_len=32`, `kdf_version=1`, persistidos por slot (un cambio futuro de parámetros no
+invalida slots existentes). `Argon2ConcurrencyGate` (`app/core/sol_vault_argon2_gate.py`) limita a una sola
+derivación Argon2id simultánea por proceso (semáforo, espera acotada, liberación garantizada) — evita agotar
+memoria bajo uso concurrente real. No se usa Windows DPAPI: se reutiliza el mismo patrón de sobre + AAD ya
+productivo en `app/core/integration_crypto.py`, portable y sin atarse a una API específica del sistema
+operativo.
 
-En esta entrega, las columnas `sol_username_encrypted`, `sol_password_encrypted`, `sol_cipher_version` existen en el modelo `clients` pero no tienen lógica de lectura/escritura: cualquier intento lanza `NotImplementedError`.
+**Single-worker backend obligatorio en v1**: `enforce_single_worker_gate` se ejecuta a nivel de módulo en
+`app/main.py`, antes de construir la aplicación — más de un worker hace fallar el arranque completo del
+proceso, porque el `VaultUnlockRegistry` (ver más abajo) es memoria de un único proceso.
+
+**`VaultUnlockRegistry` — ninguna clave desenvuelta sobrevive fuera de la memoria de un único proceso**
+(`app/core/sol_vault_registry.py`): registro puramente en memoria, nunca persistido en PostgreSQL, Redis ni
+archivo alguno, indexado por `(tenant_id, vault_id, user_id, app_session_id)` con `app_session_id` siempre el
+`id` real de una fila de `sessions`. `resolve()` revalida en vivo, en cada uso, contra la sesión real
+subyacente (no revocada, no vencida, tenant/usuario correctos) y contra la propia autorización de desbloqueo
+(vigencia, operación permitida, alcance de cliente si aplica) — cualquier fallo purga la entrada de inmediato.
+`vault_root_key` se guarda en un `bytearray` (mutable) para poder sobrescribirse con ceros al purgar
+(`zeroize()`) — esto **no es una garantía criptográfica de borrado físico de memoria** en CPython (copias
+transitorias intermedias pueden no sobrescribirse); se documenta el límite real en vez de afirmar un borrado
+perfecto (ver ADR-0071 para el detalle). El estado `LOCKED` nunca se persiste como columna — es la ausencia
+de una entrada viva en este registro para la combinación exacta de tenant/bóveda/usuario/sesión.
+**Reiniciar el backend bloquea automáticamente todas las bóvedas de todos los usuarios, sin excepción** — el
+registro nace vacío en cada arranque del proceso, por diseño, nunca como limitación a resolver.
+
+Recuperación en dos pasos (inicializar/reemplazar → confirmar), con el código de recuperación mostrado
+**una sola vez** en la respuesta HTTP inmediatamente posterior a generarlo — ningún endpoint puede volver a
+mostrarlo. `recovery_confirmed_at` vive exclusivamente en la fila del slot `RECOVERY`, nunca en `sol_vaults`
+(fe de erratas del spike, corregida en el diseño productivo). Invitaciones de dos actores con asociación
+efímera invitador→invitado que también vive solo en memoria de proceso, nunca en base de datos (ver
+ADR-0069). Toda credencial SOL nueva o actualizada aterriza siempre en `NEEDS_VALIDATION` — este bloque
+**no** implementa Playwright, acceso a SUNAT, Buzón SOL ni sesiones de acceso SOL reales; la validación real
+contra SUNAT queda fuera de alcance (Bloque 5.2, no diseñado todavía). Ningún endpoint de este bloque
+devuelve una contraseña SOL en claro, un ciphertext, una sal, una clave envuelta, ni el handle interno del
+registro — verificado por pruebas dedicadas de redacción y por un barrido estático del código fuente
+(backend y frontend) que falla si alguno de esos valores aparece fuera de su uso legítimo interno.
 
 ## Estado de la integración Google (`GOOGLE_LIVE_VALIDATION_DEFERRED`, ver ADR-0063)
 
@@ -82,7 +117,9 @@ abrupto (el servidor libera los advisory locks de sesión al cerrarse esa conexi
 
 ## Cifrado de credenciales de integración (Fase 3, Bloque 3.1 — implementado, ver ADR-0064)
 
-Independiente de la bóveda SOL (todavía sin implementar): `access_token`/`refresh_token`/`code_verifier` de la
+Independiente de la bóveda SOL (Fase 5, Bloque 5.1, ver arriba — cada una usa su propio esquema de sobre y su
+propia clave de cifrado, sin compartir material criptográfico entre ambas): `access_token`/`refresh_token`/
+`code_verifier` de la
 integración OAuth Google se cifran con AES-256-GCM en un sobre versionado (`format_version` + nonce de 12
 bytes + ciphertext+tag), con AAD obligatorio que ata cada secreto a su fila/tabla/tenant/usuario/tipo de
 token (`backend/app/core/integration_crypto.py`). Una sola clave activa por instalación
@@ -110,11 +147,11 @@ configuración antes de operar con esos bloques.
 ## RBAC real: catálogo de permisos y aplicación en routers (Bloque 4, ADR-0050/ADR-0051/ADR-0052)
 
 El sistema implementa RBAC real sobre los tres roles fijos (`admin`/`contador`/`asistente`, `CHECK
-ck_users_role`). `Permission(str, enum.Enum)` (`backend/app/core/permissions.py`) declara 42 permisos
+ck_users_role`). `Permission(str, enum.Enum)` (`backend/app/core/permissions.py`) declara 51 permisos
 explícitos (30 desde Bloque 4, `document:file_manage` desde Bloque 5, 8 permisos de tareas operativas desde
 Fase 2/Bloque 1, `integration:connect`/`integration:disconnect` desde Fase 3/Bloque 3.1, `communication:draft`
-desde Fase 3/Bloque 3.2 — ver más abajo);
-`ROLE_PERMISSIONS` es el único mapa rol→permisos, sin tabla relacional (`admin`=42, `contador`=39,
+desde Fase 3/Bloque 3.2, 9 permisos de bóveda SOL/credenciales desde Fase 5/Bloque 5.1 (ver más abajo));
+`ROLE_PERMISSIONS` es el único mapa rol→permisos, sin tabla relacional (`admin`=51, `contador`=44,
 `asistente`=22). `has_permission`/`check_permission` fallan **cerrado**: un rol o
 permiso no reconocido nunca autoriza por defecto. `require_permission(permission)` es la dependencia que se
 aplica en la firma de cada endpoint mutante o de lectura de todos los routers existentes; reemplaza por
@@ -135,7 +172,7 @@ Un usuario no puede desactivarse ni cambiar su propio rol.
 **Cobertura estructural verificada**: `test_route_permission_coverage.py` recorre `app.routes` y falla si
 cualquier endpoint bajo `/api/v1/` no declara `require_permission` y no está en la allowlist cerrada
 `EXEMPT_ROUTES` (los 8 endpoints de autoservicio de `auth.py` + 2 de `health.py` — nunca una exención por
-prefijo). `test_permission_matrix_api.py` confirma 200/403 real para los 42 permisos.
+prefijo). `test_permission_matrix_api.py` confirma 200/403 real para los 51 permisos.
 
 **Gateo frontend como UX, no como control de acceso**: `hasPermission(user, permission)`
 (`frontend/src/lib/permissions.ts`) consume `permissions: list[str]` calculado por el backend en

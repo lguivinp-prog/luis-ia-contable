@@ -272,6 +272,51 @@ CASES = [
         "asistente_client",
         None,
     ),
+    # ---- Fase 5, Bloque 5.1: boveda de credenciales SOL (ver ADR-0068) ----
+    ("sol_vault:unlock", "GET", "/api/v1/sol-vault/status", None, "contador_client", "asistente_client"),
+    ("sol_vault:initialize", "POST", "/api/v1/sol-vault/initialize", {}, "auth_client", "contador_client"),
+    ("sol_vault:manage_users", "GET", "/api/v1/sol-vault/slots", None, "auth_client", "contador_client"),
+    ("sol_vault:recover", "POST", "/api/v1/sol-vault/recover", {}, "auth_client", "contador_client"),
+    (
+        "sol_vault:rotate",
+        "POST",
+        "/api/v1/sol-vault/data-key/rotate",
+        {},
+        "auth_client",
+        "contador_client",
+    ),
+    (
+        "sol_credential:read",
+        "GET",
+        f"/api/v1/clients/{DUMMY_ID}/sol-credential/status",
+        None,
+        "contador_client",
+        "asistente_client",
+    ),
+    (
+        "sol_credential:create",
+        "POST",
+        f"/api/v1/clients/{DUMMY_ID}/sol-credential",
+        {},
+        "contador_client",
+        "asistente_client",
+    ),
+    (
+        "sol_credential:update",
+        "PUT",
+        f"/api/v1/clients/{DUMMY_ID}/sol-credential",
+        {},
+        "contador_client",
+        "asistente_client",
+    ),
+    (
+        "sol_credential:disable",
+        "POST",
+        f"/api/v1/clients/{DUMMY_ID}/sol-credential/disable",
+        {},
+        "contador_client",
+        "asistente_client",
+    ),
 ]
 
 
@@ -292,15 +337,16 @@ def test_permission_matrix(
         )
 
 
-def test_matrix_covers_all_42_permissions() -> None:
-    """Fase 3, Bloque 3.2 (ver ADR-0067): agrega communication:draft (41 -> 42)."""
+def test_matrix_covers_all_51_permissions() -> None:
+    """Fase 5, Bloque 5.1 (ver ADR-0068): agrega los 9 permisos sol_vault:*/
+    sol_credential:* (42 -> 51)."""
     from app.core.permissions import Permission
 
     covered = {case[0] for case in CASES}
     all_permissions = {p.value for p in Permission}
     missing = all_permissions - covered
     assert not missing, f"permisos sin caso de prueba en la matriz: {sorted(missing)}"
-    assert len(CASES) >= 42
+    assert len(CASES) >= 51
 
 
 def test_asistente_role_is_real_and_distinct(asistente_user) -> None:

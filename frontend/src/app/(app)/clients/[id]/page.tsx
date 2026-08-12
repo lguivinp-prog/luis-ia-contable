@@ -11,6 +11,7 @@ import { apiClient } from "@/lib/apiClient";
 import { buildClientUpdatePayload } from "@/lib/clientUpdatePayload";
 import { useCurrentUser } from "@/lib/currentUserContext";
 import { hasPermission } from "@/lib/permissions";
+import { canReadSolCredential } from "@/lib/solVaultPermissions";
 import type { Client, ClientBase, ServiceStatus } from "@/lib/types/client";
 
 const SERVICE_STATUS_OPTIONS = [
@@ -86,6 +87,13 @@ export default function ClientDetailPage() {
               Honorarios
             </Button>
           </Link>
+          {canReadSolCredential(user) && (
+            <Link href={`/clients/${client.id}/sol-credential`}>
+              <Button variant="secondary" type="button">
+                Credencial SOL
+              </Button>
+            </Link>
+          )}
         </div>
       </div>
 

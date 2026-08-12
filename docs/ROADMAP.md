@@ -136,18 +136,30 @@ formando parte de la Fase 3 tal como se planificaron.
   verificada por el sistema) — sin WhatsApp Business API, sin WhatsApp Cloud API, sin automatización ni
   scraping de ningún tipo, sin envío automatizado. No depende de Google ni de internet para preparar
   mensajes.
-- **Bloque 3.3 — diferido** (futura migración `0017`; próximo ADR disponible, número 0068, se creará recién
+- **Bloque 3.3 — diferido** (futura migración `0018`; próximo ADR disponible, número 0072, se creará recién
   cuando se implemente) — autorización incremental de Calendar y sincronización unidireccional de tareas.
-- **Bloque 3.4 — diferido** (futura migración `0018`; siguiente ADR disponible, número 0069, se creará recién
+  *(Los números de migración/ADR previstos originalmente para 3.3/3.4 — `0017`/ADR-0068 y ADR-0069 — quedaron
+  ocupados por Fase 5/Bloque 5.1, implementado antes; ver más abajo.)*
+- **Bloque 3.4 — diferido** (futura migración `0019`; siguiente ADR disponible, número 0073, se creará recién
   cuando se implemente) — autorización incremental de Drive y exportación explícita de documentos.
 
 ## Fase 4 — Gmail y notificaciones (pendiente)
 
 Gmail de solo lectura, filtros y asociación por RUC, descarga controlada de adjuntos, bandeja de notificaciones, niveles de riesgo, expedientes, IA opcional para clasificación/resumen (nunca como única fuente de verdad).
 
-## Fase 5 — Bóveda y acceso SOL supervisado (pendiente)
+## Fase 5 — Bóveda y acceso SOL supervisado (bloque 5.1 ✅, bloque 5.2 pendiente)
 
-Bóveda criptográfica de credenciales (AES-256-GCM + Argon2id + DPAPI), automatización de navegador con Playwright estrictamente supervisada (consulta de régimen, buzón, descargas — nunca presentación ni pago), detención automática ante CAPTCHA o cambios inesperados.
+- **Bloque 5.1 — implementado** (migración `0017`, ver ADR-0068 a ADR-0071) — bóveda criptográfica productiva
+  de credenciales SOL por cliente: jerarquía de tres niveles (slot KEK → `vault_root_key` → `credential_dek` →
+  credencial), Argon2id + AES-256-GCM (sin DPAPI: se usa el mismo patrón de sobre versionado + AAD ya
+  productivo en `app/core/integration_crypto.py`, portable y sin atarse a una API específica de Windows),
+  recuperación en dos pasos con código mostrado una sola vez, invitaciones de dos actores, rotación ordinaria
+  de `credential_dek`, `VaultUnlockRegistry` en memoria de un único proceso (bloqueo automático al reiniciar
+  el backend). Toda credencial nueva/actualizada queda `NEEDS_VALIDATION` — este bloque **no** implementa
+  Playwright, acceso a SUNAT, Buzón SOL ni sesiones de acceso SOL reales.
+- **Bloque 5.2 — diferido** (no diseñado todavía) — automatización de navegador con Playwright estrictamente
+  supervisada (consulta de régimen, buzón, descargas — nunca presentación ni pago), detención automática ante
+  CAPTCHA o cambios inesperados. Depende de que el Bloque 5.1 ya esté cerrado e integrado.
 
 ## Fase 6 — SIRE y controles especializados (pendiente)
 

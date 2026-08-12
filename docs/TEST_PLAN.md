@@ -157,8 +157,8 @@ aborta bajo `$ErrorActionPreference="Stop"`; exit code distinto de cero sigue si
 | `test_communication_draft_constraints.py` | Intentos SQL/ORM directos: `channel`/`status` fuera de la allowlist, `version` no positiva, `body` vacío/&gt;4000 caracteres, formato E.164 inválido, coherencia de estado por fila (incluido que `DISCARDED` admite `open_requested_at` `NULL` o `NOT NULL`), FK de `client_id`/`related_task_id`/`related_document_file_id` hacia otro tenant o cliente distinto |
 | `test_whatsapp_phone_normalization.py` (unit) | Los 6 pasos exactos del algoritmo: `None`/vacío → `WHATSAPP_NUMBER_REQUIRED`; E.164 explícito aceptado; 9 dígitos empezando en 9 → `+51`; 11 dígitos con prefijo `51` → `+`; prefijo `00`→`+`; espacios/guiones/paréntesis se recortan sin alterar el `display`; número corto ambiguo, o de 9/11 dígitos sin el patrón peruano, o E.164 con primer dígito `0` → `INVALID_WHATSAPP_NUMBER` |
 | `test_communication_templates.py` (unit) | 5 plantillas, todas versión 1, todas sus variables dentro de `ALLOWED_VARIABLES`, ausencia de datos sensibles hardcodeados en el texto; renderizado determinista; variable no declarada → `UnknownTemplateVariableError`; variable admitida pero ausente → cadena vacía, nunca excepción |
-| `test_permissions.py` (unit) | `communication:draft` concedido a los 3 roles; totales exactos `admin=42`/`contador=39`/`asistente=22` |
-| `test_permission_matrix_api.py` | Caso 200/403 de `communication:draft` incluido en la matriz de 42 permisos |
+| `test_permissions.py` (unit) | `communication:draft` concedido a los 3 roles (totales exactos por rol evolucionan con cada bloque nuevo — ver "Pruebas de permisos de la bóveda SOL" más abajo para los totales vigentes tras Fase 5/Bloque 5.1) |
+| `test_permission_matrix_api.py` | Caso 200/403 de `communication:draft` incluido en la matriz de permisos |
 | `test_communications_router.py` | Catálogo de plantillas (5 ítems); previsualización nunca persiste nada y reporta `WHATSAPP_NUMBER_REQUIRED` cuando el cliente no tiene teléfono; creación de borrador (éxito, teléfono ausente/inválido, cliente de otro tenant → `404 SOURCE_NOT_FOUND`, tarea de otro cliente → `422 SOURCE_CLIENT_MISMATCH`, tarea asignada a otro asistente → `403 SOURCE_NOT_ACCESSIBLE`, documento de otro cliente → `422 SOURCE_CLIENT_MISMATCH`); ownership real del asistente en `GET /drafts` y `GET /drafts/{id}`; máquina de estados completa (`mark-open-requested` idempotente sin incrementar versión ni cambiar la URL, `409 VERSION_CONFLICT`, `mark-sent` exige `OPEN_REQUESTED` previo, `409 INVALID_COMMUNICATION_TRANSITION` en transiciones inválidas, `discard` desde `DRAFT`/`OPEN_REQUESTED`); codificación exacta de la URL `wa.me` (espacios/tildes/`ñ`/saltos de línea/`?`/`&`/Unicode nunca literales en la query string); auditoría sin cuerpo completo/teléfono/`wa.me` en `metadata` |
 | `test_communication_draft_concurrency.py` | Dos conexiones PostgreSQL reales con `threading.Event` (sin `sleep`): dos `mark-open-requested` concurrentes (una gana, la otra `409 VERSION_CONFLICT`); dos `mark-sent` concurrentes tras `OPEN_REQUESTED`; `mark-sent` vs `discard` concurrentes — exactamente una transición gana en cada caso |
 
@@ -195,6 +195,45 @@ registra la tarea "Luis IA Contable - Inicio local" (idempotente, reemplaza en v
 spike de aceptación real de PKCE por Google y el smoke test end-to-end contra una cuenta Google real requieren
 un cliente OAuth real y una cuenta Google, que el usuario todavía no dispone — no se ejecutan en CI ni en esta
 suite, y son obligatorios antes de habilitar los Bloques 3.2/3.3.
+
+## Pruebas de la bóveda de credenciales SOL (Fase 5, Bloque 5.1, ver ADR-0068 a ADR-0071)
+
+| Archivo | Cubre |
+|---|---|
+| `test_sol_vault_crypto.py` (unit) | Ida y vuelta de las 3 capas de envoltura (`wrap`/`unwrap` de `vault_root_key` y `credential_dek`, `encrypt`/`decrypt_credential_field`); manipulación de cada componente del AAD por separado (fila/tabla/tenant/usuario/campo/versión) siempre falla la autenticación GCM; unicidad del nonce; truncamiento/versión de formato desconocida falla cerrado; `zeroize()` sobrescribe el buffer |
+| `test_sol_vault_argon2_gate.py` (unit) | `Argon2ConcurrencyGate` permite exactamente 1 derivación simultánea, la segunda espera y luego procede tras liberarse la primera, `Argon2GateTimeoutError` tras agotar la espera configurada, liberación garantizada incluso si la derivación lanza una excepción; `enforce_single_worker_gate` acepta `1` y rechaza cualquier otro valor con `SolVaultSingleWorkerViolationError` |
+| `test_sol_vault_registry.py` | `VaultUnlockRegistry` contra sesiones reales de `sessions`: `issue`/`resolve`/`lock`/`lock_all_for_session`/`reset`; `resolve()` purga y falla ante sesión revocada, sesión vencida, autorización vencida, tenant/usuario incorrecto, operación no permitida, cliente fuera del alcance autorizado; dos sesiones del mismo usuario coexisten sin pisarse |
+| `test_sol_vault_migration_constraints.py` | Los 3 índices únicos parciales de `sol_vault_key_slots` (USER activo, RECOVERY confirmado, RECOVERY pendiente), la UNIQUE exacta `(tenant_id, vault_id, data_key_version)` y el índice único parcial ACTIVE de `sol_vault_data_keys`, la UNIQUE parcial PENDING de `sol_vault_invitations`, la FK compuesta y el índice único parcial de `client_sol_credentials` — todos verificados por nombre exacto contra `pg_constraint`/`pg_indexes`, no solo contra el modelo ORM |
+| `test_sol_vault_service.py` | Inicialización; confirmación de recuperación correcta/incorrecta; reemplazo de recuperación (incluido `RecoveryReplacementAlreadyPendingError` con el pendiente ya confirmado); `recover` completo con backoff superado; último slot `USER` no puede revocarse sin recuperación confirmada, ni el último `RECOVERY` sin ningún `USER` activo; unlock con backoff; lock purga el registro; cambio de contraseña; invitación completa (creación, asociación efímera perdida, usuario incorrecto, expiración por tiempo y por estado, inviter sin `SLOT_MANAGEMENT`, reautorización, cancelación); credenciales (creación con autorización vencida, `NEEDS_VALIDATION`, actualización parcial de campos, deshabilitación, unicidad de una credencial no-`DISABLED` por cliente); rotación funcional con 2 usuarios que siguen desbloqueando después de rotar; todas las ramas de error de versión/estado (`VERSION_CONFLICT`, `SOL_VAULT_NOT_INITIALIZED`, `SOL_VAULT_DISABLED`, etc.) |
+| `test_sol_vault_rotation_concurrency.py` | Dos conexiones PostgreSQL reales: excepción forzada a mitad de una rotación real (recifrado parcial dentro de una transacción sin comitear); la segunda conexión nunca ve una fila a medio recifrar y queda genuinamente bloqueada por el advisory lock; tras el `rollback()`, el estado queda completamente intacto (versión, data key activa, las 3 credenciales de prueba siguen descifrando correctamente) |
+| `test_sol_vault_secrets_and_redaction.py` | Los 5 módulos productivos nunca usan `logging` ni `print`; un flujo representativo completo (init/confirm/unlock fallido/confirm fallido) no filtra ningún secreto ficticio en stdout/stderr/logs/texto de excepción; el interceptor de errores 422 (`app/core/error_handlers.py`) nunca ecoa una contraseña rechazada por longitud, ni un valor sensible cuando el 422 lo dispara un campo inesperado distinto (`extra=forbid`) |
+| `test_permissions.py` (unit) | Los 9 permisos nuevos con la exclusividad exacta (4 admin-only, 5 admin+contador); totales `admin=51`/`contador=44`/`asistente=22` |
+| `test_permission_matrix_api.py` | Caso 200/403 real de los 9 permisos nuevos contra sus rutas reales, incluida la matriz completa de 51 |
+
+Cobertura backend mantenida en 88% o superior tras este bloque (ver informe de verificación de la Fase 5,
+Bloque 5.1) — no es obligatorio conservar los tests del spike experimental (`spike/phase5-sol-vault-crypto`)
+dentro de `master`.
+
+Frontend (Vitest, lógica pura en `src/lib/*.test.ts`, mismo criterio que el resto del proyecto — sin
+componentes React renderizados, ver `vitest.config.ts`: `environment: "node"`): `solVaultPermissions.test.ts`
+(gateo exacto admin/contador/asistente para los 9 permisos), `solVaultValidation.test.ts` (política de
+contraseña de bóveda: 14-256 caracteres, sin regla artificial de símbolo), `solVaultErrors.test.ts` (mapeo
+completo de códigos de error a mensajes), y `solVaultSecrets.test.ts` — **prueba obligatoria** que escanea el
+código fuente real de las páginas de la bóveda SOL y falla si: aparece `localStorage`/`sessionStorage`;
+aparece cualquier campo criptográfico que el backend nunca devuelve (`vault_root_key`, `credential_dek`,
+`wrapped_vault_root_key`, `wrapped_data_key`, `kdf_salt`); aparece un botón de ver/mostrar/copiar contraseña;
+reaparece el valor incorrecto `"PRIMARY"` como `credential_kind`; o si las advertencias obligatorias
+("La bóveda se bloquea al reiniciar la aplicación.", "Guarda el código de recuperación fuera de esta
+computadora.", "Luis IA Contable nunca muestra nuevamente una contraseña SOL guardada.", "La credencial
+quedará pendiente de validación hasta comprobarla mediante un acceso supervisado posterior.") no aparecen en
+el archivo correspondiente.
+
+**Manual (obligatorio, nunca automatizado, solo datos ficticios)**: flujo de 21 pasos en navegador real —
+inicializar, ver y confirmar el código de recuperación, bloquear/desbloquear, cambiar contraseña personal,
+crear y actualizar una credencial SOL de un cliente de prueba, invitar y aceptar un segundo usuario QA, rotar
+la clave de datos y confirmar que ambos usuarios siguen desbloqueando, reemplazar el código de recuperación y
+probar `recover` real, deshabilitar la credencial, reiniciar el backend y confirmar que la bóveda vuelve a
+quedar bloqueada. **Nunca usar una credencial SOL real durante esta prueba.**
 
 ## Pruebas de arranque (smoke)
 

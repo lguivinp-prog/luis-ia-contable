@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 
 import { useCurrentUser } from "@/lib/currentUserContext";
 import { hasPermission } from "@/lib/permissions";
+import { canViewSolVaultNav } from "@/lib/solVaultPermissions";
 
 const NAV_ITEMS = [
   { href: "/clients", label: "Contribuyentes" },
@@ -36,6 +37,9 @@ export function Sidebar() {
   }
   if (hasPermission(user, "communication:draft")) {
     navItems = [...navItems, { href: "/communications", label: "Comunicaciones" }];
+  }
+  if (canViewSolVaultNav(user)) {
+    navItems = [...navItems, { href: "/settings/sol-vault", label: "Bóveda SOL" }];
   }
 
   return (

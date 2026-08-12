@@ -485,8 +485,54 @@ Plantillas de mensaje (`GENERAL_MESSAGE`, `OBLIGATION_DUE_REMINDER`, `DOCUMENT_R
 `PAYMENT_PENDING_REMINDER`, `TASK_FOLLOW_UP`) están versionadas en código
 (`app/domain/communication_templates.py`), no en una tabla — ver ADR-0067 para la justificación.
 
+## Fase 5, Bloque 5.1 — Bóveda de credenciales SOL (migración 0017, ver ADR-0068 a ADR-0071)
+
+```
+sol_vaults (ADR-0068)
+  - una fila por tenant: UNIQUE(tenant_id); UNIQUE(id, tenant_id) para respaldar FKs compuestas hijas
+  - status: ACTIVE | RECOVERY_REQUIRED | DISABLED (CHECK de coherencia con disabled_at/disabled_by)
+  - version: concurrencia optimista, incrementada por revoke_slot/rotate_data_key/recover
+  - NOT_INITIALIZED nunca es un valor de columna -- se deriva de la ausencia de fila para ese tenant_id
+
+sol_vault_key_slots (ADR-0069)
+  - kind: USER (user_id NOT NULL) | RECOVERY (user_id NULL); status: ACTIVE | REVOKED
+  - wrapped_vault_root_key + kdf_salt/kdf_time_cost/kdf_memory_cost_kib/kdf_parallelism/kdf_hash_len/kdf_version
+    propios por slot -- cada slot envuelve su propia copia de vault_root_key bajo su propio KEK
+  - recovery_confirmed_at vive SOLO aqui (en el slot RECOVERY), nunca en sol_vaults
+  - 3 indices unicos parciales: USER activo por (vault_id, user_id); RECOVERY activo confirmado por vault_id;
+    RECOVERY activo pendiente por vault_id
+  - failed_attempts/backoff_until: backoff progresivo ante contrasena/codigo incorrecto
+
+sol_vault_data_keys (ADR-0070)
+  - una fila ACTIVE por vault_id (indice unico parcial); UNIQUE(tenant_id, vault_id, data_key_version)
+  - wrapped_data_key: credential_dek envuelta bajo vault_root_key -- unica clave que rota en operacion
+    ordinaria (rotate_data_key); vault_root_key nunca rota en esta version
+
+sol_vault_invitations (ADR-0069)
+  - status: PENDING | ACCEPTED | EXPIRED | CANCELLED; CHECK invited_by <> target_user_id
+  - indice unico parcial: como maximo una invitacion PENDING por (vault_id, target_user_id)
+  - la asociacion efimera invitador->invitado durante la aceptacion vive solo en memoria de proceso
+    (InvitationAssociationRegistry), nunca en esta tabla ni en ninguna otra
+
+client_sol_credentials (ADR-0068)
+  - credential_kind: SECONDARY | PRIMARY_OWN_RUC | PRIMARY_EXCEPTIONAL (nunca un valor "PRIMARY" generico)
+  - status: siempre NEEDS_VALIDATION tras alta/actualizacion en este bloque (la validacion real contra SUNAT
+    queda fuera de alcance); DISABLED es el unico otro estado alcanzable por este bloque
+  - sol_username_encrypted/sol_password_encrypted: AES-256-GCM por campo, AAD con credential_id/client_id/
+    field_name/data_key_version -- nunca expuestos por ningun endpoint en claro ni cifrados
+  - FK compuesta (tenant_id, vault_id, data_key_version) -> sol_vault_data_keys(tenant_id, vault_id,
+    data_key_version); indice unico parcial: como maximo una credencial no-DISABLED por (tenant_id, client_id)
+  - authorization_basis (NOT NULL) + authorization_reference/authorized_scope_description/
+    authorization_expires_at: obligatorios para PRIMARY_EXCEPTIONAL, documentan la autorizacion del cliente
+```
+
+`VaultUnlockRegistry` (`app/core/sol_vault_registry.py`) es memoria pura de proceso, indexada por
+`(tenant_id, vault_id, user_id, app_session_id)` -- nunca es una tabla, nunca se persiste, se destruye por
+completo al reiniciar el backend (ver ADR-0071). Ninguna de las 5 tablas anteriores tiene columna alguna que
+guarde `vault_root_key` o `credential_dek` en claro, ni el handle interno del registro.
+
 ## Entidades planificadas para fases futuras (no implementadas aún)
 
-`client_contacts`, `client_tax_profiles`, `client_credentials` (bóveda real), `client_settings`, `notifications`, `notification_deadlines`, `cases`, `calendar_events`, `drive_folders`, `email_messages`, `integration_sync_runs`, `automation_jobs`, `backup_runs`, `ai_prompt_templates`, `ai_analysis_results`, `system_settings`. RBAC (roles/permisos por rol fijo) ya está implementado desde Bloque 4 sin tablas relacionales propias (`Permission`/`ROLE_PERMISSIONS` declarativos, ver ADR-0050); `roles`/`user_roles` solo se revisitarían si en el futuro se necesitan roles personalizados configurables por tenant (Fase 7, comercialización multi-despacho). `tasks`/`internal_alerts` ya no figuran aquí: implementadas en Fase 2, Bloque 1 como `operational_tasks` (materializadas) + alertas 100% derivadas sin tabla propia (ver ADR-0057/ADR-0060). `communications`/`communication_templates` ya no figuran aquí: implementadas en Fase 3, Bloque 3.2 como `communication_drafts` + catálogo versionado en código (ver arriba). `calendar_events` sigue pendiente para cuando se integre Google Calendar (Bloque 3.3, diferido) — la agenda interna de Fase 2/Bloque 1 (`GET /tasks/agenda-summary`) es una vista derivada de `operational_tasks`, no una tabla de eventos de calendario propia.
+`client_contacts`, `client_tax_profiles`, `client_settings`, `notifications`, `notification_deadlines`, `cases`, `calendar_events`, `drive_folders`, `email_messages`, `integration_sync_runs`, `automation_jobs`, `backup_runs`, `ai_prompt_templates`, `ai_analysis_results`, `system_settings`, y las tablas del Bloque 5.2 (sesiones de acceso SOL/Playwright, Buzón SOL) — ninguna diseñada todavía. RBAC (roles/permisos por rol fijo) ya está implementado desde Bloque 4 sin tablas relacionales propias (`Permission`/`ROLE_PERMISSIONS` declarativos, ver ADR-0050); `roles`/`user_roles` solo se revisitarían si en el futuro se necesitan roles personalizados configurables por tenant (Fase 7, comercialización multi-despacho). `tasks`/`internal_alerts` ya no figuran aquí: implementadas en Fase 2, Bloque 1 como `operational_tasks` (materializadas) + alertas 100% derivadas sin tabla propia (ver ADR-0057/ADR-0060). `communications`/`communication_templates` ya no figuran aquí: implementadas en Fase 3, Bloque 3.2 como `communication_drafts` + catálogo versionado en código (ver arriba). `client_credentials` (bóveda real) ya no figura aquí: implementada en Fase 5, Bloque 5.1 como las 5 tablas de arriba (`sol_vaults`, `sol_vault_key_slots`, `sol_vault_data_keys`, `sol_vault_invitations`, `client_sol_credentials`), no como una única tabla genérica. `calendar_events` sigue pendiente para cuando se integre Google Calendar (Bloque 3.3, diferido) — la agenda interna de Fase 2/Bloque 1 (`GET /tasks/agenda-summary`) es una vista derivada de `operational_tasks`, no una tabla de eventos de calendario propia.
 
 Estas tablas se diseñarán en detalle y se migrarán en los bloques de Fase 1 posteriores y en las Fases 3–7, siguiendo las mismas convenciones (`tenant_id`, sin `float` para montos, timestamps con zona horaria, historial de estados donde aplique).

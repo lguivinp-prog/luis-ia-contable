@@ -19,6 +19,17 @@ _SENSITIVE_FIELD_NAMES = {
     "recipient_phone",
     "recipient_phone_e164",
     "wa_url",
+    # ---- Fase 5, Bloque 5.1: boveda de credenciales SOL (ver ADR-0068) ----
+    # (sol_username/sol_password ya estaban redactados desde antes de esta fase)
+    "personal_vault_password",
+    "current_personal_vault_password",
+    "new_personal_vault_password",
+    "recovery_code",
+    "vault_root_key",
+    "credential_dek",
+    "wrapped_vault_root_key",
+    "wrapped_data_key",
+    "kdf_salt",
 }
 
 

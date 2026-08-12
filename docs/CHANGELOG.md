@@ -4,6 +4,55 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
 ## [Unreleased]
 
+### Fase 5, Bloque 5.1 — Bóveda de credenciales SOL (migración 0017, ver ADR-0068 a ADR-0071)
+
+> Precedido por un spike experimental cerrado en la rama `spike/phase5-sol-vault-crypto` (commit `2096a9b`,
+> tag `spike-phase5-sol-vault-crypto-v1`) que validó la arquitectura antes de escribir código productivo; el
+> spike es evidencia técnica histórica, ningún módulo productivo depende de él en tiempo de ejecución.
+
+- **Jerarquía criptográfica de tres niveles**: contraseña personal → (Argon2id) → KEK del slot →
+  (AES-256-GCM) → `vault_root_key` (envuelta, una copia por slot) → (AES-256-GCM) → `credential_dek`
+  (envuelta, versionada) → (AES-256-GCM, por campo) → `sol_username`/`sol_password`. AES-256-GCM con sobre
+  versionado y AAD determinista obligatorio en cada capa (`app/core/sol_vault_crypto.py`), mismo patrón que
+  el ya productivo `app/core/integration_crypto.py`. Argon2id vía `hash_secret_raw` con parámetros fijos
+  (`memory_cost_kib=393216`, `time_cost=2`, `parallelism=1`, `hash_len=32`, `kdf_version=1`), persistidos por
+  slot, nunca reducidos automáticamente por presión de memoria (ADR-0068).
+- **`Argon2ConcurrencyGate`**: como máximo una derivación Argon2id simultánea por proceso backend, espera
+  acotada, liberación garantizada. **Single-worker backend obligatorio en v1**: `enforce_single_worker_gate`
+  hace fallar el arranque completo del proceso ante `BACKEND_WORKERS != 1`, verificado a nivel de módulo antes
+  de construir la aplicación (ADR-0068).
+- **`VaultUnlockRegistry`**: registro en memoria de un único proceso, nunca persistido, indexado por
+  `(tenant_id, vault_id, user_id, app_session_id)` con verificación en vivo contra la sesión real en cada uso.
+  `LOCKED`/`NOT_INITIALIZED` son estados derivados, nunca columnas. Reiniciar el backend bloquea
+  automáticamente todas las bóvedas de todos los usuarios (ADR-0071).
+- **Recuperación en dos pasos**: código de recuperación mostrado una única vez, confirmado criptográficamente
+  reingresándolo; reemplazo con coexistencia hasta la confirmación; `recovery_confirmed_at` vive solo en el
+  slot `RECOVERY`, nunca en `sol_vaults` (fe de erratas del spike, corregida). Invitaciones de dos actores con
+  asociación efímera invitador→invitado solo en memoria, nunca persistida (ADR-0069).
+- **Rotación ordinaria de `credential_dek`**: procedimiento atómico de 14 pasos con advisory lock
+  (`pg_advisory_xact_lock`), verificado con dos conexiones PostgreSQL reales forzando una excepción a mitad de
+  la rotación (rollback atómico completo). `vault_root_key` nunca rota en esta versión — el caso de compromiso
+  queda como procedimiento manual diferido, deliberadamente no implementado como endpoint (ADR-0070).
+- **Credenciales SOL por cliente**: `credential_kind` real (`SECONDARY`/`PRIMARY_OWN_RUC`/
+  `PRIMARY_EXCEPTIONAL`, nunca un valor `PRIMARY` genérico); toda alta/actualización aterriza en
+  `NEEDS_VALIDATION`; `PRIMARY_EXCEPTIONAL` exige `authorization_basis` explícita.
+- **5 tablas nuevas** (migración `0017`): `sol_vaults`, `sol_vault_key_slots`, `sol_vault_data_keys`,
+  `sol_vault_invitations`, `client_sol_credentials` — verificadas upgrade/downgrade/re-upgrade y bootstrap
+  completo `0001→0017` contra una base de datos genuinamente temporal.
+- **Permisos**: 9 permisos nuevos (`Permission` pasa de 42 a 51 valores: `admin`=51, `contador`=44,
+  `asistente`=22, sin ningún permiso nuevo para el asistente); 4 admin-only (`sol_vault:initialize`/
+  `manage_users`/`recover`/`rotate`), 5 admin+contador (`sol_vault:unlock`, `sol_credential:read`/`create`/
+  `update`/`disable`).
+- **Interceptor de errores 422**: redacta el valor de cualquier campo sensible que Pydantic reflejaría en el
+  cuerpo de una respuesta 422, incluso cuando el campo que dispara el error es uno distinto e inesperado
+  (`extra=forbid`) dentro de la misma petición (`app/core/error_handlers.py`).
+- **Frontend**: `/settings/sol-vault` (ciclo completo) y `/clients/[id]/sol-credential` (alta/actualización/
+  deshabilitación por cliente), gateados por permisos reales, sin ningún botón de ver/copiar contraseña.
+- ADR-0068 a ADR-0071.
+- Backend: 877 pruebas, cobertura 88%, incluidas 2 conexiones PostgreSQL reales para la concurrencia de
+  rotación y un barrido estático de ausencia de secretos en logs/salida/respuestas. Frontend: 126 pruebas
+  Vitest (lógica pura + barrido estático de ausencia de secretos en el código fuente real de las pantallas).
+
 ### Bloque transversal — Arranque y sincronización local (ver ADR-0066)
 
 > Cerrado tras la ronda de correcciones operativas del checkpoint — etiqueta `v0.7.1-alpha.1`.
