@@ -44,6 +44,12 @@ from app.models.professional_fee import (
 )
 from app.models.security_event import SecurityEvent
 from app.models.session import Session
+from app.models.sol_agent_access import (
+    SolAccessSession,
+    SolAgent,
+    SolAgentJob,
+    SolAgentPairing,
+)
 from app.models.sol_vault import (
     SolVault,
     SolVaultDataKey,
@@ -99,6 +105,10 @@ __all__ = [
     "ProfessionalReceipt",
     "SecurityEvent",
     "Session",
+    "SolAccessSession",
+    "SolAgent",
+    "SolAgentJob",
+    "SolAgentPairing",
     "SolVault",
     "SolVaultDataKey",
     "SolVaultInvitation",

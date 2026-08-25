@@ -337,14 +337,29 @@ def test_permission_matrix(
         )
 
 
-def test_matrix_covers_all_51_permissions() -> None:
+def test_matrix_covers_all_56_permissions() -> None:
     """Fase 5, Bloque 5.1 (ver ADR-0068): agrega los 9 permisos sol_vault:*/
-    sol_credential:* (42 -> 51)."""
+    sol_credential:* (42 -> 51). Fase 5, Bloque 5.2 (ver
+    docs/phase5/block5_2/): agrega 5 permisos sol_session:*/sol_agent:*
+    (51 -> 56) -- excluidos deliberadamente de esta matriz porque Domain B
+    de Bloque 5.2 es exclusivamente fundacion de persistencia (migracion
+    0018 + modelos + enum de permisos), sin ningun router/endpoint todavia
+    (ver BLOCK5_2_IMPLEMENTATION_PLAN.md seccion 4 -- los endpoints reales
+    llegan en Domain D). Cuando esos endpoints existan, deben añadirse a
+    `CASES` y retirarse de esta exclusion."""
     from app.core.permissions import Permission
+
+    _RESERVED_WITHOUT_ENDPOINTS_YET = {
+        Permission.SOL_SESSION_CREATE.value,
+        Permission.SOL_SESSION_READ.value,
+        Permission.SOL_SESSION_CANCEL.value,
+        Permission.SOL_AGENT_READ.value,
+        Permission.SOL_AGENT_MANAGE.value,
+    }
 
     covered = {case[0] for case in CASES}
     all_permissions = {p.value for p in Permission}
-    missing = all_permissions - covered
+    missing = all_permissions - covered - _RESERVED_WITHOUT_ENDPOINTS_YET
     assert not missing, f"permisos sin caso de prueba en la matriz: {sorted(missing)}"
     assert len(CASES) >= 51
 

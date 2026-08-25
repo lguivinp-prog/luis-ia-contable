@@ -478,11 +478,20 @@ se quiere una segunda barrera a nivel de BD.
 
   ```python
   ForeignKeyConstraint(
-      ["credential_id", "client_id", "tenant_id"],
-      ["client_sol_credentials.id", "client_sol_credentials.client_id", "client_sol_credentials.tenant_id"],
+      ["credential_id", "tenant_id", "client_id"],
+      ["client_sol_credentials.id", "client_sol_credentials.tenant_id", "client_sol_credentials.client_id"],
       name="fk_sol_access_sessions_credential_client_tenant",
   )
   ```
+
+  **Orden de columnas corregido durante Domain B**: el orden de
+  columnas referenciadas debe coincidir exactamente con el orden
+  declarado en `uq_client_sol_credentials_id_tenant_client` —
+  `(id, tenant_id, client_id)`, no `(id, client_id, tenant_id)` como
+  este snippet mostraba antes de la implementación real. Mismo idioma
+  ya usado por `client_sol_credential.py` para su propia FK a
+  `sol_vault_data_keys` (orden de la FK == orden de la `UniqueConstraint`
+  referenciada, sin excepción, en todo este repositorio).
 
   ```
   CREDENTIAL_OWNERSHIP_DB_ENFORCED=YES
@@ -630,10 +639,16 @@ la persistencia de versión de clave; una ventana de *drain* operacional
 basta. `PAIRING_COLUMNS_FROZEN=YES` recién queda cerrado con esta
 confirmación, no antes.
 
-**`sol_agent_jobs` — 12 columnas**, sin cambio de conteo (el nuevo
+**`sol_agent_jobs` — 14 columnas** (corregido durante Domain B: esta
+sección decía "12" por un error de conteo — la tabla detallada de la
+sección 3, fuente de verdad, siempre tuvo 14: `id`, `tenant_id`,
+`session_id`, `agent_id`, `status`, `job_token_hash`,
+`credential_delivered_at`, `claimed_at`, `expires_at`, `completed_at`,
+`cancelled_at`, `version`, `created_at`, `updated_at`). El nuevo
 constraint de Domain A.2 es un índice sobre `credential_delivered_at`,
 una columna que ya existía desde Domain A.1 — no se añadió ninguna
-columna).
+columna nueva en A.2; el error era puramente aritmético en este
+resumen, detectado al implementar el modelo ORM real.
 
 ## 12. Registro de constraints final (Domain A.2, sección 10 del encargo)
 

@@ -13,10 +13,10 @@ class _FakeUser:
         self.role = role
 
 
-def test_permission_enum_has_51_values() -> None:
-    """Fase 5, Bloque 5.1 (ver ADR-0068): agrega los 9 permisos sol_vault:*/
-    sol_credential:* (42 -> 51)."""
-    assert len(list(Permission)) == 51
+def test_permission_enum_has_56_values() -> None:
+    """Fase 5, Bloque 5.2 (ver docs/phase5/block5_2/BLOCK5_2_RBAC_MATRIX.md):
+    agrega los 5 permisos sol_session:*/sol_agent:* (51 -> 56)."""
+    assert len(list(Permission)) == 56
 
 
 def test_admin_has_every_permission() -> None:
@@ -38,7 +38,12 @@ def test_contador_lacks_user_management_and_close_override() -> None:
     assert Permission.SOL_VAULT_MANAGE_USERS not in contador_permissions
     assert Permission.SOL_VAULT_RECOVER not in contador_permissions
     assert Permission.SOL_VAULT_ROTATE not in contador_permissions
-    assert len(contador_permissions) == 44
+    assert Permission.SOL_SESSION_CREATE in contador_permissions
+    assert Permission.SOL_SESSION_READ in contador_permissions
+    assert Permission.SOL_SESSION_CANCEL in contador_permissions
+    assert Permission.SOL_AGENT_READ in contador_permissions
+    assert Permission.SOL_AGENT_MANAGE not in contador_permissions
+    assert len(contador_permissions) == 48
 
 
 def test_asistente_is_read_only_plus_document_item_write_and_reports() -> None:
@@ -66,6 +71,11 @@ def test_asistente_is_read_only_plus_document_item_write_and_reports() -> None:
     assert Permission.TASK_SYNC in asistente_permissions
     assert Permission.TASK_ASSIGN not in asistente_permissions
     assert Permission.TASK_CANCEL not in asistente_permissions
+    assert Permission.SOL_SESSION_CREATE not in asistente_permissions
+    assert Permission.SOL_SESSION_READ not in asistente_permissions
+    assert Permission.SOL_SESSION_CANCEL not in asistente_permissions
+    assert Permission.SOL_AGENT_READ not in asistente_permissions
+    assert Permission.SOL_AGENT_MANAGE not in asistente_permissions
 
 
 @pytest.mark.parametrize("role", ["admin", "contador", "asistente"])

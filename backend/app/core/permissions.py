@@ -66,6 +66,12 @@ class Permission(str, enum.Enum):
     SOL_CREDENTIAL_CREATE = "sol_credential:create"
     SOL_CREDENTIAL_UPDATE = "sol_credential:update"
     SOL_CREDENTIAL_DISABLE = "sol_credential:disable"
+    # ---- Fase 5, Bloque 5.2: acceso SOL supervisado (ver docs/phase5/block5_2/) ----
+    SOL_SESSION_CREATE = "sol_session:create"
+    SOL_SESSION_READ = "sol_session:read"
+    SOL_SESSION_CANCEL = "sol_session:cancel"
+    SOL_AGENT_READ = "sol_agent:read"
+    SOL_AGENT_MANAGE = "sol_agent:manage"
 
 
 _READ_PERMISSIONS: frozenset[Permission] = frozenset(
@@ -115,6 +121,11 @@ _CONTADOR_ONLY_ADDITIONS: frozenset[Permission] = frozenset(
         Permission.SOL_CREDENTIAL_CREATE,
         Permission.SOL_CREDENTIAL_UPDATE,
         Permission.SOL_CREDENTIAL_DISABLE,
+        # ---- Fase 5, Bloque 5.2: admin + contador, nunca asistente ----
+        Permission.SOL_SESSION_CREATE,
+        Permission.SOL_SESSION_READ,
+        Permission.SOL_SESSION_CANCEL,
+        Permission.SOL_AGENT_READ,
     }
 )
 
