@@ -355,6 +355,36 @@ class AuditAction(str, enum.Enum):
     SESSION_CLEANUP_COMPLETED = "SESSION_CLEANUP_COMPLETED"
 ```
 
+**Ratificado en Domain C.1 (Gate 4)** — Domain C, al implementar los
+servicios reales, encontró 4 transiciones de seguridad/forense sin
+ningún valor de los 11 anteriores que las cubriera razonablemente.
+Ampliación **aditiva**, sin migración (`AuditLog.action` es
+`String(60)` sin `CheckConstraint` — no hay DDL que tocar):
+
+```python
+    # ---- Fase 5, Bloque 5.2, Domain C.1 (ratificado, aditivo, sin DDL) ----
+    PAIRING_COMPLETED = "PAIRING_COMPLETED"
+    PAIRING_LOCKED = "PAIRING_LOCKED"
+    AGENT_REVOKED = "AGENT_REVOKED"
+    CREDENTIAL_DELIVERY_GATE_CONSUMED = "CREDENTIAL_DELIVERY_GATE_CONSUMED"
+```
+
+**Semántica exacta de `CREDENTIAL_DELIVERY_GATE_CONSUMED`** (Domain
+C.1, sección 9 del encargo) — significa **únicamente** que el gate
+transaccional de "a lo sumo una entrega de credencial por sesión" fue
+consumido (`credential_delivered_at` poblado). **Nunca** significa que
+la credencial en claro llegó al agente por la red — el transporte real
+(broker/mTLS/Windows Agent) pertenece a un dominio posterior fuera de
+alcance de Domain C, y puede fallar incluso después de que este evento
+se emita. Ningún lector de `audit_logs` debe interpretar este evento
+como confirmación de entrega de red.
+
+El resto del ciclo de vida (creación/cancelación/expiración de
+pairing, creación/completado/fallo/expiración de job, expiración de
+sesión) queda **sin** `AuditAction` dedicado — decisión deliberada:
+esas filas ya llevan su propio `status`/`terminal_reason_code`/
+timestamps trazables en su propia tabla.
+
 Payload (`AuditLog.log_metadata`, columna `metadata` JSONB): solo IDs
 internos (`session_id`, `job_id`, `agent_id`), `status`,
 `terminal_reason_code`, timestamps. **Nunca**: RUC, username,
@@ -519,6 +549,7 @@ residual.
 | T16 | Compromiso local de Windows (la máquina del agente) | Fuera del control del backend — mitigado por "nunca persistir, nunca zeroización garantizada" (sección 1) | Fuera de alcance de detección remota | Revocar el agente (`sol_agents.status=REVOKED`) | **Medio-Alto** — riesgo estructural inherente a cualquier agente de escritorio; no eliminable solo con diseño de backend |
 | T17 | Efecto invisible server-side en SUNAT | Fuera de alcance mientras `SOL_ACCESS_SCOPE=AUTHENTICATE_TO_LANDING_ONLY` (el Buzón, donde se validó esta limitación, está prohibido) | N/A en este scope | N/A | Documentado, no mitigable desde el cliente (Spike A A2-TD: `INVISIBLE_SERVER_SIDE_MUTATION_DETECTION_LIMIT=VALIDATED`) — relevante solo si un scope futuro habilita el Buzón |
 | T18 | Robo de certificado de agente | mTLS + certificado ligado a `certificate_fingerprint` revisado en cada conexión | Fingerprint no coincide | Revocar y re-parear | Medio — depende de la seguridad del almacenamiento de clave privada en Windows (fuera de alcance de Domain A) |
-| T19 | Fuerza bruta de pairing | TTL 120s + máximo 5 fallos + lockout permanente del intento (Arquitectura sección 5) | Contador de fallos | Requiere iniciar un pairing nuevo | Bajo |
+| T19 | Fuerza bruta de verificación de código dentro de un pairing | TTL 120s + máximo 5 fallos + lockout permanente del intento (Arquitectura sección 5, autoridad durable en BD) **más** `PAIRING_VERIFICATION_RATE_LIMIT` (Domain C.1a — throttle process-local por `(tenant_id, pairing_id)`, `sol_pairing_verification_throttle.py`, ventana mínima acotada entre intentos; nunca consume el contador durable, nunca revela si un código presentado durante el throttle era correcto). **Domain C.1b (resource safety)**: el throttle solo registra estado para un `pairing_id` ya confirmado existente/tenant-safe/`PENDING`/no vencido — el *lookup* (`SELECT ... FOR UPDATE` tenant-scoped) ocurre **antes** del registro, nunca al revés, así que un `pairing_id` arbitrario o inexistente nunca crea entrada. Además, con independencia de esa disciplina de llamada: purga perezosa de entradas caducadas (sin scheduler) y una cota dura de cardinalidad (`_MAX_ENTRIES`) que el diccionario nunca puede superar — el estado nunca depende exclusivamente de que los llamadores se comporten bien. Cada transición terminal del pairing (`COMPLETED`/`LOCKED`/`CANCELLED`/`EXPIRED`) evicta explícitamente su propia entrada | Contador de fallos (durable) | Requiere iniciar un pairing nuevo | Bajo |
 | T20 | Agente obsoleto/stale | `last_seen_at` derivado (ver `BLOCK5_2_DATA_MODEL_DRAFT.md`) | Ausencia de heartbeat reciente | Tratar como no disponible para nuevos jobs | Bajo |
 | T21 | Disclosure de BD mientras un pairing está `PENDING` (**Domain A.3**) | `pairing_code_verifier` = HMAC-SHA-256 keyed con `PAIRING_VERIFIER_KEY` fuera de PostgreSQL (`BLOCK5_2_DATA_MODEL_DRAFT.md` sección 4) — distinto de un verificador *salted* convencional: un atacante con **solo** un snapshot/backup/réplica de la BD no puede validar ningún candidato de los 10⁶ códigos posibles sin la clave, que nunca reside en la fila ni en ninguna tabla | Auditoría de acceso a BD, rotación operacional de `PAIRING_VERIFIER_KEY` | Rotar la clave (ventana de *drain*, sección "Key rotation" del modelo de datos); los pairings `PENDING` en vuelo expiran por TTL de 120s | **No es riesgo cero**: un atacante que compromete **tanto** la BD **como** el proceso backend/entorno (donde vive `PAIRING_VERIFIER_KEY`) sigue pudiendo enumerar offline — el keyed verifier eleva el listón de "solo BD" a "BD + backend", no lo elimina en un compromiso total. Complementa, no sustituye, los controles online de T19 (TTL/máx. fallos) — defensa en profundidad, ninguno de los dos se relaja por la existencia del otro |
+| T22 | Abuso de creación de pairings nuevos para resetear el presupuesto de 5 fallos (Domain C.1) | `PAIRING_CREATION_RATE_LIMIT` (Domain C.1 — `sol_agent_pairing_rate_limit_service.py`, basado en BD, conteo de filas de `sol_agent_pairings` por `(tenant_id, requested_by_user_id)` desde el último `COMPLETED`, backoff exponencial igual que `login_attempt_service.py`) — **distinto** de `PAIRING_VERIFICATION_RATE_LIMIT` (T19): este protege la *creación* de registros nuevos, no los intentos de código dentro de uno ya existente | Conteo de filas recientes | Backoff exponencial hasta `pairing_creation_lockout_max_minutes` | Bajo — durable (sobrevive reinicio del proceso, a diferencia de T19 verification throttle) |

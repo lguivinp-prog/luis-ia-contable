@@ -141,6 +141,41 @@ class AuditAction(str, enum.Enum):
     SESSION_FAILED = "SESSION_FAILED"
     LOGOUT_OBSERVED = "LOGOUT_OBSERVED"
     SESSION_CLEANUP_COMPLETED = "SESSION_CLEANUP_COMPLETED"
+    # ---- Fase 5, Bloque 5.2, Domain C (ver docs/phase5/block5_2/
+    # BLOCK5_2_IMPLEMENTATION_PLAN.md informe de Domain C, seccion "audit
+    # emission") -- adicion aditiva, sin migracion (esta columna es
+    # `String(60)` sin CheckConstraint): los 11 valores de Domain A.2
+    # cubrian solo una parte del ciclo de vida real que Domain C implementa.
+    # Se añaden EXCLUSIVAMENTE los 4 eventos de mayor valor forense/de
+    # seguridad sin ningun valor previo que los cubriera razonablemente
+    # (nueva identidad de agente por pairing, revocacion de agente, bloqueo
+    # por fuerza bruta de pairing, consumo del gate de entrega de credencial)
+    # -- mismo patron ya usado en cada bloque anterior de este enum (cada uno
+    # añadio su propio banner al implementar sus servicios reales, no en su
+    # ronda de solo-DDL). El resto del ciclo de vida (creacion/cancelacion/
+    # expiracion de pairing, creacion/completado/fallo/expiracion de job,
+    # expiracion de sesion) queda sin AuditAction dedicado en esta ronda --
+    # decision deliberada y documentada en el informe de Domain C, no un
+    # olvido: esas filas ya llevan su propio `status`/`terminal_reason_code`/
+    # timestamps trazables en su tabla.
+    #
+    # Ratificados formalmente en Domain C.1 (ver informe de Domain C.1,
+    # Gate 4 / docs/phase5/block5_2/BLOCK5_2_SECURITY_MODEL.md seccion 7):
+    # los 4 representan una transicion de seguridad/forense real que
+    # ningun valor de los 11 anteriores cubria razonablemente. Ninguno se
+    # retira.
+    PAIRING_COMPLETED = "PAIRING_COMPLETED"
+    PAIRING_LOCKED = "PAIRING_LOCKED"
+    AGENT_REVOKED = "AGENT_REVOKED"
+    # IMPORTANTE (Domain C.1, Gate/seccion 9): este evento significa
+    # UNICAMENTE que el gate transaccional de "a lo sumo una entrega de
+    # credencial por sesion" fue consumido (credential_delivered_at
+    # poblado) -- JAMAS que la credencial en claro efectivamente llego al
+    # agente por la red. El transporte real (broker/mTLS/Windows Agent) es
+    # de un dominio posterior, fuera de alcance de Domain C, y puede fallar
+    # incluso despues de que este evento se emita. Nunca leer este evento
+    # como "credential delivered to agent".
+    CREDENTIAL_DELIVERY_GATE_CONSUMED = "CREDENTIAL_DELIVERY_GATE_CONSUMED"
 
 
 class AuditLog(Base, UUIDPrimaryKeyMixin):

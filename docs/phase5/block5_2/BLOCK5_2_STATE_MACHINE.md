@@ -46,10 +46,21 @@ posterior — la tabla de abajo es exhaustiva.
 
 ## 2. Transiciones permitidas
 
+**Corrección arquitectónica mínima (Domain C.1, Gate 1)**: Domain C
+(implementación del motor de transiciones) detectó que esta matriz, tal
+como quedó originalmente congelada, no permitía `IN_PROGRESS ->
+EXPIRED` — una contradicción real con el contrato operativo, que exige
+que el `session_ttl` siga teniendo efecto durante **toda** la sesión, y
+`IN_PROGRESS` es un estado no-terminal como cualquier otro. Corregido
+aquí explícitamente: **cualquier estado no-terminal puede expirar**.
+Ningún estado nuevo, ningún enum nuevo, ningún cambio de DDL — la
+columna `terminal_reason_code`/`status` ya soportaban este valor;
+solo la matriz de transiciones permitidas estaba incompleta.
+
 ```
 CREATED            -> WAITING_FOR_AGENT, CANCELLED, EXPIRED
 WAITING_FOR_AGENT   -> IN_PROGRESS, CANCELLED, EXPIRED, FAILED
-IN_PROGRESS         -> WAITING_FOR_USER, SUCCEEDED, PARTIAL_FAILURE, FAILED, CANCELLED
+IN_PROGRESS         -> WAITING_FOR_USER, SUCCEEDED, PARTIAL_FAILURE, FAILED, CANCELLED, EXPIRED
 WAITING_FOR_USER     -> IN_PROGRESS, CANCELLED, EXPIRED, FAILED
 SUCCEEDED            -> (terminal, sin salida)
 PARTIAL_FAILURE      -> (terminal, sin salida)
@@ -57,6 +68,13 @@ FAILED                -> (terminal, sin salida)
 CANCELLED             -> (terminal, sin salida)
 EXPIRED                -> (terminal, sin salida)
 ```
+
+**Efecto sobre el job activo al expirar la sesión**: idéntico al de la
+cancelación (sección 7) — si existe un job activo (`PENDING`/`CLAIMED`)
+para la sesión, se marca `CANCELLED` en la misma transacción, para que
+ninguna sesión terminal quede con un job todavía ejecutable asociado.
+No implica limpieza de navegador ni de broker (fuera de alcance de
+Domain C).
 
 Ningún estado terminal admite reingreso — una sesión `EXPIRED` (o
 cualquier otro terminal) **no puede revivirse**; el cliente debe crear

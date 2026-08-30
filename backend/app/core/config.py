@@ -85,6 +85,46 @@ class Settings(BaseSettings):
     # real por defecto; este valor documenta y verifica esa realidad.
     backend_workers: int = 1
 
+    # ---- Fase 5 / Bloque 5.2: acceso SOL supervisado, verificador de pairing
+    # (ver docs/phase5/block5_2/, Domain A.3/C) ----
+    # Clave servidor-side de proposito especifico para el verificador
+    # HMAC-SHA-256 de pairing_code_verifier -- NUNCA reutiliza session_secret,
+    # integration_token_encryption_key, ni ninguna clave del vault SOL (evita
+    # domain confusion entre amenazas distintas). Vacia por defecto: si el
+    # pairing se invoca sin esta clave configurada, falla cerrado
+    # (PairingVerifierKeyMisconfiguredError en app/core/sol_pairing_crypto.py)
+    # -- nunca un fallback inseguro ni un valor de relleno. Mismo formato ya
+    # exigido por integration_token_encryption_key (ADR-0064, unico precedente
+    # real de politica de clave en este repo): base64 estandar que decodifica
+    # a exactamente 32 bytes (256 bits) de material aleatorio -- nunca un PIN,
+    # palabra, ni "changeme".
+    pairing_verifier_key: str = ""
+    # `ONLINE`/`OFFLINE` de un agente nunca se persiste (Domain A.1 seccion 2)
+    # -- se deriva de `last_seen_at` con este umbral. Valor deliberadamente
+    # config (no hardcodeado): Domain A.1 lo dejo como decision diferida sin
+    # impacto de DDL; Domain C lo fija con un default razonable, ajustable
+    # sin migracion.
+    sol_agent_online_threshold_seconds: int = 30
+
+    # ---- Fase 5 / Bloque 5.2, Domain C.1 Gate 3: segunda capa de rate
+    # limit sobre la CREACION de pairings (no sobre los intentos de codigo
+    # dentro de un pairing -- eso ya lo cubre el lock durable de 5 fallos
+    # en sol_agent_pairings). Mismo patron de conteo de filas +backoff
+    # exponencial ya productivo de login_attempt_service.py (ADR-0009),
+    # reutilizando `sol_agent_pairings.created_at` como bitacora -- sin
+    # tabla nueva, sin Redis, sin infraestructura distribuida.
+    pairing_creation_max_attempts: int = 5
+    pairing_creation_lockout_duration_minutes: int = 15
+    pairing_creation_lockout_max_minutes: int = 60
+
+    # ---- Fase 5 / Bloque 5.2, Domain C.1a: segunda capa DISTINTA, sobre la
+    # VERIFICACION de codigo de un pairing ya existente (no su creacion) --
+    # ver app/core/sol_pairing_verification_throttle.py. Proceso-local
+    # (nunca Redis/distribuido): ventana minima y acotada entre intentos
+    # permitidos contra el MISMO (tenant_id, pairing_id). `0` desactiva el
+    # throttle (usado por pruebas de concurrencia del quinto fallo).
+    pairing_verification_throttle_seconds: float = 1.0
+
 
 @lru_cache
 def get_settings() -> Settings:
