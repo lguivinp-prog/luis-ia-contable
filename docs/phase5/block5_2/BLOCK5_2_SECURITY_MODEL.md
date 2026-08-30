@@ -13,6 +13,12 @@ amenaza). Complementa `BLOCK5_2_ARCHITECTURE.md` y
 se renombra a `terminal_reason_code` en todo este documento (ver
 `BLOCK5_2_STATE_MACHINE.md` sección 10).
 
+**Domain E1-A — Secret Delivery Architecture & Contract Freeze**: la
+tabla de amenazas de la sección 12 se extiende con T23–T42 (entrega de
+secreto SOL al agente). El contrato/orden/matrices de fallo completos
+viven en `BLOCK5_2_SECRET_DELIVERY_ARCHITECTURE.md` — este documento
+solo trata las amenazas, no reabre las secciones 1–11 existentes.
+
 ## 1. Frontera de credenciales — Alternative A (Spike B, sin rediseñar)
 
 ```
@@ -553,3 +559,30 @@ residual.
 | T20 | Agente obsoleto/stale | `last_seen_at` derivado (ver `BLOCK5_2_DATA_MODEL_DRAFT.md`) | Ausencia de heartbeat reciente | Tratar como no disponible para nuevos jobs | Bajo |
 | T21 | Disclosure de BD mientras un pairing está `PENDING` (**Domain A.3**) | `pairing_code_verifier` = HMAC-SHA-256 keyed con `PAIRING_VERIFIER_KEY` fuera de PostgreSQL (`BLOCK5_2_DATA_MODEL_DRAFT.md` sección 4) — distinto de un verificador *salted* convencional: un atacante con **solo** un snapshot/backup/réplica de la BD no puede validar ningún candidato de los 10⁶ códigos posibles sin la clave, que nunca reside en la fila ni en ninguna tabla | Auditoría de acceso a BD, rotación operacional de `PAIRING_VERIFIER_KEY` | Rotar la clave (ventana de *drain*, sección "Key rotation" del modelo de datos); los pairings `PENDING` en vuelo expiran por TTL de 120s | **No es riesgo cero**: un atacante que compromete **tanto** la BD **como** el proceso backend/entorno (donde vive `PAIRING_VERIFIER_KEY`) sigue pudiendo enumerar offline — el keyed verifier eleva el listón de "solo BD" a "BD + backend", no lo elimina en un compromiso total. Complementa, no sustituye, los controles online de T19 (TTL/máx. fallos) — defensa en profundidad, ninguno de los dos se relaja por la existencia del otro |
 | T22 | Abuso de creación de pairings nuevos para resetear el presupuesto de 5 fallos (Domain C.1) | `PAIRING_CREATION_RATE_LIMIT` (Domain C.1 — `sol_agent_pairing_rate_limit_service.py`, basado en BD, conteo de filas de `sol_agent_pairings` por `(tenant_id, requested_by_user_id)` desde el último `COMPLETED`, backoff exponencial igual que `login_attempt_service.py`) — **distinto** de `PAIRING_VERIFICATION_RATE_LIMIT` (T19): este protege la *creación* de registros nuevos, no los intentos de código dentro de uno ya existente | Conteo de filas recientes | Backoff exponencial hasta `pairing_creation_lockout_max_minutes` | Bajo — durable (sobrevive reinicio del proceso, a diferencia de T19 verification throttle) |
+
+### Domain E1 — Entrega de secreto (arquitectura, ver `BLOCK5_2_SECRET_DELIVERY_ARCHITECTURE.md`)
+
+Las siguientes amenazas continúan la misma tabla — corresponden a la
+**arquitectura congelada** de Domain E1-A, no a código productivo
+todavía (ver el documento dedicado para el contrato completo).
+
+| T23 | Proceso local no confiable golpea el broker loopback | Bind exclusivo a `127.0.0.1` (Domain D, verificado por socket real), defensas Host/Origin/Sec-Fetch-Site/header de protocolo (Domain D.1) aplican también al futuro endpoint de secreto sin excepción | Igual que el resto del broker | Igual que el resto del broker | Bajo — ninguna superficie nueva, hereda las mismas defensas ya verificadas |
+| T24 | Petición estilo navegador/DNS rebinding contra el endpoint de secreto | Mismas defensas Gate 3 de Domain D.1 (`_reject_browser_like_request`), sin excepción por endpoint | Igual | Igual | Bajo |
+| T25 | `connection_id` robado/adivinado | Insuficiente por sí solo — sección 36 del encargo E1-A: exige además mTLS + agente ACTIVE + job reclamado + grant válido + vault desbloqueada + gate de BD | El registro nunca expone el `connection_id` fuera del proceso salvo en el header de la propia respuesta de `HELLO` sobre mTLS ya autenticado | Revocar/reautenticar | Bajo, condicionado a que ningún chequeo futuro se relaje a "solo `connection_id`" |
+| T26 | Certificado de agente robado | mTLS + huella conocida + agente ACTIVE — mismas defensas ya congeladas en Domain D; un secreto liberado a un certificado robado pero válido es indistinguible de un agente legítimo comprometido (ver T42) | Detección de uso anómalo fuera de alcance de E1 | Revocar el agente | Medio — mismo residual ya documentado en T18, ahora con consecuencia potencial mayor (secreto SOL, no solo transporte) |
+| T27 | Certificado duplicado en dos procesos | `ONE_LIVE_LOGICAL_CONNECTION_PER_AGENT` (Domain D.1) + lease/pin de conexión (sección 8 del documento de arquitectura de E1) cierran la ventana específica de entrega de secreto | `test_broker_logical_connection_identity.py::test_C` ya prueba el reemplazo; E1-B añade la prueba N/O sobre el pin | Conexión obsoleta rechazada determinísticamente | Bajo, condicionado a que el pin de E1-B se implemente exactamente como se congeló |
+| T28 | Agente revocado en carrera con la solicitud de secreto | Fail-closed explícito (sección 16.2 del documento de arquitectura) — nunca enviar tras conocerse la revocación | Prueba F/O del plan de pruebas E1-B | Nueva sesión si el gate ya se consumió | Bajo |
+| T29 | Sesión cancelada/vencida en carrera | BD de Domain C como autoridad; revalidación antes de la escritura de red (sección 16.3) | Prueba G/H/P del plan de pruebas E1-B | Nueva sesión si el gate ya se consumió | Bajo |
+| T30 | Tenant/job/sesión incorrectos | Identidad solo por huella mTLS, nunca por campo de protocolo; relaciones cargadas tenant-safe desde el backend (mismo patrón ya congelado en Domain D sección 35 del encargo original) | Constraints de FK compuestas + pruebas D/V | Rechazo genérico | Bajo |
+| T31 | Solicitudes de entrega concurrentes duplicadas | Gate de BD de Domain C (`ux_sol_agent_jobs_one_delivery_per_session`) como única autoridad — nunca un lock de Python | Prueba K (dos conexiones PostgreSQL reales) | Rechazo genérico para el segundo | Bajo |
+| T32 | Crash del broker antes del gate | Sin plaintext observable, grant no sobrevive (process-local) | Prueba Q | Reautorización humana | Bajo |
+| T33 | Crash del broker después del gate | Gate consumido, sin redelivery automática | Prueba R | Nueva sesión SOL | Bajo — conservador por diseño |
+| T34 | Fallo de escritura de la respuesta | Gate ya consumido permanece consumido; sin reintento | Prueba M | Nueva sesión SOL | Bajo |
+| T35 | Disclosure vía logging/errores | Allowlist estricta (sección 20 del documento de arquitectura), nunca username/password/RUC/grant/claves | Prueba S (barrido de `caplog`, mismo patrón que `test_broker_log_redaction.py`) | N/A — prevención estructural | Bajo, condicionado a disciplina de código en E1-B |
+| T36 | Volcado/backup de BD | Ningún secreto en claro persiste nunca fuera de `sol_username_encrypted`/`sol_password_encrypted` ya cifrados (Bloque 5.1); el grant nunca se persiste | Prueba T | N/A | Bajo — hereda la garantía ya existente de Bloque 5.1 |
+| T37 | Vault todavía bloqueada al momento de la entrega | Re-verificación obligatoria de `VaultUnlockRegistry` en el paso 6 del orden exacto, nunca solo al crear el grant | Prueba A | Fail-closed, sin decrypt | Bajo |
+| T38 | Replay de un grant ya consumido | Grant eliminado irrevocablemente al consumir el gate (sección 12) | Prueba B/C tras un consumo previo | Rechazo genérico | Bajo |
+| T39 | Abuso de cardinalidad del registro de grants/leases | Cota dura + purga perezosa + evicción explícita, mismo patrón ya productivo en `sol_pairing_verification_throttle.py`/`ConnectionRegistry` | Prueba U + pruebas de cardinalidad análogas a Domain C.1b/D | N/A | Bajo |
+| T40 | Enrutamiento a un worker sin el `unlock`/grant correcto (multi-proceso) | `SECRET_DELIVERY_SINGLE_PROCESS_ONLY=YES` explícito (sección 6 del documento de arquitectura) — fail-closed en vez de enrutar | Mismo mecanismo ya congelado en `sol_vault_worker_gate.py` (Bloque 5.1) | Rechazo si `BACKEND_WORKERS != 1` | Bajo, heredado directamente de una invariante ya productiva |
+| T41 | Residuo de memoria del texto plano | Sin garantía física de zeroización para `str` inmutables (sección 10 del documento de arquitectura) — minimización de tiempo de vida como mitigación de mejor esfuerzo | No testeable de forma determinista en CPython | N/A | **Medio** — riesgo residual explícitamente no eliminado, documentado sin eufemismos |
+| T42 | Agente legítimo comprometido después de una entrega ya autorizada | Ninguna — fuera del control del backend una vez que el secreto llegó de forma legítima (sección 22 del documento de arquitectura) | Fuera de alcance de detección remota | Revocar el agente para futuras entregas; no revierte la ya ocurrida | **Medio-Alto** — riesgo estructural inherente, mismo principio ya honesto que T16 |
