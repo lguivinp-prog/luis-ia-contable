@@ -340,7 +340,7 @@ def test_C_two_pairing_confirmations_at_most_one_agent(session_factory, pairing_
                 tenant_id=setup["tenant_id"],
                 pairing_id=pairing_id,
                 code=code,
-                certificate_fingerprint=f"fp-a-{uuid.uuid4().hex}",
+                issue_certificate=lambda: f"fp-a-{uuid.uuid4().hex}",
                 actor_user_id=setup["admin_id"],
             )
             a_locked.set()
@@ -368,7 +368,7 @@ def test_C_two_pairing_confirmations_at_most_one_agent(session_factory, pairing_
                 tenant_id=setup["tenant_id"],
                 pairing_id=pairing_id,
                 code=code,
-                certificate_fingerprint=f"fp-b-{uuid.uuid4().hex}",
+                issue_certificate=lambda: f"fp-b-{uuid.uuid4().hex}",
                 actor_user_id=setup["admin_id"],
             )
             session.commit()
@@ -427,7 +427,7 @@ def test_D_two_fifth_failure_attempts_durable_locked_no_counter_corruption(sessi
                     tenant_id=setup["tenant_id"],
                     pairing_id=pairing_id,
                     code=wrong_code,
-                    certificate_fingerprint=f"fp-{uuid.uuid4().hex}",
+                    issue_certificate=lambda: f"fp-{uuid.uuid4().hex}",
                     actor_user_id=setup["admin_id"],
                 )
             except pairing_service.PairingInvalidCodeError:
@@ -451,7 +451,7 @@ def test_D_two_fifth_failure_attempts_durable_locked_no_counter_corruption(sessi
                     tenant_id=setup["tenant_id"],
                     pairing_id=pairing_id,
                     code=wrong_code,
-                    certificate_fingerprint=f"fp-{uuid.uuid4().hex}",
+                    issue_certificate=lambda: f"fp-{uuid.uuid4().hex}",
                     actor_user_id=setup["admin_id"],
                 )
                 results[name] = "no_error"

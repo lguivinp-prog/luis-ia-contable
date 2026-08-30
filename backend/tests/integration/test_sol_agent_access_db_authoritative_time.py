@@ -145,7 +145,7 @@ def test_confirm_pairing_rejects_really_expired_despite_skewed_app_clock(db_sess
                 tenant_id=tenant.id,
                 pairing_id=result.pairing.id,
                 code=result.pairing_code,
-                certificate_fingerprint=f"fp-{uuid.uuid4().hex}",
+                issue_certificate=lambda: f"fp-{uuid.uuid4().hex}",
                 actor_user_id=admin_user.id,
             )
     finally:

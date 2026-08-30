@@ -12,6 +12,7 @@ BLOCK5_2_ARCHITECTURE.md)."""
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import timedelta
 
@@ -182,7 +183,7 @@ def confirm_pairing(
     tenant_id: uuid.UUID,
     pairing_id: uuid.UUID,
     code: str,
-    certificate_fingerprint: str,
+    issue_certificate: Callable[[], str],
     actor_user_id: uuid.UUID | None,
 ) -> SolAgentPairing:
     """Confirmacion atomica: bloquea la fila (`SELECT ... FOR UPDATE`, ver
@@ -193,10 +194,18 @@ def confirm_pairing(
     `status` ya distinto de `PENDING` y falla determinísticamente (ver
     `test_sol_agent_access_service_concurrency.py`).
 
-    `certificate_fingerprint` es metadata YA sanitizada/derivada que un
-    futuro componente confiable (broker, tras firmar el CSR del agente)
-    proveera -- este servicio NUNCA genera, firma, ni deriva material
-    criptografico de certificado (encargo de Domain C, seccion 16).
+    `issue_certificate` es un callback de aridad cero, provisto por un
+    componente confiable (broker) -- este servicio NUNCA genera, firma, ni
+    deriva material criptografico de certificado el mismo (encargo de
+    Domain C, seccion 16 / Domain D.1, Gate 1). Se invoca UNICAMENTE
+    despues de que el codigo de pairing fue verificado como correcto --
+    nunca antes: un pairing invalido, vencido, LOCKED, bloqueado por rate
+    limit, o con codigo incorrecto NUNCA dispara este callback (Domain D.1,
+    seccion 1: "un pairing invalido/no confirmado no debe provocar una
+    firma con la CA"). Debe devolver la huella (`certificate_fingerprint`)
+    del certificado ya firmado -- cualquier excepcion que lance se propaga
+    sin modificar (este metodo no ha mutado la fila todavia en ese punto,
+    asi que un rollback del llamador es seguro y completo).
 
     Domain C.1b, Gate residual: el lookup de la fila (tenant-scoped,
     `SELECT ... FOR UPDATE`) ocurre ANTES del throttle process-local de
@@ -260,6 +269,12 @@ def confirm_pairing(
         pairing.version += 1
         db.flush()
         raise PairingInvalidCodeError()
+
+    # Solo aqui, con el codigo YA verificado como correcto (Domain D.1, Gate
+    # 1), se autoriza la emision del certificado -- la firma criptografica
+    # real ocurre dentro de este callback, todavia dentro de la misma
+    # transaccion/lock de fila que el resto de esta operacion.
+    certificate_fingerprint = issue_certificate()
 
     if repo.get_agent_by_certificate_fingerprint(db, certificate_fingerprint=certificate_fingerprint) is not None:
         raise AgentCertificateFingerprintConflictError()

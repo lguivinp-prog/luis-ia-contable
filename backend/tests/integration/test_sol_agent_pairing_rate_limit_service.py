@@ -117,7 +117,7 @@ def test_correct_code_after_permitted_window_works(db_session, tenant, admin_use
         tenant_id=tenant.id,
         pairing_id=result.pairing.id,
         code=result.pairing_code,
-        certificate_fingerprint=f"fp-{uuid.uuid4().hex}",
+        issue_certificate=lambda: f"fp-{uuid.uuid4().hex}",
         actor_user_id=admin_user.id,
     )
     assert confirmed.status == "COMPLETED"
@@ -132,7 +132,7 @@ def test_successful_pairing_resets_the_creation_counter(db_session, tenant, admi
         tenant_id=tenant.id,
         pairing_id=result.pairing.id,
         code=result.pairing_code,
-        certificate_fingerprint=f"fp-{uuid.uuid4().hex}",
+        issue_certificate=lambda: f"fp-{uuid.uuid4().hex}",
         actor_user_id=admin_user.id,
     )
     status = rate_limit_service.get_pairing_creation_lockout_status(
@@ -157,7 +157,7 @@ def test_durable_five_failure_lock_unaffected_by_creation_rate_limiter(db_sessio
                 tenant_id=tenant.id,
                 pairing_id=result.pairing.id,
                 code=wrong_code,
-                certificate_fingerprint=f"fp-{uuid.uuid4().hex}",
+                issue_certificate=lambda: f"fp-{uuid.uuid4().hex}",
                 actor_user_id=admin_user.id,
             )
     with pytest.raises(pairing_service.PairingLockedError):
@@ -166,7 +166,7 @@ def test_durable_five_failure_lock_unaffected_by_creation_rate_limiter(db_sessio
             tenant_id=tenant.id,
             pairing_id=result.pairing.id,
             code=wrong_code,
-            certificate_fingerprint=f"fp-{uuid.uuid4().hex}",
+            issue_certificate=lambda: f"fp-{uuid.uuid4().hex}",
             actor_user_id=admin_user.id,
         )
     assert result.pairing.status == "LOCKED"

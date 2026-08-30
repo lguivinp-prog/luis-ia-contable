@@ -85,7 +85,7 @@ def test_confirm_pairing_with_correct_code_creates_active_agent(db_session, tena
         tenant_id=tenant.id,
         pairing_id=result.pairing.id,
         code=result.pairing_code,
-        certificate_fingerprint=f"fp-{uuid.uuid4().hex}",
+        issue_certificate=lambda: f"fp-{uuid.uuid4().hex}",
         actor_user_id=admin_user.id,
     )
     assert confirmed.status == "COMPLETED"
@@ -110,7 +110,7 @@ def test_confirm_pairing_with_wrong_code_increments_failed_attempts(db_session, 
             tenant_id=tenant.id,
             pairing_id=result.pairing.id,
             code="000000" if result.pairing_code != "000000" else "111111",
-            certificate_fingerprint=f"fp-{uuid.uuid4().hex}",
+            issue_certificate=lambda: f"fp-{uuid.uuid4().hex}",
             actor_user_id=admin_user.id,
         )
     assert result.pairing.failed_attempt_count == 1
@@ -129,7 +129,7 @@ def test_fifth_failed_attempt_locks_pairing_permanently(db_session, tenant, admi
                 tenant_id=tenant.id,
                 pairing_id=result.pairing.id,
                 code=wrong_code,
-                certificate_fingerprint=f"fp-{uuid.uuid4().hex}",
+                issue_certificate=lambda: f"fp-{uuid.uuid4().hex}",
                 actor_user_id=admin_user.id,
             )
     assert result.pairing.status == "PENDING"
@@ -141,7 +141,7 @@ def test_fifth_failed_attempt_locks_pairing_permanently(db_session, tenant, admi
             tenant_id=tenant.id,
             pairing_id=result.pairing.id,
             code=wrong_code,
-            certificate_fingerprint=f"fp-{uuid.uuid4().hex}",
+            issue_certificate=lambda: f"fp-{uuid.uuid4().hex}",
             actor_user_id=admin_user.id,
         )
     assert result.pairing.status == "LOCKED"
@@ -156,7 +156,7 @@ def test_fifth_failed_attempt_locks_pairing_permanently(db_session, tenant, admi
             tenant_id=tenant.id,
             pairing_id=result.pairing.id,
             code=result.pairing_code,
-            certificate_fingerprint=f"fp-{uuid.uuid4().hex}",
+            issue_certificate=lambda: f"fp-{uuid.uuid4().hex}",
             actor_user_id=admin_user.id,
         )
 
@@ -185,7 +185,7 @@ def test_confirm_pairing_rejects_expired(db_session, tenant, admin_user, pairing
             tenant_id=tenant.id,
             pairing_id=result.pairing.id,
             code=result.pairing_code,
-            certificate_fingerprint=f"fp-{uuid.uuid4().hex}",
+            issue_certificate=lambda: f"fp-{uuid.uuid4().hex}",
             actor_user_id=admin_user.id,
         )
     assert result.pairing.status == "EXPIRED"
@@ -234,7 +234,7 @@ def test_cancel_pairing_does_not_rewrite_other_terminal_states(db_session, tenan
         tenant_id=tenant.id,
         pairing_id=result.pairing.id,
         code=result.pairing_code,
-        certificate_fingerprint=f"fp-{uuid.uuid4().hex}",
+        issue_certificate=lambda: f"fp-{uuid.uuid4().hex}",
         actor_user_id=admin_user.id,
     )
     assert result.pairing.status == "COMPLETED"
@@ -267,7 +267,7 @@ def test_confirm_pairing_rejects_duplicate_certificate_fingerprint(db_session, t
         tenant_id=tenant.id,
         pairing_id=first.pairing.id,
         code=first.pairing_code,
-        certificate_fingerprint=fingerprint,
+        issue_certificate=lambda: fingerprint,
         actor_user_id=admin_user.id,
     )
 
@@ -293,6 +293,6 @@ def test_confirm_pairing_rejects_duplicate_certificate_fingerprint(db_session, t
             tenant_id=tenant.id,
             pairing_id=second.pairing.id,
             code=second.pairing_code,
-            certificate_fingerprint=fingerprint,
+            issue_certificate=lambda: fingerprint,
             actor_user_id=admin_user.id,
         )

@@ -125,6 +125,36 @@ class Settings(BaseSettings):
     # throttle (usado por pruebas de concurrencia del quinto fallo).
     pairing_verification_throttle_seconds: float = 1.0
 
+    # ---- Fase 5 / Bloque 5.2, Domain D: broker local (frontera de
+    # confianza agente<->backend, ver docs/phase5/block5_2/) ----
+    # SIEMPRE 127.0.0.1 en el codigo de arranque productivo (`server.py`
+    # rechaza cualquier otro host al construir el listener -- ver
+    # `BrokerServer.__init__`); este valor existe solo para que entornos de
+    # prueba puedan variar el puerto, nunca el host.
+    sol_broker_host: str = "127.0.0.1"
+    # Puerto del listener de PAIRING (bootstrap, TLS servidor-only,
+    # `CERT_NONE` -- el agente aun no tiene certificado propio). `0` deja que
+    # el SO elija un puerto libre (usado por las pruebas).
+    sol_broker_pairing_port: int = 8995
+    # Puerto del listener OPERACIONAL (mTLS estricto, `CERT_REQUIRED`).
+    # Deliberadamente distinto del de pairing -- nunca el mismo socket sirve
+    # ambos modos de TLS (seccion 22 del encargo: "no falsear mTLS antes de
+    # que exista un certificado").
+    sol_broker_operational_port: int = 8996
+    # Directorio de la CA local de agentes -- SIEMPRE fuera del repositorio y
+    # fuera de PostgreSQL (mismo patron ya productivo de
+    # `document_storage_root`, ADR-0053). Vacio de material -> arranque falla
+    # cerrado (`app.broker.pki.CaMaterialMissingError`), nunca autogenera en
+    # produccion.
+    sol_broker_ca_dir: str = "/var/lib/luis-ia-contable/sol_broker_pki"
+    sol_broker_tls_handshake_timeout_seconds: float = 10.0
+    sol_broker_idle_timeout_seconds: float = 120.0
+    sol_broker_read_timeout_seconds: float = 15.0
+    # Cota de conexiones concurrentes aceptadas (pre y post autenticacion) --
+    # evita que un numero no acotado de conexiones sin autenticar agote hilos
+    # del proceso (seccion 63 del encargo).
+    sol_broker_max_concurrent_connections: int = 200
+
 
 @lru_cache
 def get_settings() -> Settings:

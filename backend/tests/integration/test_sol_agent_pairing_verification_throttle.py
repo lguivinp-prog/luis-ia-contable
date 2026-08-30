@@ -59,7 +59,7 @@ def test_A_first_wrong_verification_allowed_increments_failed_count(db_session, 
             tenant_id=tenant.id,
             pairing_id=result.pairing.id,
             code=_wrong_code(result.pairing_code),
-            certificate_fingerprint=f"fp-{uuid.uuid4().hex}",
+            issue_certificate=lambda: f"fp-{uuid.uuid4().hex}",
             actor_user_id=admin_user.id,
         )
     assert result.pairing.failed_attempt_count == 1
@@ -75,7 +75,7 @@ def test_B_immediate_second_verification_throttled_count_unchanged(db_session, t
             tenant_id=tenant.id,
             pairing_id=result.pairing.id,
             code=_wrong_code(result.pairing_code),
-            certificate_fingerprint=f"fp-{uuid.uuid4().hex}",
+            issue_certificate=lambda: f"fp-{uuid.uuid4().hex}",
             actor_user_id=admin_user.id,
         )
     assert result.pairing.failed_attempt_count == 1
@@ -86,7 +86,7 @@ def test_B_immediate_second_verification_throttled_count_unchanged(db_session, t
             tenant_id=tenant.id,
             pairing_id=result.pairing.id,
             code=_wrong_code(result.pairing_code),
-            certificate_fingerprint=f"fp-{uuid.uuid4().hex}",
+            issue_certificate=lambda: f"fp-{uuid.uuid4().hex}",
             actor_user_id=admin_user.id,
         )
     # El intento throttled NUNCA llego a verify_pairing_code -- el contador
@@ -105,7 +105,7 @@ def test_C_next_verification_allowed_after_interval(db_session, tenant, admin_us
             tenant_id=tenant.id,
             pairing_id=result.pairing.id,
             code=_wrong_code(result.pairing_code),
-            certificate_fingerprint=f"fp-{uuid.uuid4().hex}",
+            issue_certificate=lambda: f"fp-{uuid.uuid4().hex}",
             actor_user_id=admin_user.id,
         )
     time.sleep(0.2)  # > 0.15s de la ventana configurada
@@ -115,7 +115,7 @@ def test_C_next_verification_allowed_after_interval(db_session, tenant, admin_us
             tenant_id=tenant.id,
             pairing_id=result.pairing.id,
             code=_wrong_code(result.pairing_code),
-            certificate_fingerprint=f"fp-{uuid.uuid4().hex}",
+            issue_certificate=lambda: f"fp-{uuid.uuid4().hex}",
             actor_user_id=admin_user.id,
         )
     assert result.pairing.failed_attempt_count == 2
@@ -131,7 +131,7 @@ def test_D_correct_code_during_throttle_rejected_without_oracle(db_session, tena
             tenant_id=tenant.id,
             pairing_id=result.pairing.id,
             code=_wrong_code(result.pairing_code),
-            certificate_fingerprint=f"fp-{uuid.uuid4().hex}",
+            issue_certificate=lambda: f"fp-{uuid.uuid4().hex}",
             actor_user_id=admin_user.id,
         )
 
@@ -144,7 +144,7 @@ def test_D_correct_code_during_throttle_rejected_without_oracle(db_session, tena
             tenant_id=tenant.id,
             pairing_id=result.pairing.id,
             code=result.pairing_code,
-            certificate_fingerprint=f"fp-{uuid.uuid4().hex}",
+            issue_certificate=lambda: f"fp-{uuid.uuid4().hex}",
             actor_user_id=admin_user.id,
         )
     assert result.pairing.status == "PENDING"
@@ -162,7 +162,7 @@ def test_E_correct_code_after_interval_completes_normally(db_session, tenant, ad
             tenant_id=tenant.id,
             pairing_id=result.pairing.id,
             code=_wrong_code(result.pairing_code),
-            certificate_fingerprint=f"fp-{uuid.uuid4().hex}",
+            issue_certificate=lambda: f"fp-{uuid.uuid4().hex}",
             actor_user_id=admin_user.id,
         )
     time.sleep(0.2)
@@ -171,7 +171,7 @@ def test_E_correct_code_after_interval_completes_normally(db_session, tenant, ad
         tenant_id=tenant.id,
         pairing_id=result.pairing.id,
         code=result.pairing_code,
-        certificate_fingerprint=f"fp-{uuid.uuid4().hex}",
+        issue_certificate=lambda: f"fp-{uuid.uuid4().hex}",
         actor_user_id=admin_user.id,
     )
     assert confirmed.status == "COMPLETED"
@@ -188,7 +188,7 @@ def test_F_limiter_reset_does_not_clear_durable_failed_count(db_session, tenant,
             tenant_id=tenant.id,
             pairing_id=result.pairing.id,
             code=_wrong_code(result.pairing_code),
-            certificate_fingerprint=f"fp-{uuid.uuid4().hex}",
+            issue_certificate=lambda: f"fp-{uuid.uuid4().hex}",
             actor_user_id=admin_user.id,
         )
     assert result.pairing.failed_attempt_count == 1
@@ -205,7 +205,7 @@ def test_F_limiter_reset_does_not_clear_durable_failed_count(db_session, tenant,
             tenant_id=tenant.id,
             pairing_id=result.pairing.id,
             code=_wrong_code(result.pairing_code),
-            certificate_fingerprint=f"fp-{uuid.uuid4().hex}",
+            issue_certificate=lambda: f"fp-{uuid.uuid4().hex}",
             actor_user_id=admin_user.id,
         )
     assert result.pairing.failed_attempt_count == 2
@@ -224,7 +224,7 @@ def test_G_fifth_verified_wrong_attempt_locks_exactly_at_five(db_session, tenant
                 tenant_id=tenant.id,
                 pairing_id=result.pairing.id,
                 code=wrong_code,
-                certificate_fingerprint=f"fp-{uuid.uuid4().hex}",
+                issue_certificate=lambda: f"fp-{uuid.uuid4().hex}",
                 actor_user_id=admin_user.id,
             )
         time.sleep(0.2)  # cruza la ventana antes del siguiente intento REAL
@@ -237,7 +237,7 @@ def test_G_fifth_verified_wrong_attempt_locks_exactly_at_five(db_session, tenant
             tenant_id=tenant.id,
             pairing_id=result.pairing.id,
             code=wrong_code,
-            certificate_fingerprint=f"fp-{uuid.uuid4().hex}",
+            issue_certificate=lambda: f"fp-{uuid.uuid4().hex}",
             actor_user_id=admin_user.id,
         )
     assert result.pairing.failed_attempt_count == 5
@@ -255,7 +255,7 @@ def test_I_no_secret_material_stored_by_limiter(db_session, tenant, admin_user, 
             tenant_id=tenant.id,
             pairing_id=result.pairing.id,
             code=_wrong_code(result.pairing_code),
-            certificate_fingerprint=f"fp-{uuid.uuid4().hex}",
+            issue_certificate=lambda: f"fp-{uuid.uuid4().hex}",
             actor_user_id=admin_user.id,
         )
 
@@ -291,7 +291,7 @@ def test_A_unknown_pairing_ids_do_not_create_throttle_entries(db_session, tenant
                 tenant_id=tenant.id,
                 pairing_id=uuid.uuid4(),  # nunca existio
                 code="042017",
-                certificate_fingerprint=f"fp-{uuid.uuid4().hex}",
+                issue_certificate=lambda: f"fp-{uuid.uuid4().hex}",
                 actor_user_id=admin_user.id,
             )
     assert throttle.current_cardinality() == 0
@@ -308,7 +308,7 @@ def test_B_large_sequence_of_unknown_pairing_ids_does_not_grow_cardinality(db_se
                 tenant_id=tenant.id,
                 pairing_id=uuid.uuid4(),
                 code="042017",
-                certificate_fingerprint=f"fp-{uuid.uuid4().hex}",
+                issue_certificate=lambda: f"fp-{uuid.uuid4().hex}",
                 actor_user_id=admin_user.id,
             )
     assert throttle.current_cardinality() == 0
@@ -327,7 +327,7 @@ def test_C_valid_pending_pairing_creates_exactly_one_throttle_entry(db_session, 
             tenant_id=tenant.id,
             pairing_id=result.pairing.id,
             code=_wrong_code(result.pairing_code),
-            certificate_fingerprint=f"fp-{uuid.uuid4().hex}",
+            issue_certificate=lambda: f"fp-{uuid.uuid4().hex}",
             actor_user_id=admin_user.id,
         )
     assert throttle.current_cardinality() == 1
@@ -355,7 +355,7 @@ def test_D_stale_entry_is_pruned_lazily(db_session, tenant, admin_user, pairing_
             tenant_id=tenant.id,
             pairing_id=result.pairing.id,
             code=_wrong_code(result.pairing_code),
-            certificate_fingerprint=f"fp-{uuid.uuid4().hex}",
+            issue_certificate=lambda: f"fp-{uuid.uuid4().hex}",
             actor_user_id=admin_user.id,
         )
     # La entrada vieja fue purgada; solo queda la del pairing valido de
@@ -388,7 +388,7 @@ def test_E_terminal_pairing_does_not_leave_reusable_throttle_state(db_session, t
         tenant_id=tenant.id,
         pairing_id=result.pairing.id,
         code=result.pairing_code,
-        certificate_fingerprint=f"fp-{uuid.uuid4().hex}",
+        issue_certificate=lambda: f"fp-{uuid.uuid4().hex}",
         actor_user_id=admin_user.id,
     )
     assert (tenant.id, result.pairing.id) not in throttle._last_allowed_attempt_monotonic
@@ -403,7 +403,7 @@ def test_E_terminal_pairing_does_not_leave_reusable_throttle_state(db_session, t
             tenant_id=tenant.id,
             pairing_id=result2.pairing.id,
             code=_wrong_code(result2.pairing_code),
-            certificate_fingerprint=f"fp-{uuid.uuid4().hex}",
+            issue_certificate=lambda: f"fp-{uuid.uuid4().hex}",
             actor_user_id=admin_user.id,
         )
     assert throttle.current_cardinality() == 1
@@ -420,7 +420,7 @@ def test_E_terminal_pairing_does_not_leave_reusable_throttle_state(db_session, t
             tenant_id=tenant.id,
             pairing_id=result3.pairing.id,
             code=_wrong_code(result3.pairing_code),
-            certificate_fingerprint=f"fp-{uuid.uuid4().hex}",
+            issue_certificate=lambda: f"fp-{uuid.uuid4().hex}",
             actor_user_id=admin_user.id,
         )
     result3.pairing.created_at = result3.pairing.created_at.replace(year=2020)
