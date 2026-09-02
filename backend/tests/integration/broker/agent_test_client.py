@@ -40,6 +40,8 @@ class AgentTestClient:
         self._csr_pem: bytes | None = None
         self._client_cert_pem: bytes | None = None
         self._client_key_pem: bytes | None = None
+        self._client_cert_path: Path | None = None
+        self._client_key_path: Path | None = None
         self.agent_id: uuid.UUID | None = None
         self.connection_id: str | None = None
         self._tmp_dir = Path(tempfile.mkdtemp(prefix="sol-agent-test-client-"))
@@ -105,6 +107,22 @@ class AgentTestClient:
             format=serialization.PrivateFormat.PKCS8,
             encryption_algorithm=serialization.NoEncryption(),
         )
+        # Domain E1-B, hallazgo de la prueba de concurrencia real (K/X/Y):
+        # el certificado/clave de cliente se escriben a disco UNA SOLA VEZ
+        # aqui, en un momento single-threaded (justo tras el pairing) --
+        # `_mtls_ssl_context()` antes los reescribia en CADA llamada, lo
+        # que corrompia el PEM (`ssl.SSLError: [SSL] PEM lib`) cuando dos
+        # peticiones concurrentes del MISMO agente (mismo objeto
+        # `AgentTestClient`, dos hilos) llamaban `request_credential` a la
+        # vez -- una carrera de escritura de archivo real, no relacionada
+        # con el broker en si. Una vez escritos, las lecturas concurrentes
+        # de un archivo ya completo son seguras.
+        cert_path = self._tmp_dir / "client.cert.pem"
+        key_path = self._tmp_dir / "client.key.pem"
+        cert_path.write_bytes(self._client_cert_pem)
+        key_path.write_bytes(self._client_key_pem)
+        self._client_cert_path = cert_path
+        self._client_key_path = key_path
 
     # --- construccion de contextos TLS ---
 
@@ -120,17 +138,14 @@ class AgentTestClient:
         cargando CA + cadena de cliente en el MISMO objeto es lo unico que
         presenta el certificado de cliente de forma fiable bajo TLS 1.3 en
         este entorno -- pasar `verify=`/`cert=` por separado a `httpx.Client`
-        no lo hace."""
-        assert self._client_cert_pem is not None and self._client_key_pem is not None
-        cert_path = self._tmp_dir / "client.cert.pem"
-        key_path = self._tmp_dir / "client.key.pem"
-        cert_path.write_bytes(self._client_cert_pem)
-        key_path.write_bytes(self._client_key_pem)
-
+        no lo hace. SOLO lee los archivos (ya escritos una vez por
+        `_store_client_identity`) -- nunca los reescribe, para ser seguro
+        ante llamadas concurrentes desde multiples hilos (Domain E1-B)."""
+        assert self._client_cert_path is not None and self._client_key_path is not None
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
         ctx.load_verify_locations(cadata=self._ca_cert_pem.decode("ascii"))
         ctx.minimum_version = ssl.TLSVersion.TLSv1_2
-        ctx.load_cert_chain(certfile=str(cert_path), keyfile=str(key_path))
+        ctx.load_cert_chain(certfile=str(self._client_cert_path), keyfile=str(self._client_key_path))
         return ctx
 
     # --- canal operacional (mTLS) ---
@@ -181,6 +196,30 @@ class AgentTestClient:
             return client.post(
                 f"{self.operational_base_url}/agent/jobs/{job_id}/claim",
                 json={"protocol_version": PROTOCOL_VERSION},
+                headers=self._connection_headers(headers),
+            )
+
+    def request_credential(
+        self,
+        job_id: uuid.UUID,
+        *,
+        ssl_context: ssl.SSLContext | None = None,
+        headers: dict[str, str] | None = None,
+        extra_body: dict | None = None,
+    ) -> httpx.Response:
+        """Domain E1-B -- arnes de prueba UNICAMENTE, nunca el Agente
+        Windows productivo (mismo principio ya congelado en Domain D).
+        `extra_body` es SOLO para probar el esquema estricto (prueba AC del
+        plan: `extra="forbid"` de `CredentialDeliveryRequest` debe rechazar
+        cualquier campo no reconocido, ej. un intento de inyectar `ruc`) --
+        el Agente Windows real nunca construiria un payload asi."""
+        body = {"protocol_version": PROTOCOL_VERSION}
+        if extra_body:
+            body.update(extra_body)
+        with self._operational_client(ssl_context=ssl_context) as client:
+            return client.post(
+                f"{self.operational_base_url}/agent/jobs/{job_id}/credential",
+                json=body,
                 headers=self._connection_headers(headers),
             )
 

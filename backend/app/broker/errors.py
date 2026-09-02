@@ -158,6 +158,34 @@ class RequestNotAllowedError(BrokerTransportError):
         super().__init__("REQUEST_NOT_ALLOWED")
 
 
+class CredentialUnavailableError(BrokerTransportError):
+    """Fase 5, Bloque 5.2, Domain E1-B: envoltura de transporte generica
+    sobre CUALQUIER rechazo posterior a la carga tenant-safe de las
+    relaciones job/sesion (grant ausente/vencido/ya `IN_FLIGHT`/de otro
+    agente, vault bloqueada u operacion no autorizada, fallo de
+    descifrado, o rechazo del gate de entrega de Domain C) -- nunca
+    distingue el motivo especifico ante el agente, mismo principio
+    no-oracle que `ClaimRejectedError`/`JobClaimInvalidError`."""
+
+    http_status = 409
+
+    def __init__(self) -> None:
+        super().__init__("CREDENTIAL_UNAVAILABLE")
+
+
+class ConnectionBusyError(BrokerTransportError):
+    """Fase 5, Bloque 5.2, Domain E1-B: un `HELLO` de reemplazo llego
+    mientras la conexion actual de este agente tiene un lease de entrega
+    de secreto activo -- ver
+    `app.broker.connection_registry.ConnectionBusyError`, que esta clase
+    envuelve para el transporte HTTP."""
+
+    http_status = 409
+
+    def __init__(self) -> None:
+        super().__init__("CONNECTION_BUSY")
+
+
 class InternalError(BrokerTransportError):
     """Cubre unicamente una excepcion NO anticipada (bug) -- nunca expone
     stack trace ni el tipo/mensaje de la excepcion original ante el agente

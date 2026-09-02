@@ -45,6 +45,14 @@ def _second_instance_with_same_identity(agent: AgentTestClient) -> AgentTestClie
     clone.agent_id = agent.agent_id
     clone._client_cert_pem = agent._client_cert_pem
     clone._client_key_pem = agent._client_key_pem
+    # reutiliza los MISMOS archivos ya escritos por `agent` -- Domain
+    # E1-B cambio `_mtls_ssl_context()` para leer de una ruta ya escrita
+    # una sola vez (nunca reescribirla en cada llamada, hallazgo de una
+    # carrera real de escritura de archivo bajo peticiones concurrentes),
+    # asi que un clon que comparte identidad debe apuntar a los mismos
+    # archivos en vez de dejarlos en `None`.
+    clone._client_cert_path = agent._client_cert_path
+    clone._client_key_path = agent._client_key_path
     return clone
 
 

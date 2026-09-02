@@ -30,10 +30,22 @@ def get_agent(db: Session, *, tenant_id: uuid.UUID, agent_id: uuid.UUID) -> SolA
 
 
 def get_agent_for_update(db: Session, *, tenant_id: uuid.UUID, agent_id: uuid.UUID) -> SolAgent | None:
+    """`populate_existing=True` (hallazgo de Domain E1-B, confirmado con
+    una prueba diagnostica directa contra PostgreSQL real): sin esto, si
+    esta `Session` ya tenia este PK en su identity map por una lectura
+    PREVIA sin bloqueo (ej. `get_agent`), `with_for_update()` SI adquiere
+    el lock de fila correcto a nivel de BD, pero el ORM devuelve el objeto
+    Python ya cacheado SIN refrescar sus atributos -- una mutacion
+    concurrente ya comprometida por otra sesion (ej. revocacion) puede
+    pasar inadvertida en el chequeo que sigue. Toda funcion `*_for_update`
+    de este modulo existe especificamente para tomar una decision de
+    seguridad sobre el estado ACTUAL de la fila -- nunca debe devolver un
+    valor obsoleto."""
     return db.execute(
         select(SolAgent)
         .where(SolAgent.id == agent_id, SolAgent.tenant_id == tenant_id)
         .with_for_update()
+        .execution_options(populate_existing=True)
     ).scalar_one_or_none()
 
 
@@ -65,10 +77,15 @@ def get_session(db: Session, *, tenant_id: uuid.UUID, session_id: uuid.UUID) -> 
 def get_session_for_update(
     db: Session, *, tenant_id: uuid.UUID, session_id: uuid.UUID
 ) -> SolAccessSession | None:
+    """`populate_existing=True` -- ver el docstring identico de
+    `get_agent_for_update` (mismo hallazgo de Domain E1-B, misma correccion
+    aplicada de forma consistente a las cuatro funciones `*_for_update` de
+    este modulo)."""
     return db.execute(
         select(SolAccessSession)
         .where(SolAccessSession.id == session_id, SolAccessSession.tenant_id == tenant_id)
         .with_for_update()
+        .execution_options(populate_existing=True)
     ).scalar_one_or_none()
 
 
@@ -108,19 +125,27 @@ def get_job(db: Session, *, tenant_id: uuid.UUID, job_id: uuid.UUID) -> SolAgent
 
 
 def get_job_for_update(db: Session, *, tenant_id: uuid.UUID, job_id: uuid.UUID) -> SolAgentJob | None:
+    """`populate_existing=True` -- ver el docstring identico de
+    `get_agent_for_update` (mismo hallazgo de Domain E1-B)."""
     return db.execute(
         select(SolAgentJob)
         .where(SolAgentJob.id == job_id, SolAgentJob.tenant_id == tenant_id)
         .with_for_update()
+        .execution_options(populate_existing=True)
     ).scalar_one_or_none()
 
 
 def get_job_by_token_hash_for_update(db: Session, *, job_token_hash: str) -> SolAgentJob | None:
     """`job_token_hash` es UNIQUE global (Domain A.1/A.2) -- el claim
     identifica el job por el token, no por `job_id` (el agente solo conoce
-    el token en claro que recibio, nunca el UUID del job)."""
+    el token en claro que recibio, nunca el UUID del job). `populate_existing=True`
+    -- ver el docstring identico de `get_agent_for_update` (mismo hallazgo
+    de Domain E1-B)."""
     return db.execute(
-        select(SolAgentJob).where(SolAgentJob.job_token_hash == job_token_hash).with_for_update()
+        select(SolAgentJob)
+        .where(SolAgentJob.job_token_hash == job_token_hash)
+        .with_for_update()
+        .execution_options(populate_existing=True)
     ).scalar_one_or_none()
 
 

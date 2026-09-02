@@ -121,7 +121,52 @@ class AgentErrorReport(_StrictModel):
     error_code: str = Field(min_length=1, max_length=64)
 
 
+# --- Fase 5, Bloque 5.2, Domain E1-B: entrega de credencial SOL (ver
+# docs/phase5/block5_2/BLOCK5_2_SECRET_DELIVERY_ARCHITECTURE.md, secciones
+# 7/15/23-24 del encargo de Domain E1-B) ---
+
+
+class CredentialDeliveryRequest(_StrictModel):
+    """Deliberadamente SIN ningun otro campo (seccion 31 del encargo): sin
+    token de grant, sin `credential_id`, sin `ruc`, sin
+    `sol_username`/`sol_password`, sin `agent_id`, sin `tenant_id`, sin
+    `user_id`, sin `app_session_id`. Toda relacion de confianza viene de
+    la identidad mTLS + `job_id` de la URL + estado de backend -- nunca de
+    este cuerpo."""
+
+    protocol_version: int
+
+
+class CredentialDeliveryResponse(_StrictModel):
+    """Contrato de secreto minimo (seccion 36 del encargo,
+    `MINIMUM_AGENT_LOGIN_PAYLOAD` congelado en Domain E1-A.1). `__repr__`/
+    `__str__` redactados deliberadamente -- ningun log/traceback/`pytest
+    -l` puede exponer el texto plano por accidente (mismo principio ya
+    productivo en `JobCreateResult`/`PairingCreateResult` de Domain C).
+    `frozen=True` (heredado de `_StrictModel`) NO implica redaccion por si
+    solo -- Pydantic seria expondria los valores en su `__repr__` por
+    defecto si no se sobrescribiera aqui explicitamente."""
+
+    protocol_version: int = PROTOCOL_VERSION
+    ruc: str = Field(min_length=11, max_length=11)
+    sol_username: str = Field(min_length=1, max_length=256)
+    sol_password: str = Field(min_length=1, max_length=256)
+
+    def __repr__(self) -> str:
+        return "CredentialDeliveryResponse(ruc='***REDACTED***', sol_username='***REDACTED***', sol_password='***REDACTED***')"
+
+    def __str__(self) -> str:
+        return self.__repr__()
+
+
 # --- limites de tamano (seccion 62 del encargo: acotar antes de trabajo caro) ---
 
 MAX_MESSAGE_BYTES = 16_384
 MAX_CSR_PEM_BYTES = 8192
+
+# Fase 5, Bloque 5.2, Domain E1-A/E1-B (seccion 19 del documento de
+# arquitectura, seccion 70 del encargo de Domain E1-B): cota estricta y
+# pequena, deliberadamente MENOR que `MAX_MESSAGE_BYTES` generico del
+# broker -- tres campos de texto corto nunca necesitan 16 KB. Ningun
+# certificado/documento se agrupa jamas con el payload de credencial.
+MAX_CREDENTIAL_DELIVERY_RESPONSE_BYTES = 1024

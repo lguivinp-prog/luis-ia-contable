@@ -24,8 +24,9 @@ from app.core.security import hash_password
 from app.models.audit_log import AuditLog
 from app.models.client import Client
 from app.models.client_sol_credential import ClientSolCredential
+from app.models.session import Session as AppSession
 from app.models.sol_agent_access import SolAccessSession, SolAgent, SolAgentJob, SolAgentPairing
-from app.models.sol_vault import SolVault, SolVaultDataKey
+from app.models.sol_vault import SolVault, SolVaultDataKey, SolVaultKeySlot
 from app.models.tenant import Tenant
 from app.models.user import User
 from app.services.ruc_validator import compute_check_digit
@@ -181,8 +182,10 @@ def cleanup_tenant(session_factory, tenant_id: uuid.UUID) -> None:
         session.execute(delete(SolAgent).where(SolAgent.tenant_id == tenant_id))
         session.execute(delete(ClientSolCredential).where(ClientSolCredential.tenant_id == tenant_id))
         session.execute(delete(Client).where(Client.tenant_id == tenant_id))
+        session.execute(delete(SolVaultKeySlot).where(SolVaultKeySlot.tenant_id == tenant_id))
         session.execute(delete(SolVaultDataKey).where(SolVaultDataKey.tenant_id == tenant_id))
         session.execute(delete(SolVault).where(SolVault.tenant_id == tenant_id))
+        session.execute(delete(AppSession).where(AppSession.tenant_id == tenant_id))
         session.execute(delete(User).where(User.tenant_id == tenant_id))
         session.execute(delete(Tenant).where(Tenant.id == tenant_id))
         session.commit()
@@ -212,3 +215,72 @@ def running_broker(session_factory, broker_ca, pairing_key):
         yield server
     finally:
         server.stop()
+
+
+@pytest.fixture(autouse=True)
+def _reset_vault_unlock_registry():
+    """Domain E1-B: `vault_unlock_registry` (`app.core.sol_vault_registry`)
+    es un singleton de PROCESO -- el mismo objeto que usa `app/broker/
+    server.py` en produccion. Las pruebas de entrega de secreto lo usan
+    deliberadamente (nunca una instancia fresca aislada, a diferencia de
+    `test_sol_vault_service.py`) para que la autorizacion/entrega vean el
+    MISMO desbloqueo. Debe purgarse antes y despues de cada prueba para
+    que el estado nunca se filtre entre pruebas."""
+    from app.core.sol_vault_registry import vault_unlock_registry as _registry
+
+    _registry.reset()
+    yield
+    _registry.reset()
+
+
+@pytest.fixture()
+def e1b_setup(session_factory, monkeypatch):
+    """Fase 5, Bloque 5.2, Domain E1-B: cadena completa real -- tenant +
+    actor admin + sesion de aplicacion + boveda inicializada/desbloqueada +
+    credencial SOL cifrada real (sentinelas de prueba) + sesion de acceso
+    SOL supervisado. Deliberadamente NO empareja agente ni despacha job --
+    cada prueba decide esa parte (algunas necesitan DOS agentes, otras
+    ningun job, etc.)."""
+    from tests.integration.broker._secret_delivery_helpers import (
+        commit_client,
+        commit_sol_access_session,
+        commit_tenant_admin_with_app_session,
+        create_real_credential,
+        init_vault_and_confirm_recovery,
+    )
+
+    actor_setup = commit_tenant_admin_with_app_session(session_factory)
+    client_id, ruc = commit_client(session_factory, actor_setup["tenant_id"])
+    vault_id = init_vault_and_confirm_recovery(
+        session_factory,
+        monkeypatch,
+        tenant_id=actor_setup["tenant_id"],
+        user_id=actor_setup["user_id"],
+        app_session_id=actor_setup["app_session_id"],
+    )
+    credential_id = create_real_credential(
+        session_factory,
+        monkeypatch,
+        tenant_id=actor_setup["tenant_id"],
+        vault_id=vault_id,
+        client_id=client_id,
+        user_id=actor_setup["user_id"],
+        app_session_id=actor_setup["app_session_id"],
+    )
+    session_id = commit_sol_access_session(
+        session_factory,
+        tenant_id=actor_setup["tenant_id"],
+        client_id=client_id,
+        credential_id=credential_id,
+        requester_id=actor_setup["user_id"],
+    )
+    return {
+        "tenant_id": actor_setup["tenant_id"],
+        "admin_id": actor_setup["user_id"],
+        "app_session_id": actor_setup["app_session_id"],
+        "client_id": client_id,
+        "ruc": ruc,
+        "vault_id": vault_id,
+        "credential_id": credential_id,
+        "session_id": session_id,
+    }

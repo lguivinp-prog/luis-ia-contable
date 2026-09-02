@@ -33,6 +33,16 @@ ALLOWED_OPERATIONS = frozenset(
         "DATA_KEY_ROTATION",
         "RECOVERY",
         "VERIFY_ACCESS",
+        # Fase 5, Bloque 5.2, Domain E1-A.1/E1-B (ver
+        # docs/phase5/block5_2/BLOCK5_2_SECRET_DELIVERY_ARCHITECTURE.md
+        # seccion 4): capacidad EXCLUSIVA para autorizar/re-verificar el
+        # desbloqueo al autorizar o entregar una credencial SOL a un
+        # agente Windows emparejado -- NUNCA se reutiliza `VERIFY_ACCESS`
+        # (semantica mas debil, sin autorizar liberacion de secreto
+        # alguna). No es un permiso RBAC, no es un enum de BD, no
+        # requiere migracion -- solo vocabulario interno de este
+        # `frozenset` de Python.
+        "CREDENTIAL_DELIVERY",
     }
 )
 

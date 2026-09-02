@@ -186,3 +186,21 @@ def get_credential_for_update(
             ClientSolCredential.client_id == client_id,
         ).with_for_update()
     ).scalar_one_or_none()
+
+
+def get_credential_by_id(
+    db: Session, *, tenant_id: uuid.UUID, client_id: uuid.UUID, credential_id: uuid.UUID
+) -> ClientSolCredential | None:
+    """Lectura SIN lock (Domain E1-B, entrega de credencial a un agente):
+    la fila de `client_sol_credentials` nunca se muta durante la entrega
+    (solo se lee para descifrar) -- a diferencia de
+    `get_credential_for_update`, usada por altas/actualizaciones que SI
+    mutan la fila y deben serializarse contra una rotacion concurrente de
+    data key."""
+    return db.execute(
+        select(ClientSolCredential).where(
+            ClientSolCredential.id == credential_id,
+            ClientSolCredential.tenant_id == tenant_id,
+            ClientSolCredential.client_id == client_id,
+        )
+    ).scalar_one_or_none()

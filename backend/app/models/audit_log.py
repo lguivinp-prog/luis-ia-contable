@@ -176,6 +176,23 @@ class AuditAction(str, enum.Enum):
     # incluso despues de que este evento se emita. Nunca leer este evento
     # como "credential delivered to agent".
     CREDENTIAL_DELIVERY_GATE_CONSUMED = "CREDENTIAL_DELIVERY_GATE_CONSUMED"
+    # ---- Fase 5, Bloque 5.2, Domain E1-B (ver docs/phase5/block5_2/
+    # BLOCK5_2_SECRET_DELIVERY_ARCHITECTURE.md seccion 20, ratificada en
+    # Domain E1-A/E1-A.1) -- adicion aditiva, sin migracion. Semantica
+    # EXACTA (corregida en el checkpoint final de Domain E1-A): significa
+    # UNICAMENTE que un usuario autorizado aprobo con exito una
+    # autorizacion de entrega de credencial de corta vida para la
+    # sesion/job SOL vinculados -- prueba que la DECISION DE AUTORIZACION
+    # quedo registrada de forma durable. JAMAS prueba que el
+    # `SecretDeliveryGrant` process-local llego a materializarse, que la
+    # credencial fue descifrada, que el gate de BD fue consumido, que
+    # hubo transmision de red, ni que el agente recibio el secreto --
+    # ninguna transaccion atomica distribuida existe entre esta fila y el
+    # registro process-local (ver el documento de arquitectura, seccion
+    # 20.1). Accion DISTINTA e independiente de
+    # CREDENTIAL_DELIVERY_GATE_CONSUMED, que sigue siendo la unica
+    # autoridad durable sobre el consumo real del gate.
+    CREDENTIAL_DELIVERY_AUTHORIZED = "CREDENTIAL_DELIVERY_AUTHORIZED"
 
 
 class AuditLog(Base, UUIDPrimaryKeyMixin):

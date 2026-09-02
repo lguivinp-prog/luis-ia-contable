@@ -35,9 +35,20 @@ _RECOVERY_CODE_BYTES = 32
 _DEFAULT_UNLOCK_TTL_SECONDS = 8 * 3600  # 8 horas, alineado con session_ttl_hours por defecto
 
 _ADMIN_OPERATIONS = frozenset(
-    {"CREDENTIAL_MANAGEMENT", "SLOT_MANAGEMENT", "DATA_KEY_ROTATION", "RECOVERY", "VERIFY_ACCESS"}
+    {
+        "CREDENTIAL_MANAGEMENT",
+        "SLOT_MANAGEMENT",
+        "DATA_KEY_ROTATION",
+        "RECOVERY",
+        "VERIFY_ACCESS",
+        # Domain E1-A.1/E1-B: mismo actor binding ya congelado (RBAC
+        # sol_session:create + sol_credential:read, admin+contador,
+        # nunca asistente -- ver BLOCK5_2_SECRET_DELIVERY_ARCHITECTURE.md
+        # seccion 2.1).
+        "CREDENTIAL_DELIVERY",
+    }
 )
-_CONTADOR_OPERATIONS = frozenset({"CREDENTIAL_MANAGEMENT", "VERIFY_ACCESS"})
+_CONTADOR_OPERATIONS = frozenset({"CREDENTIAL_MANAGEMENT", "VERIFY_ACCESS", "CREDENTIAL_DELIVERY"})
 
 
 class SolVaultServiceError(Exception):

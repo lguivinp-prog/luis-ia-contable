@@ -43,7 +43,7 @@ from pydantic import ValidationError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.broker import pki
-from app.broker.connection_registry import ConnectionRegistry
+from app.broker.connection_registry import ConnectionBusyError, ConnectionRegistry
 from app.broker.errors import (
     AgentRevokedError,
     AgentUnknownError,
@@ -51,8 +51,10 @@ from app.broker.errors import (
     BrokerTransportError,
     CertificateInvalidError,
     ClaimRejectedError,
+    ConnectionBusyError as TransportConnectionBusyError,
     ConnectionNotEstablishedError,
     ConnectionReplacedError,
+    CredentialUnavailableError,
     InternalError,
     InvalidMessageError,
     JobUnavailableError,
@@ -66,8 +68,11 @@ from app.broker.mtls import AuthenticatedAgent, fingerprint_from_der, resolve_ag
 from app.broker.pending_dispatch import PendingDispatchStore
 from app.broker.protocol import (
     PROTOCOL_VERSION,
+    MAX_CREDENTIAL_DELIVERY_RESPONSE_BYTES,
     MAX_MESSAGE_BYTES,
     AgentErrorReport,
+    CredentialDeliveryRequest,
+    CredentialDeliveryResponse,
     HeartbeatRequest,
     JobAvailableResponse,
     JobClaimRequest,
@@ -77,8 +82,11 @@ from app.broker.protocol import (
     PairingCsrSubmitResponse,
     SessionCancelNotice,
 )
+from app.broker.secret_delivery_grant import SecretDeliveryGrantRegistry
 from app.core.sol_pairing_verification_throttle import PairingVerificationRateLimitedError
+from app.core.sol_vault_registry import vault_unlock_registry
 from app.repositories import sol_agent_access_repository as repo
+from app.services import sol_agent_credential_delivery_service as delivery_service
 from app.services import sol_agent_job_service as job_service
 from app.services import sol_agent_pairing_service as pairing_service
 from app.services import sol_agent_service
@@ -158,6 +166,7 @@ class BrokerServer:
         session_factory: sessionmaker,
         connection_registry: ConnectionRegistry | None = None,
         pending_dispatch: PendingDispatchStore | None = None,
+        secret_delivery_grants: SecretDeliveryGrantRegistry | None = None,
         max_concurrent_connections: int = 200,
         handshake_timeout_seconds: float = 10.0,
         idle_timeout_seconds: float = 120.0,
@@ -171,8 +180,15 @@ class BrokerServer:
         self.operational_port = operational_port
         self.ca = ca
         self.session_factory = session_factory
-        self.connections = connection_registry if connection_registry is not None else ConnectionRegistry()
+        self.connections = (
+            connection_registry
+            if connection_registry is not None
+            else ConnectionRegistry(secret_lease_timeout_seconds=read_timeout_seconds)
+        )
         self.pending_dispatch = pending_dispatch if pending_dispatch is not None else PendingDispatchStore()
+        self.secret_delivery_grants = (
+            secret_delivery_grants if secret_delivery_grants is not None else SecretDeliveryGrantRegistry()
+        )
         self.read_timeout_seconds = read_timeout_seconds
         self.idle_timeout_seconds = idle_timeout_seconds
 
@@ -224,6 +240,7 @@ class BrokerServer:
             thread.join(timeout=5.0)
         self.connections.clear()
         self.pending_dispatch.clear()
+        self.secret_delivery_grants.clear()
 
         # Barrido de material criptografico efimero (seccion 66 del
         # encargo): las claves/certificados de servidor temporales usados
@@ -553,6 +570,10 @@ class _BrokerHttpHandler(BaseHTTPRequestHandler):
         if method == "POST" and m:
             self._run(lambda db: self._handle_job_status(db, uuid.UUID(m.group(1))))
             return
+        m = re.match(r"^/agent/jobs/([0-9a-fA-F-]{36})/credential$", path)
+        if method == "POST" and m:
+            self._handle_job_credential_request(uuid.UUID(m.group(1)))
+            return
         if method == "POST" and path == "/agent/error":
             self._run(self._handle_agent_error)
             return
@@ -633,12 +654,20 @@ class _BrokerHttpHandler(BaseHTTPRequestHandler):
         authenticated = self._authenticated_agent(db)
 
         connection_id = secrets.token_urlsafe(32)
-        previous_handle = self.broker.connections.register(
-            agent_id=authenticated.agent_id,
-            tenant_id=authenticated.tenant_id,
-            connection_handle=connection_id,
-            protocol_version=PROTOCOL_VERSION,
-        )
+        try:
+            previous_handle = self.broker.connections.register(
+                agent_id=authenticated.agent_id,
+                tenant_id=authenticated.tenant_id,
+                connection_handle=connection_id,
+                protocol_version=PROTOCOL_VERSION,
+            )
+        except ConnectionBusyError:
+            # Domain E1-B, seccion 24 del encargo: un HELLO de reemplazo
+            # NUNCA sustituye la conexion mientras tiene un lease de
+            # entrega de secreto activo -- rechazo estable, nunca
+            # bloqueante (la peticion original de entrega sigue su curso
+            # normal, acotada por sus propios timeouts ya congelados).
+            raise TransportConnectionBusyError() from None
         if previous_handle is not None:
             _log_event("agent_connection_replaced", agent_id=authenticated.agent_id)
         _log_event("agent_connected", agent_id=authenticated.agent_id)
@@ -736,6 +765,148 @@ class _BrokerHttpHandler(BaseHTTPRequestHandler):
 
         self.broker.connections.set_active_job(agent_id=authenticated.agent_id, job_id=None)
         return 200, {"protocol_version": PROTOCOL_VERSION, "job_id": str(updated.id), "status": updated.status}
+
+    def _handle_job_credential_request(self, job_id: uuid.UUID) -> None:
+        """Fase 5, Bloque 5.2, Domain E1-B: entrega de credencial SOL al
+        agente autenticado. Deliberadamente NO usa `_run` (secciones 23-25/
+        42 del encargo): el lease de conexion (paso 3 del orden exacto)
+        debe adquirirse ANTES de la logica de entrega y liberarse en un
+        `finally` que envuelve TODA la peticion -- incluida la
+        revalidacion final POSTERIOR al commit del gate de BD (paso 13),
+        que `_run` no soporta (commit siempre inmediatamente antes de
+        enviar, sin hueco para una revalidacion intermedia). Esta es la
+        unica ruta del broker con esa forma -- todas las demas siguen
+        usando `_run` sin cambios."""
+        if self.broker._shutting_down.is_set():
+            self._send_error_code(BrokerShuttingDownError())
+            return
+        if not self.broker._connection_semaphore.acquire(blocking=False):
+            self._send_error_code(BrokerShuttingDownError())
+            return
+
+        lease_agent_id: uuid.UUID | None = None
+        lease_token: str | None = None
+        grant_key_tenant_id: uuid.UUID | None = None
+        try:
+            db = self.broker.session_factory()
+            try:
+                try:
+                    body = self._read_json_bounded()
+                    try:
+                        request = CredentialDeliveryRequest.model_validate(body)
+                    except ValidationError:
+                        raise InvalidMessageError() from None
+                    if request.protocol_version != PROTOCOL_VERSION:
+                        raise ProtocolVersionUnsupportedError()
+
+                    authenticated = self._authenticated_agent(db)
+                    connection_id = self.headers.get(_CONNECTION_ID_HEADER)
+                    if not connection_id:
+                        raise ConnectionNotEstablishedError()
+
+                    lease_token = self.broker.connections.pin(
+                        agent_id=authenticated.agent_id,
+                        connection_id=connection_id,
+                        idle_timeout_seconds=self.broker.idle_timeout_seconds,
+                    )
+                    if lease_token is None:
+                        raise ConnectionReplacedError()
+                    lease_agent_id = authenticated.agent_id
+                    grant_key_tenant_id = authenticated.tenant_id
+
+                    try:
+                        material = delivery_service.deliver_credential(
+                            db,
+                            grant_registry=self.broker.secret_delivery_grants,
+                            vault_registry=vault_unlock_registry,
+                            tenant_id=authenticated.tenant_id,
+                            agent_id=authenticated.agent_id,
+                            job_id=job_id,
+                        )
+                    except delivery_service.CredentialDeliveryJobNotEligibleError:
+                        raise JobUnavailableError() from None
+                    except delivery_service.CredentialDeliveryUnavailableError:
+                        raise CredentialUnavailableError() from None
+
+                    # Paso 12: commit del gate -- si falla aqui (fallo
+                    # transitorio de BD tras un descifrado ya exitoso), el
+                    # grant NUNCA vuelve a AUTHORIZED (seccion 43/80 del
+                    # encargo): se invalida, no se envia ningun secreto.
+                    try:
+                        db.commit()
+                    except Exception:
+                        db.rollback()
+                        self.broker.secret_delivery_grants.invalidate(tenant_id=authenticated.tenant_id, job_id=job_id)
+                        _log_event("credential_delivery_commit_failed", agent_id=authenticated.agent_id, job_id=job_id)
+                        self._send_error_code(InternalError())
+                        return
+
+                    # Gate ya irrevocablemente consumido -- el grant se
+                    # consume de inmediato, independientemente de si la
+                    # escritura de red que sigue tiene exito (seccion 46
+                    # del encargo: "gate consumed=YES" incluso si falla la
+                    # escritura final).
+                    self.broker.secret_delivery_grants.mark_consumed(tenant_id=authenticated.tenant_id, job_id=job_id)
+
+                    # Paso 13: revalidacion final -- conexion todavia
+                    # fijada por ESTE lease, y agente todavia ACTIVE.
+                    # NUNCA deshace el gate ya consumido (seccion 17 del
+                    # encargo: "gate commit wins first: cancel does not
+                    # rewind gate" -- mismo principio para cualquier fallo
+                    # posterior al commit).
+                    lease_still_valid = self.broker.connections.revalidate_lease(
+                        agent_id=authenticated.agent_id, lease_token=lease_token
+                    )
+                    agent_still_active = False
+                    if lease_still_valid:
+                        fresh_agent = repo.get_agent(db, tenant_id=authenticated.tenant_id, agent_id=authenticated.agent_id)
+                        agent_still_active = fresh_agent is not None and fresh_agent.status == "ACTIVE"
+
+                    if not (lease_still_valid and agent_still_active):
+                        _log_event(
+                            "credential_delivery_stale_at_write", agent_id=authenticated.agent_id, job_id=job_id
+                        )
+                        self._send_error_code(ConnectionReplacedError())
+                        return
+
+                    response = CredentialDeliveryResponse(
+                        ruc=material.ruc, sol_username=material.sol_username, sol_password=material.sol_password
+                    )
+                    payload = response.model_dump(mode="json")
+                    body_bytes = json.dumps(payload, default=str).encode("utf-8")
+                    if len(body_bytes) > MAX_CREDENTIAL_DELIVERY_RESPONSE_BYTES:
+                        # Nunca alcanzable con los limites de campo actuales
+                        # de `CredentialDeliveryResponse` -- defensivo, sin
+                        # revelar el motivo (seccion 70 del encargo).
+                        self._send_error_code(InternalError())
+                        return
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(body_bytes)))
+                    self.send_header("Cache-Control", "no-store")
+                    self.send_header("Pragma", "no-cache")
+                    self.send_header("X-Content-Type-Options", "nosniff")
+                    self.end_headers()
+                    self.wfile.write(body_bytes)
+                    _log_event("credential_delivered_over_transport", agent_id=authenticated.agent_id, job_id=job_id)
+                except BrokerTransportError as exc:
+                    db.rollback()
+                    self._send_error_code(exc)
+                except ValidationError:
+                    db.rollback()
+                    self._send_error_code(InvalidMessageError())
+                except Exception:
+                    db.rollback()
+                    if grant_key_tenant_id is not None:
+                        self.broker.secret_delivery_grants.invalidate(tenant_id=grant_key_tenant_id, job_id=job_id)
+                    _log_event("broker_unexpected_error", route=self.path)
+                    self._send_error_code(InternalError())
+            finally:
+                db.close()
+        finally:
+            if lease_token is not None and lease_agent_id is not None:
+                self.broker.connections.release_lease(agent_id=lease_agent_id, lease_token=lease_token)
+            self.broker._connection_semaphore.release()
 
     def _handle_agent_error(self, db: Session) -> tuple[int, dict]:
         body = self._read_json_bounded()

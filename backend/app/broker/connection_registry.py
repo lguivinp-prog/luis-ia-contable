@@ -35,6 +35,31 @@ from dataclasses import dataclass
 # pairing, Domain C.1b).
 _MAX_ENTRIES = 10_000
 
+# Domain E1-B.1, Gate B (cierre de `SECRET_LEASE_TIMEOUT_FREEZE_GAP`):
+# limite superior REAL y acotado del lease de entrega de secreto,
+# independiente de que el poseedor llegue o no a su bloque `finally`. Se
+# ratifica reutilizando el MISMO valor ya congelado y verificado
+# empiricamente en Domain D.1 para el timeout de lectura/escritura de
+# socket del broker (`get_settings().sol_broker_read_timeout_seconds`,
+# `app/core/config.py`, default 15.0s) -- `BrokerServer` pasa ese valor
+# explicitamente al construir su `ConnectionRegistry` (ver
+# `app/broker/server.py`). Esta constante es SOLO el default de respaldo
+# para instancias de `ConnectionRegistry` creadas sin ese parametro
+# explicito (ej. codigo antiguo/pruebas aisladas) -- nunca un segundo
+# numero independiente inventado.
+DEFAULT_SECRET_LEASE_TIMEOUT_SECONDS = 15.0
+
+
+class ConnectionBusyError(Exception):
+    """Fase 5, Bloque 5.2, Domain E1-B (ver
+    docs/phase5/block5_2/BLOCK5_2_SECRET_DELIVERY_ARCHITECTURE.md seccion
+    8; refinamiento operativo del encargo de Domain E1-B, secciones
+    23-27): un `HELLO` de reemplazo NUNCA puede sustituir la conexion de
+    un agente mientras esta tiene un lease de entrega de secreto activo
+    -- se rechaza con un codigo estable en vez de la sustitucion
+    silenciosa `NEW_REPLACES_OLD` normal, que sigue vigente fuera de esta
+    ventana critica y acotada."""
+
 
 @dataclass
 class ConnectionRecord:
@@ -50,12 +75,37 @@ class ConnectionRecord:
     connected_at: float
     last_activity_at: float
     active_job_id: uuid.UUID | None = None
+    # Domain E1-B: contador de leases de entrega de secreto ACTUALMENTE en
+    # vuelo sobre esta conexion logica (seccion 8 del documento de
+    # arquitectura). Deliberadamente un CONTADOR, no un token unico
+    # sobreescribible -- dos peticiones HTTP concurrentes y legitimas
+    # pueden compartir la MISMA conexion logica (mismo `connection_handle`,
+    # dos sockets fisicos distintos), y un token unico sobreescrito por la
+    # segunda haria fallar la revalidacion final de la PRIMERA aunque
+    # ganara la carrera del grant -- un rechazo fantasma. La identidad que
+    # se revalida al final es el propio `connection_handle` (ya rotado
+    # atomicamente por `register()` ante un HELLO de reemplazo real), no
+    # un valor aparte.
+    secret_lease_count: int = 0
+    # Domain E1-B.1, Gate B: momento monotonico limite hasta el cual el
+    # lease actual (secret_lease_count > 0) se considera legitimamente en
+    # vuelo -- `None` cuando no hay lease activo. Se REFRESCA (nunca se
+    # acumula) en cada `pin()` exitoso, representando "la razon conocida
+    # mas reciente para seguir considerando el lease vivo". Si este plazo
+    # se vence sin una liberacion normal (`release_lease` nunca llamado --
+    # ej. el hilo poseedor se atasca antes de su `finally`), el lease se
+    # autopurga de forma perezosa en el proximo acceso (mismo patron ya
+    # productivo que la purga de inactividad de `_validate_and_touch_
+    # locked`) -- nunca depende UNICAMENTE de que el poseedor original
+    # llegue a liberar.
+    secret_lease_deadline: float | None = None
 
 
 class ConnectionRegistry:
-    def __init__(self) -> None:
+    def __init__(self, *, secret_lease_timeout_seconds: float = DEFAULT_SECRET_LEASE_TIMEOUT_SECONDS) -> None:
         self._lock = threading.Lock()
         self._by_agent: dict[uuid.UUID, ConnectionRecord] = {}
+        self._secret_lease_timeout_seconds = secret_lease_timeout_seconds
 
     def register(
         self, *, agent_id: uuid.UUID, tenant_id: uuid.UUID, connection_handle: str, protocol_version: int
@@ -64,10 +114,26 @@ class ConnectionRegistry:
         este agente si existia (para que el llamador lo cierre), o `None` si
         no habia ninguno. Nunca crea una entrada para un agente desconocido
         -- el llamador ya debio validar la identidad mTLS antes de invocar
-        esto."""
+        esto.
+
+        Domain E1-B: si la conexion previa tiene uno o mas leases de
+        entrega de secreto activos (`secret_lease_count > 0`), el
+        reemplazo se RECHAZA (`ConnectionBusyError`) en vez de
+        completarse -- la politica general `NEW_REPLACES_OLD` (Domain
+        D.1) queda en pausa UNICAMENTE durante esa ventana acotada y
+        critica; fuera de ella, el comportamiento es identico al ya
+        congelado.
+
+        Domain E1-B.1, Gate B: un lease ABANDONADO (su poseedor nunca
+        llego a `release_lease`, ej. un hilo atascado) NUNCA bloquea un
+        HELLO para siempre -- `_lease_active_locked` purga por su cuenta
+        cualquier lease cuyo plazo ya vencio antes de decidir si este
+        `register()` debe rechazarse."""
         now = time.monotonic()
         with self._lock:
             previous = self._by_agent.get(agent_id)
+            if previous is not None and self._lease_active_locked(previous, now):
+                raise ConnectionBusyError()
             self._evict_oldest_until_under_cap_locked(exclude=agent_id)
             self._by_agent[agent_id] = ConnectionRecord(
                 agent_id=agent_id,
@@ -99,6 +165,24 @@ class ConnectionRegistry:
             if record is not None:
                 record.active_job_id = job_id
 
+    def _validate_and_touch_locked(
+        self, *, agent_id: uuid.UUID, connection_id: str, idle_timeout_seconds: float, now: float
+    ) -> ConnectionRecord | None:
+        """Debe llamarse ya bajo `self._lock`. Compartida por
+        `validate_and_touch` y `pin` (Domain E1-B) para nunca duplicar esta
+        logica -- ver el docstring de `validate_and_touch` para la
+        semantica completa."""
+        record = self._by_agent.get(agent_id)
+        if record is None:
+            return None
+        if (now - record.last_activity_at) > idle_timeout_seconds:
+            del self._by_agent[agent_id]
+            return None
+        if record.connection_handle != connection_id:
+            return None
+        record.last_activity_at = now
+        return record
+
     def validate_and_touch(
         self, *, agent_id: uuid.UUID, connection_id: str, idle_timeout_seconds: float
     ) -> bool:
@@ -116,16 +200,125 @@ class ConnectionRegistry:
         registro esperando una purga posterior)."""
         now = time.monotonic()
         with self._lock:
+            return self._validate_and_touch_locked(
+                agent_id=agent_id, connection_id=connection_id, idle_timeout_seconds=idle_timeout_seconds, now=now
+            ) is not None
+
+    def pin(
+        self, *, agent_id: uuid.UUID, connection_id: str, idle_timeout_seconds: float
+    ) -> str | None:
+        """Domain E1-B (seccion 8 del documento de arquitectura, secciones
+        23-25 del encargo): fija ("pin") la conexion logica actual para la
+        ventana critica de entrega de secreto. Reutiliza la MISMA
+        validacion que `validate_and_touch` (nunca la duplica) y, si es
+        valida, incrementa el contador de leases en vuelo y devuelve el
+        `connection_handle` ACTUAL como identidad del lease -- no un token
+        aparte generado por peticion. Devuelve `None` si la conexion no es
+        valida en este instante (mismo criterio no-oracle).
+
+        Deliberadamente sin token propio (correccion de diseno tras
+        revision de la prueba de concurrencia real, Domain E1-B): dos
+        peticiones HTTP concurrentes y legitimas del MISMO agente pueden
+        compartir la MISMA conexion logica (dos sockets fisicos, un solo
+        `connection_handle`). Un token unico por peticion, sobreescrito
+        por la segunda `pin()`, haria que la revalidacion final de la
+        PRIMERA fallara aunque hubiera ganado limpiamente la carrera del
+        grant -- un rechazo fantasma que viola X/Y del plan de pruebas.
+        El `connection_handle` en si ya es de alta entropia (Domain D) y
+        SOLO cambia cuando `register()` crea una entrada nueva (HELLO de
+        reemplazo real) -- exactamente la unica condicion que debe
+        invalidar un lease.
+
+        Limite de tiempo del lease (seccion 26 del encargo E1-B,
+        `SECRET_LEASE_TIMEOUT_FREEZE_GAP` -- CERRADO en Domain E1-B.1,
+        Gate B): el documento de arquitectura solo congelo una cota
+        CUALITATIVA ("corto, del orden de segundos, nunca el TTL completo
+        del grant de 60s"). Domain E1-B razono (incorrectamente, hallazgo
+        de E1-B.1) que el timeout de lectura/escritura de socket
+        (`sol_broker_read_timeout_seconds`) bastaba como limite PRACTICO
+        porque "el lease siempre se libera en un finally" -- eso protege
+        el I/O del socket, pero NUNCA un atasco posterior al read (ej. un
+        deadlock de BD/crypto, o cualquier excepcion que por algun motivo
+        rompiera el propio `finally`). Ahora el lease tiene un plazo
+        (`secret_lease_deadline`) EXPLICITO, ratificado en el mismo valor
+        (`ConnectionRegistry._secret_lease_timeout_seconds`, poblado por
+        `BrokerServer` desde `sol_broker_read_timeout_seconds`), pero
+        ENFORZADO independientemente de que el poseedor original llegue o
+        no a `release_lease`."""
+        now = time.monotonic()
+        with self._lock:
+            record = self._validate_and_touch_locked(
+                agent_id=agent_id, connection_id=connection_id, idle_timeout_seconds=idle_timeout_seconds, now=now
+            )
+            if record is None:
+                return None
+            record.secret_lease_count += 1
+            record.secret_lease_deadline = now + self._secret_lease_timeout_seconds
+            return record.connection_handle
+
+    def _lease_active_locked(self, record: ConnectionRecord, now: float) -> bool:
+        """Debe llamarse ya bajo `self._lock`. Domain E1-B.1, Gate B:
+        UNICO punto de verdad sobre si un lease sigue vigente -- purga por
+        su cuenta (autopurga perezosa, mismo patron que el vencimiento por
+        inactividad de `_validate_and_touch_locked`) cualquier lease cuyo
+        plazo ya paso, sin depender de que nadie mas lo libere
+        explicitamente."""
+        if record.secret_lease_count <= 0:
+            return False
+        if record.secret_lease_deadline is not None and record.secret_lease_deadline <= now:
+            record.secret_lease_count = 0
+            record.secret_lease_deadline = None
+            return False
+        return True
+
+    def revalidate_lease(self, *, agent_id: uuid.UUID, lease_token: str) -> bool:
+        """Domain E1-B, paso 13 del orden exacto de entrega (revalidacion
+        final antes de escribir la respuesta): confirma que la conexion
+        logica presentada al pin sigue siendo la vigente -- compara contra
+        el `connection_handle` ACTUAL de la entrada, que solo cambia
+        cuando `register()` crea una entrada nueva. Si un `HELLO` nunca
+        pudo reemplazar la conexion mientras el lease estaba activo
+        (`ConnectionBusyError` en `register`), la unica forma de que esto
+        devuelva `False` es que la entrada haya sido removida/reemplazada
+        por otra via (ej. `force_remove` por revocacion, vencimiento por
+        inactividad, o apagado del broker) -- exactamente los casos que
+        deben impedir la escritura del secreto.
+
+        Domain E1-B.1, Gate B: TAMBIEN devuelve `False` si el plazo del
+        lease ya se vencio (`EXPIRED_SECRET_LEASE_CAN_WRITE_SECRET=NO`) --
+        una peticion que sobrevivio a su propio lease NUNCA debe poder
+        escribir el secreto, incluso si por cualquier motivo ninguna otra
+        conexion llego a reemplazarla mientras tanto. Falla cerrado."""
+        now = time.monotonic()
+        with self._lock:
             record = self._by_agent.get(agent_id)
             if record is None:
                 return False
-            if (now - record.last_activity_at) > idle_timeout_seconds:
-                del self._by_agent[agent_id]
+            if record.connection_handle != lease_token:
                 return False
-            if record.connection_handle != connection_id:
+            if record.secret_lease_deadline is not None and record.secret_lease_deadline <= now:
                 return False
-            record.last_activity_at = now
             return True
+
+    def release_lease(self, *, agent_id: uuid.UUID, lease_token: str) -> None:
+        """Libera el lease -- SIEMPRE invocado desde un `finally` en
+        `server.py`, exito o error (seccion 25 del encargo: "Release
+        lease in finally"). Decrementa el contador solo si la entrada
+        sigue siendo la MISMA conexion logica que emitio el lease
+        (`connection_handle == lease_token`); no-op en cualquier otro caso
+        -- evita que una liberacion tardia de una conexion ya reemplazada
+        toque por error el contador de la conexion NUEVA (mismo principio
+        que `unregister`). Idempotente/seguro incluso si ya llego a 0 (no
+        decrementa por debajo de cero). Este `finally` sigue siendo la via
+        NORMAL de liberacion (rapida, sin esperar el plazo completo) -- el
+        plazo de `pin()` es solo el respaldo para el caso ABANDONADO
+        (Gate B), nunca un reemplazo de esta liberacion inmediata."""
+        with self._lock:
+            record = self._by_agent.get(agent_id)
+            if record is not None and record.connection_handle == lease_token and record.secret_lease_count > 0:
+                record.secret_lease_count -= 1
+                if record.secret_lease_count == 0:
+                    record.secret_lease_deadline = None
 
     def unregister(self, *, agent_id: uuid.UUID, connection_handle: str) -> None:
         """Elimina la entrada SOLO si el handle coincide -- evita que un
