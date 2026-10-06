@@ -154,6 +154,15 @@ class Settings(BaseSettings):
     # evita que un numero no acotado de conexiones sin autenticar agote hilos
     # del proceso (seccion 63 del encargo).
     sol_broker_max_concurrent_connections: int = 200
+    # Fase 5 / Bloque 5.2, Domain E2: interruptor explicito de arranque del
+    # broker DENTRO del proceso backend (ver `app/broker/product_startup.py`).
+    # `False` por defecto -- deliberadamente NUNCA activado en el
+    # `docker-compose.yml` de este entorno de desarrollo/pruebas todavia
+    # (no hay material de CA provisto en este host, y activarlo sin CA
+    # rompería el arranque del backend en fallo cerrado). Un despliegue real
+    # que ya provisiono `sol_broker_ca_dir` con una CA real debe activarlo
+    # explicitamente via la variable de entorno `SOL_BROKER_ENABLED=true`.
+    sol_broker_enabled: bool = False
 
 
 @lru_cache
