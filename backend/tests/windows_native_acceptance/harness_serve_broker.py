@@ -135,6 +135,20 @@ def test_serve(session_factory, broker_ca, pairing_key, monkeypatch):
                 job_id=j["job_id"], actor=get_user_row(session_factory, setup["admin_id"]),
                 app_session_id=j["app_session_id"])
             return {"ok": True}
+        if op == "session":
+            from app.models.sol_agent_access import SolAccessSession, SolAgentJob
+
+            j = state["job"]
+            q = session_factory()
+            try:
+                srow = q.query(SolAccessSession).filter(SolAccessSession.id == j["session_id"]).one()
+                jrow = q.query(SolAgentJob).filter(SolAgentJob.id == j["job_id"]).one()
+                return {"session_status": srow.status, "terminal_reason_code": srow.terminal_reason_code,
+                        "operation_result": srow.operation_result, "job_status": jrow.status,
+                        "credential_delivered": jrow.credential_delivered_at is not None,
+                        "credential_requests": credential_requests["n"]}
+            finally:
+                q.close()
         if op == "cancel":
             j = state["job"]
             s = session_factory()

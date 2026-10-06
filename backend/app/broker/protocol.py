@@ -17,7 +17,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 PROTOCOL_VERSION = 1
 
@@ -92,16 +92,46 @@ class JobClaimResult(_StrictModel):
     accepted: bool
 
 
+# Fase 5, Bloque 5.2, Domain E3.1: codigos de razon que el Agente puede reportar --
+# lista CERRADA (nunca una cadena arbitraria persistida a ciegas). Subconjunto de
+# `SolAccessTerminalReasonCode`: se excluyen los que el backend decide por su
+# cuenta (cancelacion/expiracion/vault/agente/job) y `WRONG_TAXPAYER_CONTEXT`.
+AGENT_REPORTABLE_REASON_CODES = (
+    "AUTH_FAILED",
+    "PORTAL_CHANGED",
+    "AUTH_HOST_CHANGED",
+    "WRONG_LOGIN_MODE",
+    "HUMAN_CHALLENGE_TIMEOUT",
+    "BROWSER_CLOSED",
+    "CLEANUP_FAILED",
+    "CREDENTIAL_UNAVAILABLE",
+    "INTERNAL_ERROR",
+)
+
+
 class JobStatusReport(_StrictModel):
-    """Solo estados cuya semantica YA existe en Domain C
-    (`sol_agent_job_service.complete_job`/`fail_job`) -- nunca se fabrican
-    estados que Domain D no puede observar de verdad (seccion 41:
-    `AUTH_SUCCEEDED`/`TAXPAYER_CONFIRMED`/`LANDING_REACHED` quedan fuera de
-    este esquema)."""
+    """Resultado semantico del navegador, ya validado por el backend antes de
+    cualquier transicion (el Agente NUNCA elige un estado de BD):
+
+    - `COMPLETED`: autenticacion hasta el landing lograda (AUTH_SUCCEEDED);
+    - `WAITING_FOR_USER`: challenge humano pendiente (no terminal);
+    - `FAILED` + `reason_code` (lista cerrada): fallo terminal.
+
+    `session_id` es opcional pero, si se envia, debe coincidir con la sesion del
+    job (enlace verificado en servidor). Nunca lleva credenciales, RUC, DOM,
+    texto de pagina ni URLs."""
 
     protocol_version: int
     job_id: uuid.UUID
-    status: str = Field(pattern=r"^(COMPLETED|FAILED)$")
+    status: str = Field(pattern=r"^(COMPLETED|FAILED|WAITING_FOR_USER)$")
+    reason_code: str | None = Field(default=None, pattern=r"^(" + "|".join(AGENT_REPORTABLE_REASON_CODES) + r")$")
+    session_id: uuid.UUID | None = None
+
+    @model_validator(mode="after")
+    def _reason_code_only_with_failed(self) -> JobStatusReport:
+        if (self.status == "FAILED") != (self.reason_code is not None):
+            raise ValueError("reason_code is required for FAILED and forbidden otherwise")
+        return self
 
 
 class SessionCancelNotice(_StrictModel):

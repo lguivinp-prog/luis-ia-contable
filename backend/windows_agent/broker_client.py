@@ -308,11 +308,26 @@ class OperationalBrokerClient:
         assert "job_token" not in body  # nunca -- ver el docstring
         return bool(body["accepted"])
 
-    def report_status(self, *, connection_id: str, job_id: uuid.UUID, status: str) -> None:
+    def report_status(
+        self,
+        *,
+        connection_id: str,
+        job_id: uuid.UUID,
+        status: str,
+        reason_code: str | None = None,
+        session_id: uuid.UUID | None = None,
+    ) -> None:
+        """Resultado semantico (E3.1): `COMPLETED` / `WAITING_FOR_USER` / `FAILED`+`reason_code`
+        (lista cerrada validada por el broker). Nunca lleva credenciales, RUC, DOM ni URLs."""
+        payload: dict = {"protocol_version": self._protocol_version, "job_id": str(job_id), "status": status}
+        if reason_code is not None:
+            payload["reason_code"] = reason_code
+        if session_id is not None:
+            payload["session_id"] = str(session_id)
         response = self._with_backoff(
             lambda: self._client.post(
                 f"{self._base_url}/agent/jobs/{job_id}/status",
-                json={"protocol_version": self._protocol_version, "job_id": str(job_id), "status": status},
+                json=payload,
                 headers=self._connection_headers(connection_id),
             )
         )

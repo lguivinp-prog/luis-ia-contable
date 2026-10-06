@@ -83,8 +83,12 @@ def test_full_lifecycle_pairing_mtls_heartbeat_claim_complete(session_factory, r
         assert replay_response.status_code == 404
         assert replay_response.json()["error"] == "JOB_UNAVAILABLE"
 
-        status_response = agent.report_status(job_id, "COMPLETED")
+        # E3.1: sin credencial entregada el exito NO se acepta (un HTTP 200 nunca basta); el
+        # ciclo termina con un fallo semantico de lista cerrada.
+        premature = agent.report_status(job_id, "COMPLETED")
+        assert premature.status_code == 409, premature.text
+        status_response = agent.report_status(job_id, "FAILED", reason_code="INTERNAL_ERROR", session_id=session_id)
         assert status_response.status_code == 200, status_response.text
-        assert status_response.json()["status"] == "COMPLETED"
+        assert status_response.json()["status"] == "FAILED"
     finally:
         cleanup_tenant(session_factory, setup["tenant_id"])

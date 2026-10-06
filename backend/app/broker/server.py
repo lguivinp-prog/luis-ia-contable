@@ -86,7 +86,9 @@ from app.broker.secret_delivery_grant import SecretDeliveryGrantRegistry
 from app.core.sol_pairing_verification_throttle import PairingVerificationRateLimitedError
 from app.core.sol_vault_registry import vault_unlock_registry
 from app.repositories import sol_agent_access_repository as repo
+from app.services import sol_access_session_service as session_service
 from app.services import sol_agent_credential_delivery_service as delivery_service
+from app.services import sol_browser_result_service as browser_result_service
 from app.services import sol_agent_job_service as job_service
 from app.services import sol_agent_pairing_service as pairing_service
 from app.services import sol_agent_service
@@ -747,23 +749,34 @@ class _BrokerHttpHandler(BaseHTTPRequestHandler):
             raise InvalidMessageError()
         authenticated = self._authenticated_agent_with_live_connection(db)
 
-        job = job_service.get_job(db, tenant_id=authenticated.tenant_id, job_id=job_id)
-        if job.agent_id != authenticated.agent_id:
-            raise NotFoundError()
-
+        # E3.1: proyeccion AUTORITATIVA en backend (ver sol_browser_result_service).
         try:
-            if request.status == "COMPLETED":
-                updated = job_service.complete_job(
-                    db, tenant_id=authenticated.tenant_id, job_id=job_id, expected_version=job.version
-                )
-            else:
-                updated = job_service.fail_job(
-                    db, tenant_id=authenticated.tenant_id, job_id=job_id, expected_version=job.version
-                )
-        except job_service.SolAgentJobServiceError:
+            outcome = browser_result_service.apply_browser_result(
+                db,
+                tenant_id=authenticated.tenant_id,
+                agent_id=authenticated.agent_id,
+                job_id=job_id,
+                claimed_session_id=request.session_id,
+                status=request.status,
+                reason_code=request.reason_code,
+            )
+        except browser_result_service.BrowserResultNotFoundError:
+            raise NotFoundError() from None
+        except (
+            browser_result_service.BrowserResultRejectedError,
+            job_service.SolAgentJobServiceError,
+            session_service.SolAccessSessionServiceError,
+        ):
             raise ClaimRejectedError() from None
 
-        self.broker.connections.set_active_job(agent_id=authenticated.agent_id, job_id=None)
+        if outcome.job_status in {"COMPLETED", "FAILED"}:
+            self.broker.connections.set_active_job(agent_id=authenticated.agent_id, job_id=None)
+        return 200, {
+            "protocol_version": PROTOCOL_VERSION,
+            "job_id": str(outcome.job_id),
+            "status": outcome.job_status,
+            "session_status": outcome.session_status,
+        }
         return 200, {"protocol_version": PROTOCOL_VERSION, "job_id": str(updated.id), "status": updated.status}
 
     def _handle_job_credential_request(self, job_id: uuid.UUID) -> None:

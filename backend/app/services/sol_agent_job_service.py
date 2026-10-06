@@ -240,6 +240,17 @@ def claim_job(db: Session, *, job_token: str) -> SolAgentJob:
     job.version += 1
     db.flush()
 
+    # E3.1.1: el claim EXITOSO es el evento autoritativo -- la sesion deja de esperar al agente.
+    # Mismo lock/transaccion (sesion ya bloqueada arriba, mismo orden global sesion -> job). Solo
+    # desde WAITING_FOR_AGENT: nunca se resucita una sesion terminal (ya rechazada mas arriba) ni se
+    # fuerza una transicion desde otro estado.
+    if session_row.status == "WAITING_FOR_AGENT":
+        from app.services import sol_access_session_service as session_service  # evita import circular
+
+        session_service.start_progress(
+            db, tenant_id=tenant_id, session_id=session_id, expected_version=session_row.version
+        )
+
     audit_service.record(
         db,
         tenant_id=tenant_id,

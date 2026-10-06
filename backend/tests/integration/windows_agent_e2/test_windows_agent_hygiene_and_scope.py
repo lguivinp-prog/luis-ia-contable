@@ -336,15 +336,21 @@ def test_AN_AP_clean_shutdown_drops_in_memory_secrets_and_state(session_factory,
         cleanup_tenant(session_factory, setup["tenant_id"])
 
 
-def test_AV_AW_production_package_never_references_sunat_or_playwright():
-    """AV/AW: barrido estatico del paquete PRODUCTIVO (nunca las pruebas,
-    que usan sentinelas ficticios con nombres similares) -- ningun host de
-    SUNAT, ninguna importacion de Playwright/Chromium."""
+# E3 (Domain E3): SOLO estos modulos pueden referenciar el portal SOL / Playwright. Todo el
+# resto del paquete (transporte, identidad, runtime, CLI) sigue sin hacerlo.
+_E3_OWNED_MODULES = {"browser_executor.py", "portal_contract.py", "portal_identity.py"}
+
+
+def test_AV_AW_production_package_never_references_sunat_or_playwright_outside_e3_modules():
+    """AV/AW (acotado por E3): barrido estatico del paquete PRODUCTIVO -- fuera de los 3 modulos
+    de E3, ningun host de SUNAT ni importacion de Playwright/Chromium."""
     import windows_agent
 
     package_dir = Path(windows_agent.__file__).parent
     forbidden = ["sunat.gob.pe", "playwright", "chromium", "Chromium"]
     for path in package_dir.rglob("*.py"):
+        if path.name in _E3_OWNED_MODULES:
+            continue
         text = path.read_text(encoding="utf-8")
         for term in forbidden:
             assert term.lower() not in text.lower(), f"referencia prohibida '{term}' en {path}"

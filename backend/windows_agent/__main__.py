@@ -26,6 +26,8 @@ from windows_agent.identity import (
 )
 from windows_agent.logging_setup import configure_agent_logging, log_event
 from windows_agent.pairing import PairingError, pair_agent, prompt_pairing_code
+from windows_agent.browser_executor import SupervisedAuthExecutor
+from windows_agent.portal_contract import SOL_PORTAL_CONTRACT
 from windows_agent.runtime import AgentRevokedError, AgentRuntime
 from windows_agent.single_instance import SingleInstanceError, WindowsSingleInstanceGuard
 
@@ -137,6 +139,13 @@ def _cmd_run(args: argparse.Namespace) -> int:
                 ca_certificate_pem=ca_certificate_pem
             ),
             logger=logger,
+            # E3: autenticacion supervisada (AUTHENTICATE_TO_LANDING_ONLY) tras reclamar un job.
+            # Opt-in explicito (`--enable-sol-auth`): por defecto el agente nunca abre el navegador.
+            auth_executor_factory=(
+                (lambda **hooks: SupervisedAuthExecutor(SOL_PORTAL_CONTRACT, logger=logger, **hooks))
+                if args.enable_sol_auth
+                else None
+            ),
         )
 
         stopping = {"flag": False}
@@ -180,7 +189,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("pair", help="Emparejar este agente con el broker local")
-    sub.add_parser("run", help="Ejecutar el agente (HELLO + heartbeat + descubrimiento/reclamo de jobs)")
+    run_parser = sub.add_parser("run", help="Ejecutar el agente (HELLO + heartbeat + descubrimiento/reclamo de jobs)")
+    run_parser.add_argument(
+        "--enable-sol-auth",
+        action="store_true",
+        help=(
+            "Habilita la autenticacion supervisada (E3, AUTHENTICATE_TO_LANDING_ONLY) al reclamar un job. "
+            "APAGADO por defecto: sin este indicador el agente NUNCA abre el navegador ni toca el portal."
+        ),
+    )
     sub.add_parser("status", help="Mostrar el estado de emparejamiento local")
     return parser
 

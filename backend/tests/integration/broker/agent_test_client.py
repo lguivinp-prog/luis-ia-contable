@@ -223,11 +223,18 @@ class AgentTestClient:
                 headers=self._connection_headers(headers),
             )
 
-    def report_status(self, job_id: uuid.UUID, status: str) -> httpx.Response:
+    def report_status(
+        self, job_id: uuid.UUID, status: str, reason_code: str | None = None, session_id: uuid.UUID | None = None
+    ) -> httpx.Response:
+        payload: dict = {"protocol_version": PROTOCOL_VERSION, "job_id": str(job_id), "status": status}
+        if reason_code is not None:
+            payload["reason_code"] = reason_code
+        if session_id is not None:
+            payload["session_id"] = str(session_id)
         with self._operational_client() as client:
             return client.post(
                 f"{self.operational_base_url}/agent/jobs/{job_id}/status",
-                json={"protocol_version": PROTOCOL_VERSION, "job_id": str(job_id), "status": status},
+                json=payload,
                 headers=self._connection_headers(),
             )
 
