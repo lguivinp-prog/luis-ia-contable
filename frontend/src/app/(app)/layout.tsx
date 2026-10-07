@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
 import { Header } from "@/components/layout/Header";
@@ -14,6 +14,9 @@ function AppLayoutInner({ children }: { children: React.ReactNode }) {
   const { user, loading } = useCurrentUser();
   const pathname = usePathname();
   const router = useRouter();
+  const [navOpen, setNavOpen] = useState(false);
+  const closeNav = useCallback(() => setNavOpen(false), []);
+  const toggleNav = useCallback(() => setNavOpen((open) => !open), []);
 
   useEffect(() => {
     // La propia pantalla de cambio obligatorio queda exenta de esta
@@ -26,11 +29,11 @@ function AppLayoutInner({ children }: { children: React.ReactNode }) {
   }, [loading, user, pathname, router]);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
-      <Header user={user} />
-      <div style={{ display: "flex", flex: 1 }}>
-        <Sidebar />
-        <main style={{ flex: 1, minWidth: 0, padding: "1.5rem" }}>{children}</main>
+    <div className="app-shell">
+      <Header user={user} navOpen={navOpen} onToggleNav={toggleNav} />
+      <div className="app-body">
+        <Sidebar open={navOpen} onClose={closeNav} />
+        <main className="app-main">{children}</main>
       </div>
       <InactivityGuard />
     </div>

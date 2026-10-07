@@ -13,6 +13,14 @@ PostgreSQL. Integraciones externas no implementadas (Google Calendar/Drive, SUNA
 omiten sin ninguna llamada de red y sin bloquear el arranque local — la ausencia de internet nunca impide usar
 el sistema.
 
+## Producto M1 — Operación mensual Multi-RUC ✅ (ver docs/COCKPIT_MULTI_RUC.md y ADR-0074)
+
+Cockpit mensual (una fila por cliente activo y periodo), workspace cliente/periodo con pestañas, tres estados operativos manuales
+persistidos (Buzón, Contabilidad, Comunicación) con historial, permiso `cockpit:update`, concurrencia optimista y navegación agrupada
+responsiva. **Diferido (no implementado):** sincronización del Buzón, Ficha RUC, navegación SOL posterior al aterrizaje, accesos
+directos a SIRE / Declaraciones y Pagos, notificaciones SUNAT/SUNAFIL, conciliación bancaria, portal del cliente, constancias,
+WhatsApp Business/API, Gmail/Calendar/Drive, CONTASIS SQL y DARWIN.
+
 ## Fase 0 — Fundamentos ✅ (esta entrega)
 
 Documentación base, arquitectura, modelo de amenazas, modelo de datos, estructura de repositorio, Docker Compose, backend/frontend iniciales, health checks, scripts Windows, `.env.example`, CI local (`scripts/test.ps1`).

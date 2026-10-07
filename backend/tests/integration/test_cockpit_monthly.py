@@ -138,11 +138,12 @@ def test_sire_not_configured_is_distinct(world, auth_client):
     assert row["sire_rvie_status"] == "NOT_CONFIGURED" and row["sire_rce_status"] == "NOT_CONFIGURED"
 
 
-def test_sire_configured_but_period_not_generated_is_not_derivable(world, auth_client):
+def test_sire_configured_but_period_not_generated_is_not_started(world, auth_client):
     client, _ = world.client(codes=("SIRE-RVIE",), generate=False)
     row = _row(world.get(auth_client), client)
-    assert row["sire_status"] is None
-    assert row["sire_rvie_status"] is None and row["sire_rce_status"] == "NOT_CONFIGURED"
+    assert row["period_generated"] is False
+    assert row["sire_status"] == "NOT_STARTED"
+    assert row["sire_rvie_status"] == "NOT_STARTED" and row["sire_rce_status"] == "NOT_CONFIGURED"
 
 
 def test_sire_mixed_components_use_the_most_pending(world, auth_client):

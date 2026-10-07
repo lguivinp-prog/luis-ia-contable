@@ -109,14 +109,55 @@ export function isPeriodNotGenerated(row: CockpitRow): boolean {
   return !row.period_generated;
 }
 
+// Estados MANUALES (Buzon / Contabilidad / Comunicacion): el backend los guarda solo al primer cambio.
+export const BUZON_STATUS_SEMAPHORE: Record<string, SemaphoreEntry> = {
+  NOT_REVIEWED: { label: "Sin revisar", color: "gris" },
+  REVIEWED_CLEAR: { label: "Revisado sin novedades", color: "verde" },
+  REVIEWED_ACTION_REQUIRED: { label: "Revisado, requiere acción", color: "naranja" },
+  NOT_APPLICABLE: { label: "No aplica", color: "gris" },
+};
+
+export const ACCOUNTING_STATUS_SEMAPHORE: Record<string, SemaphoreEntry> = {
+  NOT_STARTED: { label: "Sin iniciar", color: "gris" },
+  IN_PROGRESS: { label: "En proceso", color: "amarillo" },
+  REVIEWED: { label: "Revisada", color: "verde" },
+  COMPLETED: { label: "Completada", color: "verde" },
+  NOT_APPLICABLE: { label: "No aplica", color: "gris" },
+};
+
+export const COMMUNICATION_STATUS_SEMAPHORE: Record<string, SemaphoreEntry> = {
+  NOT_STARTED: { label: "Sin iniciar", color: "gris" },
+  PREPARED: { label: "Preparada", color: "amarillo" },
+  SENT: { label: "Enviada", color: "verde" },
+  NOT_APPLICABLE: { label: "No aplica", color: "gris" },
+};
+
+export interface ManualStatusOption {
+  value: string;
+  label: string;
+}
+
+export function semaphoreOptions(map: Record<string, SemaphoreEntry>): ManualStatusOption[] {
+  return Object.entries(map).map(([value, entry]) => ({ value, label: entry.label }));
+}
+
 export interface RowAction {
   label: string;
   href: string;
 }
 
+export function workspaceHref(clientId: string, periodId: string, tab?: string): string {
+  const params = new URLSearchParams({ period: periodId });
+  if (tab) params.set("tab", tab);
+  return `/cockpit/${clientId}?${params.toString()}`;
+}
+
 // Solo acciones REALES que llevan a paginas existentes (sin botones SUNAT todavia).
 export function rowActions(row: CockpitRow): RowAction[] {
-  const actions: RowAction[] = [{ label: "Ver cliente", href: `/clients/${row.client_id}` }];
+  const actions: RowAction[] = [
+    { label: "Abrir workspace", href: workspaceHref(row.client_id, row.tax_period_id) },
+    { label: "Ver cliente", href: `/clients/${row.client_id}` },
+  ];
   if (isPeriodNotGenerated(row)) actions.push({ label: "Generar declaraciones", href: GENERATE_DECLARATIONS_HREF });
   return actions;
 }
@@ -137,6 +178,9 @@ const CARD_LABELS: [keyof CockpitSummary, string][] = [
   ["declarations_pending", "Declaraciones pendientes"],
   ["tax_payment_pending", "Pago de impuesto pendiente"],
   ["critical", "Críticos"],
+  ["buzon_pending", "Buzón pendiente"],
+  ["accounting_pending", "Contabilidad pendiente"],
+  ["client_communication_pending", "Comunicación pendiente"],
 ];
 
 export function buildSummaryCards(summary: CockpitSummary): SummaryCard[] {

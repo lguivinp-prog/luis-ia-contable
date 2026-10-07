@@ -125,6 +125,16 @@ Crea tipos de documento personalizados para el tenant y los asigna al cliente (g
 
 Una fila por declaración (nunca se duplica aunque tenga varios documentos, pagos o cargos de honorarios). Columnas: flujo, presentación, documentos (con conteo de faltantes), impuesto (determinado/pagado), honorarios (cargos, saldo, peor riesgo de cobranza), riesgo general de la declaración, y si el cierre fue normal o con pendientes. Filtros por periodo, estado tributario, estado documental y cierre con pendientes.
 
+## Cockpit mensual (`/cockpit`) y workspace del cliente (`/cockpit/[clientId]`) — Producto M1
+
+El **Cockpit mensual** (primer ítem del grupo *Operación* del menú) muestra, para un periodo tributario, **una fila por cliente activo**: fase del mes, documentos, SIRE, declaraciones, impuesto, honorarios, **Buzón, Contabilidad, Comunicación** y riesgo. Las tarjetas superiores cuentan sobre todos los clientes activos (incluidas *Buzón pendiente*, *Contabilidad pendiente* y *Comunicación pendiente*). La tabla se desplaza dentro de su propia área. Los estados derivados (documentos, SIRE, declaraciones, impuesto, honorarios, riesgo, fase) se calculan solos y no se editan.
+
+Con **Abrir workspace** se entra al cliente en ese periodo (el periodo y la pestaña quedan en la dirección web, así que *Actualizar*, *Atrás* y *Adelante* funcionan). Pestañas: Resumen, Apertura / Buzón, Documentos, SIRE, Declaraciones, Contabilidad, Pagos, Honorarios, Comunicación e Historial; reutilizan las pantallas ya conocidas (documentos, determinación y pagos de impuesto, presentación y cierre, honorarios, borradores de WhatsApp).
+
+**Tres estados son manuales** (Administrador y Contador pueden cambiarlos; el Asistente los ve en solo lectura): *Buzón* (la sincronización automática del Buzón SUNAT no está activa: registras tú el resultado de tu revisión), *Contabilidad* (el detalle contable permanece en CONTASIS/DARWIN; aquí solo marcas el avance) y *Comunicación* (marcar como enviado un borrador de WhatsApp no cambia este estado por sí solo). Cada cambio queda en la pestaña *Historial* (quién, cuándo, de → a). Si otra persona modificó el periodo mientras trabajabas, verás un aviso y los datos se recargan; repite el cambio.
+
+En el teléfono el menú se abre con el botón **☰ Menú**. La única acción de SUNAT disponible es **Acceso SOL supervisado**, que lleva a la pantalla existente (solo hasta la página de aterrizaje).
+
 ## Reportes (`/reports`)
 
 Exporta datos del tenant (declaraciones, documentos, determinaciones, pagos tributarios, acuerdos/cargos/pagos/recibos de honorarios, contribuyentes, tareas operativas, registro de auditoría) en CSV o Excel. Cada exportación queda registrada en el historial de auditoría; el número de filas exportables tiene un límite configurable por el equipo técnico.

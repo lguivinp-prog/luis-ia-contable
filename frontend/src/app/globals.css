@@ -73,3 +73,124 @@ textarea {
   border: 1px solid var(--border);
   border-radius: 8px;
 }
+
+/* ---- Layout de la aplicacion y navegacion responsiva (M1) ---- */
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.app-body {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+
+.app-main {
+  flex: 1;
+  min-width: 0;
+  padding: 1.5rem;
+}
+
+.app-nav {
+  width: 220px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  padding: 0.75rem;
+  background: var(--surface);
+  overflow-y: auto;
+}
+
+.app-nav-group {
+  margin-bottom: 0.9rem;
+}
+
+.app-nav-heading {
+  padding: 0.25rem 0.75rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.app-nav-link {
+  display: block;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  margin-bottom: 0.15rem;
+  font-size: 0.92rem;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.app-nav-link:hover {
+  background: var(--border);
+}
+
+.app-nav-link-active {
+  font-weight: 700;
+  background: var(--border);
+}
+
+.app-nav-link:focus-visible,
+.app-menu-button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.app-menu-button {
+  display: none;
+}
+
+.app-nav-backdrop {
+  display: none;
+}
+
+/* Tablet: barra lateral mas angosta. */
+@media (max-width: 1023px) and (min-width: 768px) {
+  .app-nav {
+    width: 180px;
+  }
+  .app-main {
+    padding: 1.1rem;
+  }
+}
+
+/* Movil: la barra lateral pasa a un cajon que ocupa un lado y se abre con el boton de menu. */
+@media (max-width: 767px) {
+  .app-menu-button {
+    display: inline-flex;
+  }
+  .app-main {
+    padding: 0.9rem;
+  }
+  .app-nav {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 40;
+    width: min(280px, 85vw);
+    transform: translateX(-100%);
+    visibility: hidden;
+    transition: transform 0.18s ease;
+    padding-top: 1rem;
+  }
+  .app-nav-open {
+    transform: translateX(0);
+    visibility: visible;
+    box-shadow: 4px 0 18px rgba(0, 0, 0, 0.25);
+  }
+  .app-nav-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+    background: rgba(0, 0, 0, 0.4);
+  }
+  .app-nav-link {
+    padding: 0.75rem;
+  }
+}

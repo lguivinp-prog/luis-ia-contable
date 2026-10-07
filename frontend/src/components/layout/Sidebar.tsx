@@ -2,77 +2,67 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useRef } from "react";
 
 import { useCurrentUser } from "@/lib/currentUserContext";
-import { hasPermission } from "@/lib/permissions";
-import { COCKPIT_HREF, canViewCockpit } from "@/lib/cockpitNav";
-import { canViewSolVaultNav } from "@/lib/solVaultPermissions";
+import { activeNavHref, buildNavGroups } from "@/lib/navigation";
 
-const NAV_ITEMS = [
-  { href: "/clients", label: "Contribuyentes" },
-  { href: "/tax-categories", label: "Categorías tributarias" },
-  { href: "/tax-schedules", label: "Cronogramas tributarios" },
-  { href: "/tax-periods", label: "Periodos tributarios" },
-  { href: "/dashboard", label: "Tablero mensual" },
-  { href: "/declarations/generate", label: "Generar declaraciones" },
-  { href: "/reports", label: "Reportes" },
-  { href: "/security", label: "Seguridad" },
-];
+interface SidebarProps {
+  open: boolean; // solo aplica al cajon movil
+  onClose: () => void;
+}
 
-export function Sidebar() {
+export function Sidebar({ open, onClose }: SidebarProps) {
   const pathname = usePathname();
   const { user } = useCurrentUser();
-  let navItems = canViewCockpit(user) ? [{ href: COCKPIT_HREF, label: "Cockpit mensual" }, ...NAV_ITEMS] : NAV_ITEMS;
-  if (hasPermission(user, "task:read")) {
-    navItems = [
-      ...navItems,
-      { href: "/tasks", label: "Tareas" },
-      { href: "/agenda", label: "Agenda" },
-    ];
-  }
-  if (hasPermission(user, "user:read")) {
-    navItems = [...navItems, { href: "/users", label: "Usuarios" }];
-  }
-  if (hasPermission(user, "integration:connect")) {
-    navItems = [...navItems, { href: "/settings/integrations", label: "Integraciones" }];
-  }
-  if (hasPermission(user, "communication:draft")) {
-    navItems = [...navItems, { href: "/communications", label: "Comunicaciones" }];
-  }
-  if (canViewSolVaultNav(user)) {
-    navItems = [...navItems, { href: "/settings/sol-vault", label: "Bóveda SOL" }];
-  }
+  const groups = buildNavGroups(user);
+  const activeHref = activeNavHref(pathname, groups);
+  const navRef = useRef<HTMLElement>(null);
+
+  // Cajon movil: se cierra al navegar y con Escape; al abrirse, el foco pasa al primer enlace.
+  useEffect(() => {
+    onClose();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    navRef.current?.querySelector<HTMLElement>("a")?.focus();
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
 
   return (
-    <nav
-      style={{
-        width: "220px",
-        flexShrink: 0,
-        borderRight: "1px solid var(--border)",
-        padding: "1rem 0.75rem",
-        background: "var(--surface)",
-      }}
-    >
-      {navItems.map((item) => {
-        const active = pathname?.startsWith(item.href);
-        return (
-          <Link
-            key={item.href}
-            href={item.href}
-            style={{
-              display: "block",
-              padding: "0.55rem 0.75rem",
-              borderRadius: "6px",
-              marginBottom: "0.25rem",
-              fontSize: "0.92rem",
-              fontWeight: active ? 700 : 500,
-              background: active ? "var(--border)" : "transparent",
-            }}
-          >
-            {item.label}
-          </Link>
-        );
-      })}
-    </nav>
+    <>
+      {open && <div className="app-nav-backdrop" onClick={onClose} aria-hidden="true" />}
+      <nav
+        id="app-navigation"
+        ref={navRef}
+        aria-label="Navegación principal"
+        className={`app-nav${open ? " app-nav-open" : ""}`}
+      >
+        {groups.map((group) => (
+          <div key={group.id} className="app-nav-group">
+            <div className="app-nav-heading">{group.label}</div>
+            {group.items.map((item) => {
+              const active = item.href === activeHref;
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  aria-current={active ? "page" : undefined}
+                  className={`app-nav-link${active ? " app-nav-link-active" : ""}`}
+                >
+                  {item.label}
+                </Link>
+              );
+            })}
+          </div>
+        ))}
+      </nav>
+    </>
   );
 }

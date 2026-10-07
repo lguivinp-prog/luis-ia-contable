@@ -38,7 +38,11 @@ export default function NewCommunicationDraftPage() {
   useEffect(() => {
     void apiClient
       .get<ClientListResponse>("/clients?limit=200")
-      .then((data) => setClients(data.items))
+      .then((data) => {
+        setClients(data.items);
+        const preset = new URLSearchParams(window.location.search).get("client_id");
+        if (preset && data.items.some((c) => c.id === preset)) setClientId(preset);
+      })
       .catch(() => setClients([]));
     void listTemplates()
       .then((data) => setTemplates(data.items))

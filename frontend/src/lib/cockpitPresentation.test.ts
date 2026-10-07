@@ -31,7 +31,8 @@ function row(overrides: Partial<CockpitRow> = {}): CockpitRow {
     sire_status: "NOT_STARTED", sire_rvie_status: "PRESENTED", sire_rce_status: "NOT_STARTED",
     tax_total_assessed: "1000.00", tax_total_payable: "1000.00", tax_total_paid: "500.00", tax_balance: "500.00",
     tax_payment_status: "PARTIALLY_PAID", fee_total_amount: "400.00", fee_total_paid: "0.00", fee_balance: "400.00",
-    fee_worst_collection_risk: "ON_TRACK", overall_risk: "PENDING_TAX", declaration_worst_risk: "ON_TRACK",
+    fee_worst_collection_risk: "ON_TRACK", buzon_status: "NOT_REVIEWED", accounting_status: "NOT_STARTED",
+    client_communication_status: "NOT_STARTED", overall_risk: "PENDING_TAX", declaration_worst_risk: "ON_TRACK",
     ...overrides,
   };
 }
@@ -65,14 +66,14 @@ describe("presentacion de una fila por cliente", () => {
     const empty = row({ period_generated: false, declaration_count: 0, overall_risk: "PERIOD_NOT_GENERATED" });
     expect(declarationsLabel(empty)).toBe("Periodo sin generar");
     const actions = rowActions(empty);
-    expect(actions.map((a) => a.href)).toEqual(["/clients/c1", "/declarations/generate"]);
+    expect(actions.map((a) => a.href)).toEqual(["/cockpit/c1?period=p1", "/clients/c1", "/declarations/generate"]);
     expect(COCKPIT_RISK_SEMAPHORE.PERIOD_NOT_GENERATED.label).toBe("Periodo sin generar");
   });
 
   it("solo ofrece acciones reales (sin botones de SUNAT)", () => {
     for (const r of [row(), row({ period_generated: false })]) {
       for (const action of rowActions(r)) {
-        expect(action.href.startsWith("/clients/") || action.href === "/declarations/generate").toBe(true);
+        expect(action.href.startsWith("/clients/") || action.href.startsWith("/cockpit/") || action.href === "/declarations/generate").toBe(true);
         expect(action.label).not.toMatch(/sunat|sol|buz|sire/i);
       }
     }
@@ -120,14 +121,15 @@ describe("estados SIRE, fase y riesgo", () => {
 describe("tarjetas resumen", () => {
   const summary: CockpitSummary = {
     active_clients: 20, period_not_generated: 2, due_soon: 3, overdue: 1, documents_incomplete: 5, sire_pending: 4,
-    declarations_pending: 8, tax_payment_pending: 6, critical: 1,
+    declarations_pending: 8, tax_payment_pending: 6, critical: 1, buzon_pending: 7, accounting_pending: 9,
+    client_communication_pending: 11,
   };
 
-  it("muestra exactamente las 9 metricas soportadas, sin metricas no respaldadas", () => {
+  it("muestra las 12 metricas respaldadas (9 derivadas + 3 manuales) con etiquetas reales", () => {
     const cards = buildSummaryCards(summary);
-    expect(cards).toHaveLength(9);
-    expect(cards.map((c) => c.value)).toEqual([20, 2, 3, 1, 5, 4, 8, 6, 1]);
-    for (const card of cards) expect(card.label).not.toMatch(/buz|contabilidad|comunicaci/i);
+    expect(cards).toHaveLength(12);
+    expect(cards.map((c) => c.value)).toEqual([20, 2, 3, 1, 5, 4, 8, 6, 1, 7, 9, 11]);
+    expect(cards.slice(9).map((c) => c.label)).toEqual(["Buzón pendiente", "Contabilidad pendiente", "Comunicación pendiente"]);
   });
 });
 

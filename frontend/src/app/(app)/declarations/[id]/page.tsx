@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { useParams } from "next/navigation";
 
 import { Button } from "@/components/ui/Button";
@@ -11,23 +11,11 @@ import {
   StatusSemaphore,
   WORKFLOW_STATUS_SEMAPHORE,
 } from "@/components/ui/StatusSemaphore";
-import { ClosePanel } from "@/components/declarations/ClosePanel";
-import { DocumentsPanel } from "@/components/declarations/DocumentsPanel";
-import { PresentationPanel } from "@/components/declarations/PresentationPanel";
-import { TaxAssessmentPanel } from "@/components/declarations/TaxAssessmentPanel";
-import { TaxPaymentsPanel } from "@/components/declarations/TaxPaymentsPanel";
+import { DeclarationSectionView, type DeclarationSection } from "@/components/declarations/DeclarationSections";
 import { apiClient, ApiError } from "@/lib/apiClient";
 import { useCurrentUser } from "@/lib/currentUserContext";
 import { hasPermission } from "@/lib/permissions";
-import type { Declaration, DeclarationHistoryOut, TaxPeriod } from "@/lib/types/declaration";
-import type {
-  ClientDocumentRequirement,
-  DeclarationDocumentItem,
-  DocumentItemStatus,
-  DocumentRequirementCatalog,
-  SyncRequirementsResult,
-} from "@/lib/types/declarationDocument";
-import type { TaxAssessment, TaxPayment } from "@/lib/types/taxAssessment";
+import { useDeclarationWork } from "@/lib/useDeclarationWork";
 
 const WORKFLOW_TARGETS: Record<string, string[]> = {
   PENDING: ["DOCUMENTS_REQUESTED", "NOT_APPLICABLE"],
@@ -53,52 +41,11 @@ const TAB_LABELS: Record<Tab, string> = {
 export default function DeclarationDetailPage() {
   const params = useParams<{ id: string }>();
   const { user } = useCurrentUser();
-  const [declaration, setDeclaration] = useState<Declaration | null>(null);
-  const [history, setHistory] = useState<DeclarationHistoryOut | null>(null);
-  const [taxPeriod, setTaxPeriod] = useState<TaxPeriod | null>(null);
+  const work = useDeclarationWork(params.id);
+  const { declaration, history, taxPeriod } = work;
   const [tab, setTab] = useState<Tab>("resumen");
   const [target, setTarget] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
-
-  const [documentItems, setDocumentItems] = useState<DeclarationDocumentItem[]>([]);
-  const [requirements, setRequirements] = useState<ClientDocumentRequirement[]>([]);
-  const [catalog, setCatalog] = useState<DocumentRequirementCatalog[]>([]);
-  const [assessments, setAssessments] = useState<TaxAssessment[]>([]);
-  const [payments, setPayments] = useState<TaxPayment[]>([]);
-
-  const reload = useCallback(async () => {
-    setLoadError(null);
-    try {
-      const [d, h] = await Promise.all([
-        apiClient.get<Declaration>(`/declarations/${params.id}`),
-        apiClient.get<DeclarationHistoryOut>(`/declarations/${params.id}/history`),
-      ]);
-      setDeclaration(d);
-      setHistory(h);
-
-      const [period, items, reqs, cat, assess, pays] = await Promise.all([
-        apiClient.get<TaxPeriod>(`/tax-periods/${d.tax_period_id}`),
-        apiClient.get<DeclarationDocumentItem[]>(`/declarations/${d.id}/documents`),
-        apiClient.get<ClientDocumentRequirement[]>(`/clients/${d.client_id}/document-requirements`),
-        apiClient.get<DocumentRequirementCatalog[]>("/document-requirement-catalog"),
-        apiClient.get<TaxAssessment[]>(`/declarations/${d.id}/tax-assessments`),
-        apiClient.get<TaxPayment[]>(`/declarations/${d.id}/tax-payments`),
-      ]);
-      setTaxPeriod(period);
-      setDocumentItems(items);
-      setRequirements(reqs);
-      setCatalog(cat);
-      setAssessments(assess);
-      setPayments(pays);
-    } catch (err) {
-      setLoadError(err instanceof ApiError ? String(err.detail) : "No se pudo cargar la declaración.");
-    }
-  }, [params.id]);
-
-  useEffect(() => {
-    void Promise.resolve().then(() => reload());
-  }, [reload]);
 
   async function handleWorkflowChange() {
     if (!declaration || !target) return;
@@ -118,109 +65,14 @@ export default function DeclarationDetailPage() {
         reason,
         row_version: declaration.row_version,
       });
-      await reload();
+      await work.reload();
     } catch (err) {
       setError(err instanceof ApiError ? String(err.detail) : "Error al cambiar el estado");
     }
   }
 
-  async function handleSyncDocuments(): Promise<SyncRequirementsResult> {
-    if (!declaration) throw new Error("no declaration");
-    const result = await apiClient.post<SyncRequirementsResult>(
-      `/declarations/${declaration.id}/documents/sync-requirements`,
-    );
-    await reload();
-    return result;
-  }
-
-  async function handleChangeDocumentStatus(itemId: string, targetStatus: DocumentItemStatus, reason: string | null) {
-    if (!declaration) return;
-    await apiClient.patch(`/declarations/${declaration.id}/documents/${itemId}`, {
-      target: targetStatus,
-      reason,
-      file_metadata: null,
-    });
-    await reload();
-  }
-
-  async function handleCreateAssessment(grossTaxAmount: string, creditsApplied: string, observations: string) {
-    if (!declaration) return;
-    await apiClient.post(`/declarations/${declaration.id}/tax-assessments`, {
-      gross_tax_amount: grossTaxAmount,
-      credits_applied: creditsApplied,
-      observations: observations || null,
-    });
-    await reload();
-  }
-
-  async function handleCorrectAssessment(
-    grossTaxAmount: string,
-    creditsApplied: string,
-    observations: string,
-    reason: string,
-  ) {
-    if (!declaration) return;
-    await apiClient.post(`/declarations/${declaration.id}/tax-assessments/correct`, {
-      gross_tax_amount: grossTaxAmount,
-      credits_applied: creditsApplied,
-      observations: observations || null,
-      reason,
-    });
-    await reload();
-  }
-
-  async function handleCreatePayment(payload: {
-    idempotency_key: string;
-    amount: string;
-    paid_at: string;
-    payment_method: string;
-    operation_number: string | null;
-    reference: string | null;
-    observations: string | null;
-    overpayment_confirmed: boolean;
-    overpayment_reason: string | null;
-  }) {
-    if (!declaration) return;
-    await apiClient.post(`/declarations/${declaration.id}/tax-payments`, payload);
-    await reload();
-  }
-
-  async function handleVoidPayment(paymentId: string, reason: string) {
-    if (!declaration) return;
-    await apiClient.post(`/declarations/${declaration.id}/tax-payments/${paymentId}/void`, { reason });
-    await reload();
-  }
-
-  async function handleFileDeclaration(payload: {
-    target: "READY" | "FILED" | "FAILED" | "NOT_REQUIRED";
-    presentation_date: string | null;
-    order_number: string | null;
-    filing_reference: string | null;
-    reason: string | null;
-    row_version: number;
-  }) {
-    if (!declaration) return;
-    await apiClient.patch(`/declarations/${declaration.id}/filing`, payload);
-    await reload();
-  }
-
-  async function handleCorrectFiling(target: string, reason: string) {
-    if (!declaration) return;
-    await apiClient.patch(`/declarations/${declaration.id}/filing/correct`, { target, reason });
-    await reload();
-  }
-
-  async function handleClose(forceCloseWithPending: boolean, closeOverrideReason: string | null) {
-    if (!declaration) return;
-    await apiClient.post(`/declarations/${declaration.id}/close`, {
-      force_close_with_pending: forceCloseWithPending,
-      close_override_reason: closeOverrideReason,
-    });
-    await reload();
-  }
-
-  if (loadError) {
-    return <p style={{ color: "var(--danger)" }}>{loadError}</p>;
+  if (work.loadError) {
+    return <p style={{ color: "var(--danger)" }}>{work.loadError}</p>;
   }
 
   if (!declaration || !history || !taxPeriod) {
@@ -228,8 +80,6 @@ export default function DeclarationDetailPage() {
   }
 
   const availableTargets = WORKFLOW_TARGETS[declaration.workflow_status] ?? [];
-  const canActOnDeclaration =
-    taxPeriod.is_open && !["CLOSED", "CANCELLED", "NOT_APPLICABLE"].includes(declaration.workflow_status);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
@@ -303,68 +153,8 @@ export default function DeclarationDetailPage() {
         </div>
       )}
 
-      {tab === "documentos" && (
-        <DocumentsPanel
-          declaration={declaration}
-          items={documentItems}
-          requirements={requirements}
-          catalog={catalog}
-          periodIsOpen={taxPeriod.is_open}
-          canManage={hasPermission(user, "document:manage")}
-          canWriteItems={hasPermission(user, "document:item_write")}
-          canManageFiles={hasPermission(user, "document:file_manage")}
-          onSync={handleSyncDocuments}
-          onChangeStatus={handleChangeDocumentStatus}
-        />
-      )}
-
-      {tab === "impuestos" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: "2rem" }}>
-          <section>
-            <h2 style={{ fontSize: "1.1rem" }}>Determinación tributaria</h2>
-            <TaxAssessmentPanel
-              assessments={assessments}
-              canAct={canActOnDeclaration && hasPermission(user, "tax_assessment:write")}
-              onCreate={handleCreateAssessment}
-              onCorrect={handleCorrectAssessment}
-            />
-          </section>
-          <section>
-            <h2 style={{ fontSize: "1.1rem" }}>Pagos tributarios</h2>
-            <TaxPaymentsPanel
-              taxPaymentStatus={declaration.tax_payment_status}
-              payments={payments}
-              assessments={assessments}
-              canAct={
-                canActOnDeclaration &&
-                assessments.some((a) => a.is_current) &&
-                hasPermission(user, "tax_payment:write")
-              }
-              canVoid={canActOnDeclaration && hasPermission(user, "tax_payment:void")}
-              onCreate={handleCreatePayment}
-              onVoid={handleVoidPayment}
-            />
-          </section>
-        </div>
-      )}
-
-      {tab === "presentacion" && (
-        <PresentationPanel
-          declaration={declaration}
-          filingHistory={history.filing_history}
-          canAct={canActOnDeclaration && hasPermission(user, "declaration:file")}
-          onFile={handleFileDeclaration}
-          onCorrect={handleCorrectFiling}
-        />
-      )}
-
-      {tab === "cierre" && (
-        <ClosePanel
-          declaration={declaration}
-          canClose={hasPermission(user, "declaration:close")}
-          canOverrideClose={hasPermission(user, "declaration:close_override")}
-          onClose={handleClose}
-        />
+      {(["documentos", "impuestos", "presentacion", "cierre"] as DeclarationSection[]).includes(tab as DeclarationSection) && (
+        <DeclarationSectionView work={work} section={tab as DeclarationSection} />
       )}
 
       {tab === "historial" && (

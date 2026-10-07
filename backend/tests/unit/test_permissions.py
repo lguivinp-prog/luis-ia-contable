@@ -13,10 +13,10 @@ class _FakeUser:
         self.role = role
 
 
-def test_permission_enum_has_56_values() -> None:
+def test_permission_enum_has_57_values() -> None:
     """Fase 5, Bloque 5.2 (ver docs/phase5/block5_2/BLOCK5_2_RBAC_MATRIX.md):
-    agrega los 5 permisos sol_session:*/sol_agent:* (51 -> 56)."""
-    assert len(list(Permission)) == 56
+    agrega los 5 permisos sol_session:*/sol_agent:* (51 -> 56). Producto M1: +cockpit:update (56 -> 57)."""
+    assert len(list(Permission)) == 57
 
 
 def test_admin_has_every_permission() -> None:
@@ -43,7 +43,8 @@ def test_contador_lacks_user_management_and_close_override() -> None:
     assert Permission.SOL_SESSION_CANCEL in contador_permissions
     assert Permission.SOL_AGENT_READ in contador_permissions
     assert Permission.SOL_AGENT_MANAGE not in contador_permissions
-    assert len(contador_permissions) == 48
+    assert Permission.COCKPIT_UPDATE in contador_permissions
+    assert len(contador_permissions) == 49
 
 
 def test_asistente_is_read_only_plus_document_item_write_and_reports() -> None:

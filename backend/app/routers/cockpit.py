@@ -5,12 +5,22 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.core import clock
-from app.core.permissions import Permission, require_permission
+from app.core.dependencies import verify_csrf
+from app.core.permissions import Permission, has_permission, require_permission
 from app.core.timezone import today_lima
 from app.db.session import get_db
 from app.models.user import User
-from app.schemas.cockpit import CockpitOut
-from app.services import cockpit_logic, cockpit_service
+from app.repositories import sol_agent_access_repository as sol_repo
+from app.repositories import sol_vault_repository as vault_repo
+from app.schemas.cockpit import (
+    CockpitOut,
+    OperationsHistoryEntryOut,
+    OperationsOut,
+    OperationsUpdateIn,
+    SolAccessCapabilityOut,
+    WorkspaceOut,
+)
+from app.services import cockpit_logic, cockpit_operations_service, cockpit_service
 
 router = APIRouter(prefix="/api/v1/cockpit", tags=["cockpit"])
 
@@ -58,3 +68,103 @@ def monthly_cockpit(
         )
     except cockpit_service.CockpitPeriodNotFoundError:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={"code": "TAX_PERIOD_NOT_FOUND"}) from None
+
+
+def _operations_out(db: Session, tenant_id: uuid.UUID, state) -> OperationsOut:
+    name = None
+    if state.updated_by is not None:
+        user = db.get(User, state.updated_by)
+        name = user.full_name if user is not None and user.tenant_id == tenant_id else None
+    return OperationsOut(
+        buzon_status=state.buzon_status,
+        accounting_status=state.accounting_status,
+        client_communication_status=state.client_communication_status,
+        notes=state.notes,
+        row_version=state.row_version,
+        updated_at=state.updated_at,
+        updated_by_name=name,
+    )
+
+
+def _not_found(code: str) -> HTTPException:
+    return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={"code": code})
+
+
+@router.get("/clients/{client_id}/periods/{period_id}", response_model=WorkspaceOut)
+def client_period_workspace(
+    client_id: uuid.UUID,
+    period_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(Permission.DASHBOARD_READ)),
+) -> WorkspaceOut:
+    """Agregado del workspace cliente/periodo (solo lectura; no crea filas ni declaraciones; sin secretos)."""
+    now = clock.utcnow()
+    try:
+        workspace = cockpit_service.build_workspace(
+            db, current_user.tenant_id, client_id, period_id, today=today_lima(now), now=now
+        )
+        state = cockpit_operations_service.get_operations(db, current_user.tenant_id, client_id, period_id)
+    except cockpit_service.CockpitPeriodNotFoundError:
+        raise _not_found("TAX_PERIOD_NOT_FOUND") from None
+    except (cockpit_service.CockpitClientNotFoundError, cockpit_operations_service.OperationsScopeNotFoundError):
+        raise _not_found("CLIENT_NOT_FOUND") from None
+    workspace.operations = _operations_out(db, current_user.tenant_id, state)
+    workspace.can_update_operations = has_permission(current_user, Permission.COCKPIT_UPDATE)
+    if has_permission(current_user, Permission.SOL_CREDENTIAL_READ) and has_permission(current_user, Permission.SOL_SESSION_READ):
+        credential = vault_repo.get_active_credential_for_client(db, tenant_id=current_user.tenant_id, client_id=client_id)
+        latest = sol_repo.get_latest_session_for_client(db, tenant_id=current_user.tenant_id, client_id=client_id)
+        workspace.sol_access = SolAccessCapabilityOut(
+            credential_configured=credential is not None,
+            credential_status=credential.status if credential is not None else None,
+            latest_session_status=latest.status if latest is not None else None,
+        )
+    return workspace
+
+
+@router.put("/clients/{client_id}/periods/{period_id}/operations", response_model=OperationsOut)
+def update_client_period_operations(
+    client_id: uuid.UUID,
+    period_id: uuid.UUID,
+    payload: OperationsUpdateIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(Permission.COCKPIT_UPDATE)),
+    _csrf: None = Depends(verify_csrf),
+) -> OperationsOut:
+    """Actualiza estados operativos MANUALES (Buzon, Contabilidad, Comunicacion, notas) con concurrencia optimista."""
+    changes = {field: getattr(payload, field) for field in payload.model_fields_set if field != "expected_row_version"}
+    try:
+        state = cockpit_operations_service.update_operations(
+            db, current_user.tenant_id, current_user.id, client_id, period_id,
+            changes=changes, expected_row_version=payload.expected_row_version,
+        )
+        db.commit()
+    except cockpit_operations_service.OperationsScopeNotFoundError:
+        db.rollback()
+        raise _not_found("CLIENT_OR_PERIOD_NOT_FOUND") from None
+    except cockpit_operations_service.OperationsVersionConflictError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "CLIENT_PERIOD_OPERATIONS_VERSION_CONFLICT", "current_row_version": exc.current_row_version},
+        ) from None
+    return _operations_out(db, current_user.tenant_id, state)
+
+
+@router.get("/clients/{client_id}/periods/{period_id}/history", response_model=list[OperationsHistoryEntryOut])
+def client_period_operations_history(
+    client_id: uuid.UUID,
+    period_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(Permission.DASHBOARD_READ)),
+) -> list[OperationsHistoryEntryOut]:
+    try:
+        entries = cockpit_operations_service.list_history(db, current_user.tenant_id, client_id, period_id)
+    except cockpit_operations_service.OperationsScopeNotFoundError:
+        raise _not_found("CLIENT_OR_PERIOD_NOT_FOUND") from None
+    return [
+        OperationsHistoryEntryOut(
+            id=e.id, field_name=e.field_name, from_value=e.from_value, to_value=e.to_value,
+            row_version_after=e.row_version_after, actor_user_id=e.actor_user_id, actor_name=name, created_at=e.created_at,
+        )
+        for e, name in entries
+    ]

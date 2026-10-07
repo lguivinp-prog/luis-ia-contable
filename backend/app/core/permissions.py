@@ -72,6 +72,8 @@ class Permission(str, enum.Enum):
     SOL_SESSION_CANCEL = "sol_session:cancel"
     SOL_AGENT_READ = "sol_agent:read"
     SOL_AGENT_MANAGE = "sol_agent:manage"
+    # ---- Producto M1: estados operativos manuales del cockpit (admin + contador; nunca asistente) ----
+    COCKPIT_UPDATE = "cockpit:update"
 
 
 _READ_PERMISSIONS: frozenset[Permission] = frozenset(
@@ -126,6 +128,8 @@ _CONTADOR_ONLY_ADDITIONS: frozenset[Permission] = frozenset(
         Permission.SOL_SESSION_READ,
         Permission.SOL_SESSION_CANCEL,
         Permission.SOL_AGENT_READ,
+        # ---- Producto M1: cockpit (estados manuales) ----
+        Permission.COCKPIT_UPDATE,
     }
 )
 

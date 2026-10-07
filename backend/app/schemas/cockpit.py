@@ -1,8 +1,10 @@
 import uuid
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+
 
 
 class CockpitPeriodOut(BaseModel):
@@ -28,6 +30,9 @@ class CockpitSummaryOut(BaseModel):
     declarations_pending: int
     tax_payment_pending: int
     critical: int
+    buzon_pending: int
+    accounting_pending: int
+    client_communication_pending: int
 
 
 class CockpitRowOut(BaseModel):
@@ -68,6 +73,11 @@ class CockpitRowOut(BaseModel):
     fee_balance: Decimal
     fee_worst_collection_risk: str | None
 
+    # Estados MANUALES (persistidos solo al primer cambio; sin fila = valores por defecto)
+    buzon_status: str
+    accounting_status: str
+    client_communication_status: str
+
     overall_risk: str
     declaration_worst_risk: str | None
 
@@ -80,3 +90,107 @@ class CockpitOut(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+BuzonStatusLiteral = Literal["NOT_REVIEWED", "REVIEWED_CLEAR", "REVIEWED_ACTION_REQUIRED", "NOT_APPLICABLE"]
+AccountingStatusLiteral = Literal["NOT_STARTED", "IN_PROGRESS", "REVIEWED", "COMPLETED", "NOT_APPLICABLE"]
+CommunicationStatusLiteral = Literal["NOT_STARTED", "PREPARED", "SENT", "NOT_APPLICABLE"]
+
+
+class OperationsOut(BaseModel):
+    buzon_status: str
+    accounting_status: str
+    client_communication_status: str
+    notes: str | None
+    row_version: int  # 0 = sin fila todavia (valores por defecto, nada persistido)
+    updated_at: datetime | None
+    updated_by_name: str | None = None
+
+
+class OperationsUpdateIn(BaseModel):
+    """Solo los campos presentes se cambian (`notes: null` limpia las notas). Campos desconocidos => 422."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    expected_row_version: int = Field(ge=0)
+    buzon_status: BuzonStatusLiteral | None = None
+    accounting_status: AccountingStatusLiteral | None = None
+    client_communication_status: CommunicationStatusLiteral | None = None
+    notes: Annotated[str, StringConstraints(max_length=2000)] | None = None
+
+    @model_validator(mode="after")
+    def _at_least_one_change(self) -> "OperationsUpdateIn":
+        changing = self.model_fields_set & {"buzon_status", "accounting_status", "client_communication_status", "notes"}
+        if not changing:
+            raise ValueError("Se requiere al menos un campo a cambiar")
+        for field in ("buzon_status", "accounting_status", "client_communication_status"):
+            if field in self.model_fields_set and getattr(self, field) is None:
+                raise ValueError(f"{field} no admite null")
+        return self
+
+
+class OperationsHistoryEntryOut(BaseModel):
+    id: uuid.UUID
+    field_name: str
+    from_value: str | None
+    to_value: str | None
+    row_version_after: int
+    actor_user_id: uuid.UUID | None
+    actor_name: str | None
+    created_at: datetime
+
+
+class WorkspaceDeclarationOut(BaseModel):
+    declaration_id: uuid.UUID
+    obligation_code: str
+    obligation_name: str
+    workflow_status: str
+    filing_status: str
+    document_status: str
+    tax_payment_status: str
+    due_date: date
+    risk: str
+    sire_status: str | None
+    tax_gross_amount: Decimal | None
+    tax_total_payable: Decimal | None
+    tax_total_paid: Decimal
+    missing_documents_count: int
+
+
+class WorkspaceTaskOut(BaseModel):
+    id: uuid.UUID
+    title: str
+    status: str
+    priority: str
+    due_at: datetime | None
+    task_type: str
+
+
+class WorkspaceCommunicationDraftOut(BaseModel):
+    id: uuid.UUID
+    status: str
+    template_code: str | None
+    created_at: datetime
+
+
+class SolAccessCapabilityOut(BaseModel):
+    """Solo lo necesario para mostrar la accion REAL existente (acceso SOL supervisado hasta el menu). Sin secretos."""
+
+    credential_configured: bool
+    credential_status: str | None
+    latest_session_status: str | None
+
+
+class WorkspaceOut(BaseModel):
+    summary: CockpitRowOut
+    period: CockpitPeriodOut
+    today: date
+    operations: OperationsOut | None = None
+    declarations: list[WorkspaceDeclarationOut]
+    open_tasks_count: int
+    overdue_tasks_count: int
+    tasks: list[WorkspaceTaskOut]
+    communication_drafts_total: int
+    communication_drafts: list[WorkspaceCommunicationDraftOut]
+    sol_access: SolAccessCapabilityOut | None = None
+    can_update_operations: bool = False

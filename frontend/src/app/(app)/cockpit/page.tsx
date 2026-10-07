@@ -14,7 +14,10 @@ import {
 import { ApiError, apiClient } from "@/lib/apiClient";
 import { fetchMonthlyCockpit } from "@/lib/cockpit";
 import {
+  ACCOUNTING_STATUS_SEMAPHORE,
+  BUZON_STATUS_SEMAPHORE,
   COCKPIT_RISK_SEMAPHORE,
+  COMMUNICATION_STATUS_SEMAPHORE,
   DOCUMENT_FILTER_OPTIONS,
   FILING_PROGRESS_FILTER_OPTIONS,
   MONTHLY_PHASE_SEMAPHORE,
@@ -115,7 +118,7 @@ export default function CockpitPage() {
       <div>
         <h1 style={{ fontSize: "1.4rem" }}>Cockpit mensual</h1>
         <p style={{ color: "var(--muted)", marginTop: "0.3rem" }}>
-          Una fila por cliente activo y periodo. Todo se calcula a partir de los datos existentes; esta vista no modifica nada.
+          Una fila por cliente activo y periodo. Los estados derivados se calculan a partir de los datos existentes; Buzón, Contabilidad y Comunicación son manuales y se registran en el workspace del cliente.
         </p>
       </div>
 
@@ -200,7 +203,7 @@ export default function CockpitPage() {
               <table className="data-table" aria-label="Clientes del periodo">
                 <thead>
                   <tr>
-                    {["Cliente", "RUC", "Vence", "Fase", "Documentos", "SIRE", "Declaraciones", "Impuesto", "Honorarios", "Riesgo", "Acción"].map(
+                    {["Cliente", "RUC", "Vence", "Fase", "Documentos", "SIRE", "Declaraciones", "Impuesto", "Honorarios", "Buzón", "Contabilidad", "Comunicación", "Riesgo", "Acción"].map(
                       (header) => (
                         <th key={header}>{header}</th>
                       ),
@@ -264,6 +267,15 @@ function CockpitTableRow({ row }: { row: CockpitRow }) {
         )}
       </td>
       <td>{fee ?? "—"}</td>
+      <td>
+        <StatusSemaphore status={row.buzon_status} map={BUZON_STATUS_SEMAPHORE} />
+      </td>
+      <td>
+        <StatusSemaphore status={row.accounting_status} map={ACCOUNTING_STATUS_SEMAPHORE} />
+      </td>
+      <td>
+        <StatusSemaphore status={row.client_communication_status} map={COMMUNICATION_STATUS_SEMAPHORE} />
+      </td>
       <td>
         <StatusSemaphore status={row.overall_risk} map={COCKPIT_RISK_SEMAPHORE} />
       </td>

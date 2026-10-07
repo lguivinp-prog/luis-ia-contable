@@ -4,6 +4,14 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
 ## [Unreleased]
 
+### Producto M1 — Operación mensual Multi-RUC: workspace, estados manuales y navegación (migración 0019, ver ADR-0074)
+
+- **Migración 0019** (reversible 0019 ↔ 0018): `client_period_operations` (Buzón, Contabilidad, Comunicación al cliente y notas por tenant/cliente/periodo; creación perezosa; UNIQUE por alcance, FKs compuestas con tenant, CHECK de enums/versión/notas) y `client_period_operation_history` (quién, cuándo, campo, de → a).
+- **API**: `GET /api/v1/cockpit/clients/{client_id}/periods/{period_id}` (agregado del workspace), `GET …/history` y `PUT …/operations` (permiso nuevo `cockpit:update`, concurrencia optimista por `row_version`, 409 con `CLIENT_PERIOD_OPERATIONS_VERSION_CONFLICT`). Permisos: admin 57, contador 49, asistente 22.
+- **Cockpit**: columnas Buzón/Contabilidad/Comunicación y tarjetas `buzon_pending`, `accounting_pending`, `client_communication_pending`. **Corrección SIRE:** SIRE configurado con el periodo sin generar ahora es `NOT_STARTED` (antes `null`).
+- **UI**: workspace `/cockpit/[clientId]?period=…&tab=…` con 10 pestañas que reutilizan paneles existentes (se extrajeron `DeclarationSections`/`useDeclarationWork` y `ClientFeesPanel`); menú agrupado y responsivo (cajón en móvil); `/communications/new?client_id=` precarga el cliente.
+- Sin acceso a SUNAT, CONTASIS ni DARWIN; la única acción SUNAT expuesta sigue siendo "Acceso SOL supervisado".
+
 ### Producto M1, Domain B — Cockpit Multi-RUC mensual (solo lectura, ver docs/COCKPIT_MULTI_RUC.md)
 
 - `GET /api/v1/cockpit/monthly`: una fila por cliente activo y periodo (incluye clientes sin declaraciones generadas), con SIRE derivado (`NOT_CONFIGURED` distinto de `NOT_APPLICABLE`), fase mensual, riesgo global determinista, agregados de impuesto/honorarios y tarjetas resumen; paginación por cliente. Sin migración ni permisos nuevos.

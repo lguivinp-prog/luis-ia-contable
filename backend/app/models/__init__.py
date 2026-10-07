@@ -1,5 +1,6 @@
 from app.models.audit_log import AuditLog
 from app.models.client import Client
+from app.models.client_period_operation import ClientPeriodOperation, ClientPeriodOperationHistory
 from app.models.client_sol_credential import ClientSolCredential
 from app.models.communication_draft import CommunicationDraft
 from app.models.declaration import (
@@ -75,6 +76,8 @@ __all__ = [
     "AuditLog",
     "Client",
     "ClientDocumentRequirement",
+    "ClientPeriodOperation",
+    "ClientPeriodOperationHistory",
     "ClientObligation",
     "ClientSolCredential",
     "ClientTaxCategory",

@@ -6,7 +6,13 @@ import { Button } from "@/components/ui/Button";
 import { logout } from "@/lib/auth";
 import type { User } from "@/lib/types/auth";
 
-export function Header({ user }: { user: User | null }) {
+interface HeaderProps {
+  user: User | null;
+  navOpen: boolean;
+  onToggleNav: () => void;
+}
+
+export function Header({ user, navOpen, onToggleNav }: HeaderProps) {
   const router = useRouter();
 
   async function handleLogout() {
@@ -23,14 +29,33 @@ export function Header({ user }: { user: User | null }) {
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
-        padding: "0.85rem 1.5rem",
+        gap: "0.75rem",
+        padding: "0.7rem 1rem",
         borderBottom: "1px solid var(--border)",
         background: "var(--surface)",
       }}
     >
-      <strong>Luis IA Contable</strong>
-      <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
-        {user && <span style={{ color: "var(--muted)", fontSize: "0.9rem" }}>{user.full_name}</span>}
+      <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", minWidth: 0 }}>
+        <button
+          type="button"
+          className="btn btn-secondary app-menu-button"
+          aria-label="Menú de navegación"
+          aria-controls="app-navigation"
+          aria-expanded={navOpen}
+          onClick={onToggleNav}
+        >
+          ☰ Menú
+        </button>
+        <strong style={{ whiteSpace: "nowrap" }}>Luis IA Contable</strong>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", minWidth: 0 }}>
+        {user && (
+          <span
+            style={{ color: "var(--muted)", fontSize: "0.9rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+          >
+            {user.full_name}
+          </span>
+        )}
         <Button variant="secondary" onClick={handleLogout}>
           Cerrar sesión
         </Button>

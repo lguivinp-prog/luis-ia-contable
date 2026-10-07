@@ -192,6 +192,30 @@ CASES = [
     ("dashboard:read", "GET", "/api/v1/dashboard/monthly", None, "asistente_client", None),
     ("dashboard:read", "GET", f"/api/v1/cockpit/monthly?tax_period_id={DUMMY_ID}", None, "asistente_client", None),
     (
+        "dashboard:read",
+        "GET",
+        f"/api/v1/cockpit/clients/{DUMMY_ID}/periods/{DUMMY_ID_2}",
+        None,
+        "asistente_client",
+        None,
+    ),
+    (
+        "dashboard:read",
+        "GET",
+        f"/api/v1/cockpit/clients/{DUMMY_ID}/periods/{DUMMY_ID_2}/history",
+        None,
+        "asistente_client",
+        None,
+    ),
+    (
+        "cockpit:update",
+        "PUT",
+        f"/api/v1/cockpit/clients/{DUMMY_ID}/periods/{DUMMY_ID_2}/operations",
+        {"expected_row_version": 0, "buzon_status": "REVIEWED_CLEAR"},
+        "contador_client",
+        "asistente_client",
+    ),
+    (
         "document:file_manage",
         "POST",
         f"/api/v1/declarations/{DUMMY_ID}/documents/{DUMMY_ID_2}/files/{DUMMY_ID}/delete",
@@ -372,7 +396,7 @@ def test_permission_matrix(
         )
 
 
-def test_matrix_covers_all_56_permissions() -> None:
+def test_matrix_covers_all_57_permissions() -> None:
     """Fase 5, Bloque 5.1 (ver ADR-0068): agrega los 9 permisos sol_vault:*/
     sol_credential:* (42 -> 51). Fase 5, Bloque 5.2 (ver
     docs/phase5/block5_2/): agrega 5 permisos sol_session:*/sol_agent:*
