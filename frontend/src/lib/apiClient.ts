@@ -1,3 +1,4 @@
+import { isDomainUnauthorizedBody } from "@/lib/apiAuthRedirect";
 import { readCsrfTokenFromCookie } from "@/lib/csrf";
 
 export class ApiError extends Error {
@@ -37,7 +38,13 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   });
 
   if (response.status === 401 && typeof window !== "undefined") {
-    if (!window.location.pathname.startsWith("/login")) {
+    let domainError = false;
+    try {
+      domainError = isDomainUnauthorizedBody(await response.clone().json());
+    } catch {
+      domainError = false;
+    }
+    if (!domainError && !window.location.pathname.startsWith("/login")) {
       window.location.href = "/login";
     }
   }

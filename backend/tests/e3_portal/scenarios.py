@@ -451,6 +451,176 @@ def scenario_landing_with_irrelevant_child_frames_is_still_the_landing() -> dict
         portal.stop()
 
 
+
+# --- Domain F.1: orden PREAUTH_READY observado con eventos explicitos (sin sleeps ni inferencia temporal) ----------
+
+
+class _Events:
+    """Registro ordenado de eventos explicitos: portal validado -> PREAUTH_READY -> pedido de credencial."""
+
+    def __init__(self, portal: FakeSolPortal, *, preauth_result: bool = True, on_preauth=None) -> None:
+        self.log: list[str] = []
+        self.portal = portal
+        self.preauth_calls = 0
+        self.snapshot_at_preauth: dict = {}
+        self._result = preauth_result
+        self._on_preauth = on_preauth
+        self.provider = FakeCredentialProvider(on_enter=lambda: self.log.append("CREDENTIAL_FETCH"))
+
+    def instrument(self, executor: SupervisedAuthExecutor) -> SupervisedAuthExecutor:
+        real = executor.open_and_identify_login
+
+        def _wrapped():
+            early = real()
+            if early is None:
+                self.log.append("PORTAL_VALIDATED")
+            return early
+
+        executor.open_and_identify_login = _wrapped  # type: ignore[method-assign]
+        return executor
+
+    def preauth(self) -> bool:
+        self.preauth_calls += 1
+        self.log.append("PREAUTH_READY")
+        self.snapshot_at_preauth = {
+            "fetches": self.provider.fetches,
+            "submissions": len(self.portal.submissions),
+            "validated_before": "PORTAL_VALIDATED" in self.log,
+        }
+        if self._on_preauth:
+            self._on_preauth()
+        return self._result
+
+
+def _run_with_preauth(portal: FakeSolPortal, ev: _Events, **kw):
+    ex = ev.instrument(_executor(portal, **kw))
+    return run_authentication(ex, ev.provider, preauth_ready=ev.preauth), ex
+
+
+def scenario_preauth_ordering_success() -> dict:
+    portal = FakeSolPortal().start()
+    try:
+        ev = _Events(portal)
+        result, ex = _run_with_preauth(portal, ev)
+        assert result.outcome is AuthOutcome.AUTH_SUCCEEDED, result
+        assert ev.log == ["PORTAL_VALIDATED", "PREAUTH_READY", "CREDENTIAL_FETCH"], ev.log
+        assert ev.snapshot_at_preauth == {"fetches": 0, "submissions": 0, "validated_before": True}
+        assert ev.preauth_calls == 1 and ev.provider.fetches == 1
+        assert len(portal.submissions) == 1 and result.credential_submissions == 1
+        assert result.post_landing_clicks == 0
+        _assert_no_forbidden(portal)
+        return {"events": ev.log, "outcome": result.outcome.value}
+    finally:
+        portal.stop()
+
+
+def scenario_preauth_not_signalled_when_portal_changed() -> dict:
+    portal = FakeSolPortal().start()
+    try:
+        portal.set_scenario("changed_selector")
+        ev = _Events(portal)
+        result, _ex = _run_with_preauth(portal, ev)
+        assert result.outcome is AuthOutcome.PORTAL_CHANGED, result
+        assert ev.preauth_calls == 0 and ev.provider.fetches == 0 and portal.submissions == []
+        assert "PREAUTH_READY" not in ev.log and "CREDENTIAL_FETCH" not in ev.log
+        return {"events": ev.log}
+    finally:
+        portal.stop()
+
+
+def scenario_preauth_rejected_means_zero_credential_delivery() -> dict:
+    portal = FakeSolPortal().start()
+    try:
+        ev = _Events(portal, preauth_result=False)
+        result, _ex = _run_with_preauth(portal, ev)
+        assert result.outcome is AuthOutcome.BROWSER_FAILURE and result.terminal_reason_code == "CREDENTIAL_UNAVAILABLE"
+        assert ev.log == ["PORTAL_VALIDATED", "PREAUTH_READY"], ev.log
+        assert ev.provider.fetches == 0 and portal.submissions == []
+        return {"events": ev.log}
+    finally:
+        portal.stop()
+
+
+def scenario_preauth_cancel_during_authorization() -> dict:
+    portal = FakeSolPortal().start()
+    try:
+        flag = {"cancel": False}
+        ev = _Events(portal, on_preauth=lambda: flag.update(cancel=True))
+        result, _ex = _run_with_preauth(portal, ev, is_cancelled=lambda: flag["cancel"])
+        assert result.outcome is AuthOutcome.CANCELLED, result
+        assert ev.provider.fetches == 0 and portal.submissions == []
+        return {"events": ev.log}
+    finally:
+        portal.stop()
+
+
+def scenario_preauth_invalid_credentials_single_submission() -> dict:
+    portal = FakeSolPortal().start()
+    try:
+        portal.set_scenario("invalid")
+        ev = _Events(portal)
+        result, _ex = _run_with_preauth(portal, ev)
+        assert result.outcome is AuthOutcome.INVALID_CREDENTIALS, result
+        assert ev.log == ["PORTAL_VALIDATED", "PREAUTH_READY", "CREDENTIAL_FETCH"], ev.log
+        assert ev.provider.fetches == 1 and len(portal.submissions) == 1  # sin segundo envio ni redelivery
+        return {"events": ev.log}
+    finally:
+        portal.stop()
+
+
+def scenario_preauth_challenge_then_success() -> dict:
+    portal = FakeSolPortal().start()
+    try:
+        portal.set_scenario("challenge")
+        states: list[AuthOutcome] = []
+
+        def _on_state(state: AuthOutcome) -> None:
+            states.append(state)
+            portal.release_challenge()
+
+        ev = _Events(portal)
+        result, _ex = _run_with_preauth(portal, ev, on_state=_on_state)
+        assert AuthOutcome.WAITING_FOR_USER in states
+        assert result.outcome is AuthOutcome.AUTH_SUCCEEDED, result
+        assert ev.log == ["PORTAL_VALIDATED", "PREAUTH_READY", "CREDENTIAL_FETCH"], ev.log
+        assert ev.provider.fetches == 1 and len(portal.submissions) == 1
+        return {"events": ev.log, "states": [s.value for s in states]}
+    finally:
+        portal.stop()
+
+
+def scenario_preauth_browser_closed_during_wait() -> dict:
+    portal = FakeSolPortal().start()
+    try:
+        portal.set_scenario("challenge_never")
+        holder: dict = {}
+
+        def _on_state(_s: AuthOutcome) -> None:
+            for page in list(holder["ex"]._context.pages):
+                page.close()  # cierre por el usuario
+
+        ev = _Events(portal)
+        ex = ev.instrument(_executor(portal, on_state=_on_state))
+        holder["ex"] = ex
+        result = run_authentication(ex, ev.provider, preauth_ready=ev.preauth)
+        assert result.outcome is AuthOutcome.BROWSER_FAILURE and result.terminal_reason_code == "BROWSER_CLOSED", result
+        assert ev.provider.fetches == 1 and len(portal.submissions) == 1
+        return {"events": ev.log}
+    finally:
+        portal.stop()
+
+
+PREAUTH_SCENARIOS = [
+    scenario_preauth_ordering_success,
+    scenario_preauth_not_signalled_when_portal_changed,
+    scenario_preauth_rejected_means_zero_credential_delivery,
+    scenario_preauth_cancel_during_authorization,
+    scenario_preauth_invalid_credentials_single_submission,
+    scenario_preauth_challenge_then_success,
+    scenario_preauth_browser_closed_during_wait,
+]
+
+
 ALL_SCENARIOS = [
     scenario_success,
     scenario_invalid_credentials,
@@ -471,4 +641,5 @@ ALL_SCENARIOS = [
     scenario_landing_with_irrelevant_child_frames_is_still_the_landing,
     *NEGATIVE_SCENARIOS,
     *POST_AUTH_NEGATIVE_SCENARIOS,
+    *PREAUTH_SCENARIOS,
 ]

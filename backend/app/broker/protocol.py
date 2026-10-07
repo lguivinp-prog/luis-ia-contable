@@ -115,6 +115,9 @@ class JobStatusReport(_StrictModel):
 
     - `COMPLETED`: autenticacion hasta el landing lograda (AUTH_SUCCEEDED);
     - `WAITING_FOR_USER`: challenge humano pendiente (no terminal);
+    - `PREAUTH_READY` (Domain F): el portal ya fue validado por completo y el agente esta listo para pedir la
+      credencial; el broker revalida y, solo entonces, autoriza la entrega (grant de un solo uso). No es un
+      estado de sesion ni de job: unicamente esta senal, sin secretos;
     - `FAILED` + `reason_code` (lista cerrada): fallo terminal.
 
     `session_id` es opcional pero, si se envia, debe coincidir con la sesion del
@@ -123,7 +126,7 @@ class JobStatusReport(_StrictModel):
 
     protocol_version: int
     job_id: uuid.UUID
-    status: str = Field(pattern=r"^(COMPLETED|FAILED|WAITING_FOR_USER)$")
+    status: str = Field(pattern=r"^(COMPLETED|FAILED|WAITING_FOR_USER|PREAUTH_READY)$")
     reason_code: str | None = Field(default=None, pattern=r"^(" + "|".join(AGENT_REPORTABLE_REASON_CODES) + r")$")
     session_id: uuid.UUID | None = None
 

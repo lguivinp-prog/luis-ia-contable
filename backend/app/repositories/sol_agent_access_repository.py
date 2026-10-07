@@ -266,3 +266,16 @@ def get_most_recent_pairing_created_at(
             SolAgentPairing.requested_by_user_id == requested_by_user_id,
         )
     ).scalar_one_or_none()
+
+
+def get_latest_session_for_client(
+    db: Session, *, tenant_id: uuid.UUID, client_id: uuid.UUID
+) -> SolAccessSession | None:
+    """Domain F: sesion mas reciente del cliente (la activa si existe, pues es siempre la mas reciente por la
+    unicidad de sesion activa por credencial). Solo lectura, tenant-scoped."""
+    return db.execute(
+        select(SolAccessSession)
+        .where(SolAccessSession.tenant_id == tenant_id, SolAccessSession.client_id == client_id)
+        .order_by(SolAccessSession.created_at.desc())
+        .limit(1)
+    ).scalar_one_or_none()

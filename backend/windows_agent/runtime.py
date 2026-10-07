@@ -304,6 +304,7 @@ class AgentRuntime:
         result = run_authentication(
             executor,
             lambda: client.fetch_credential_for_job(connection_id=self._connection_id or "", job_id=job_id),
+            preauth_ready=lambda: self._send_status(job_id, "PREAUTH_READY"),
         )
         log_event(
             self._logger,

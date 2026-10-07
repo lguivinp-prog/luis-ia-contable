@@ -203,3 +203,47 @@ def test_cli_run_never_enables_browser_authentication_by_default():
     assert parser.parse_args(["run"]).enable_sol_auth is False
     assert parser.parse_args(["run", "--enable-sol-auth"]).enable_sol_auth is True
     assert not any("password" in a.dest or "secret" in a.dest for a in parser._actions)  # sin argumentos secretos
+
+
+# --- Domain F: PREAUTH_READY (autorizacion just-in-time) ---------------------------------------------------------
+
+
+def test_preauth_ready_is_signalled_after_portal_validation_and_before_the_credential_fetch():
+    order: list[str] = []
+
+    class Ex(FakeExecutor):
+        def open_and_identify_login(self):
+            order.append("portal_validated")
+            return super().open_and_identify_login()
+
+    class Prov(Provider):
+        def __enter__(self):
+            order.append("credential_fetch")
+            return super().__enter__()
+
+    result = run_authentication(Ex(), Prov(), preauth_ready=lambda: order.append("preauth_ready") or True)
+    assert result.outcome is AuthOutcome.AUTH_SUCCEEDED
+    assert order == ["portal_validated", "preauth_ready", "credential_fetch"]
+
+
+def test_preauth_rejection_never_fetches_the_credential_nor_submits():
+    ex, provider = FakeExecutor(), Provider()
+    result = run_authentication(ex, provider, preauth_ready=lambda: False)
+    assert result.outcome is AuthOutcome.BROWSER_FAILURE and result.terminal_reason_code == "CREDENTIAL_UNAVAILABLE"
+    assert provider.entered == 0 and "submit" not in ex.calls and ex.calls[-1] == "close"
+
+
+@pytest.mark.parametrize("early", [AuthOutcome.PORTAL_CHANGED, AuthOutcome.TRANSIENT_NAVIGATION_FAILURE,
+                                   AuthOutcome.BROWSER_FAILURE])
+def test_preauth_ready_is_never_signalled_when_the_portal_validation_fails(early):
+    signalled: list[bool] = []
+    ex, provider = FakeExecutor(open_result=make_result(early)), Provider()
+    run_authentication(ex, provider, preauth_ready=lambda: signalled.append(True) or True)
+    assert signalled == [] and provider.entered == 0  # GRANT_CREATED=NO, CREDENTIAL_DELIVERY_COUNT=0
+
+
+def test_cancel_before_preauth_signal_neither_signals_nor_fetches():
+    signalled: list[bool] = []
+    ex, provider = FakeExecutor(cancelled=True), Provider()
+    result = run_authentication(ex, provider, preauth_ready=lambda: signalled.append(True) or True)
+    assert result.outcome is AuthOutcome.CANCELLED and signalled == [] and provider.entered == 0

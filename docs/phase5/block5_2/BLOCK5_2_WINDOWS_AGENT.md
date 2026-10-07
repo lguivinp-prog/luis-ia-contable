@@ -509,3 +509,20 @@ de autenticación simultánea y sin frame con el host de autenticación). Esto s
 AUTOMATIZACIÓN DE PRODUCTO POSTERIOR AL LANDING, ES OBLIGATORIO un marcador estructural positivo de shell autenticado,
 validado en vivo** (observación de solo lectura, sin inventarlo). `LIVE_FRAME_HOST_IDENTITY=UNVERIFIED` y no forma parte de
 la decisión de éxito.
+
+## Domain F — Acceso SOL supervisado (UI / plano de control humano)
+
+Alcance: `AUTHENTICATE_TO_LANDING_ONLY`. Sin automatización SUNAT nueva, sin migración (Alembic head 0018), sin permisos nuevos.
+
+- API (`/api/v1/sol-access`): `GET /agents`, `GET /clients/{id}/session`, `GET /sessions/{id}`, `POST /sessions` (idempotente por `idempotency_key`; 201 al crear, 200 en repetición), `POST /sessions/{id}/cancel`. Permisos existentes: `sol_session:*`, `sol_agent:read`, `sol_credential:read`. Errores `{"detail": {"code": ...}}`; respuestas `no-store`.
+- Autorización de entrega JUST-IN-TIME: el agente reclama el job (IN_PROGRESS), abre y reconoce el login y señala `PREAUTH_READY` por el contrato existente `/agent/jobs/{id}/status`. Solo entonces el broker valida (sesión IN_PROGRESS, job CLAIMED, contexto humano en memoria, Vault desbloqueado, usuario activo) y crea el grant E1-B. Si falla, no hay grant ni entrega (`CREDENTIAL_UNAVAILABLE`). El contexto humano (`SessionAuthorizationRegistry`) guarda solo ids, vive en memoria (TTL 3600 s) y se pierde al reiniciar (falla cerrado).
+- El broker debe correr en el proceso del backend (`SOL_BROKER_ENABLED=true`); si no, la UI muestra el servicio como no disponible.
+- Vencimiento: sin scheduler; se materializa de forma perezosa en las lecturas con la autoridad `expire_session`.
+- UI (`/clients/{id}/sol-access`): sondeo solo al backend con backoff, se detiene en estado terminal, restaura la sesión activa al recargar, sin inicio automático, sin acciones posteriores al menú SOL, desafío nunca mostrado ni automatizado, contraseña de Vault solo en estado del componente (se borra tras la solicitud), códigos de motivo mapeados por lista permitida.
+
+### Domain F.1 — Semánticas congeladas y límites documentados
+
+- **Estado de la credencial.** `NEEDS_VALIDATION` **no** significa "inutilizable": significa que el ciclo de validación aún no está productizado en una transición a `ACTIVE`. Es elegible para autenticación supervisada, igual que `ACTIVE`. `INVALID`, `LOCKED_BY_SUNAT`, `PASSWORD_EXPIRED` y `DISABLED` se rechazan al crear la sesión y de nuevo en el momento JIT. La transición `NEEDS_VALIDATION -> ACTIVE` queda **sin definir** (ADR-0068) y NO se implementa en Domain F: ni `AUTH_SUCCEEDED` ni ningún fallo muta el estado de la credencial. No debe afirmarse que un acceso exitoso persistió una validación `ACTIVE`.
+- **Contexto de autorización humana.** Es local al proceso (solo ids, TTL 3600 s). Un reinicio del backend lo pierde; no se reconstruye desde la BD, no se recrea ningún grant y no hay entrega de secretos tras la pérdida: el usuario debe iniciar explícitamente un flujo supervisado nuevo. La aceptación de un reinicio real del proceso instalado queda diferida a Domain G.
+- **Habilitación del broker.** Domain F requiere despliegue de producto con `SOL_BROKER_ENABLED=true` y CA/runtime del broker correctamente aprovisionados. El compose de desarrollo no lo habilita a propósito; la configuración operativa pertenece a Domain G.
+- **401 de dominio.** Una contraseña de bóveda incorrecta (`SOL_VAULT_BAD_PASSWORD`, 401) ya no redirige a `/login`: no es una sesión vencida.

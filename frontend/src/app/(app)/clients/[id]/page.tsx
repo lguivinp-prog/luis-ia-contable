@@ -11,6 +11,7 @@ import { apiClient } from "@/lib/apiClient";
 import { buildClientUpdatePayload } from "@/lib/clientUpdatePayload";
 import { useCurrentUser } from "@/lib/currentUserContext";
 import { hasPermission } from "@/lib/permissions";
+import { canViewSupervisedSolAccess } from "@/lib/solAccessPermissions";
 import { canReadSolCredential } from "@/lib/solVaultPermissions";
 import type { Client, ClientBase, ServiceStatus } from "@/lib/types/client";
 
@@ -91,6 +92,13 @@ export default function ClientDetailPage() {
             <Link href={`/clients/${client.id}/sol-credential`}>
               <Button variant="secondary" type="button">
                 Credencial SOL
+              </Button>
+            </Link>
+          )}
+          {canViewSupervisedSolAccess(user) && (
+            <Link href={`/clients/${client.id}/sol-access`}>
+              <Button variant="secondary" type="button">
+                Acceso SOL supervisado
               </Button>
             </Link>
           )}

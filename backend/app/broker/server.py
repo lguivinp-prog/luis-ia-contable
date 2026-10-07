@@ -83,9 +83,12 @@ from app.broker.protocol import (
     SessionCancelNotice,
 )
 from app.broker.secret_delivery_grant import SecretDeliveryGrantRegistry
+from app.broker.session_authorization import USABLE_CREDENTIAL_STATUSES, SessionAuthorizationRegistry
 from app.core.sol_pairing_verification_throttle import PairingVerificationRateLimitedError
 from app.core.sol_vault_registry import vault_unlock_registry
+from app.models.user import User
 from app.repositories import sol_agent_access_repository as repo
+from app.repositories import sol_vault_repository as vault_repo
 from app.services import sol_access_session_service as session_service
 from app.services import sol_agent_credential_delivery_service as delivery_service
 from app.services import sol_browser_result_service as browser_result_service
@@ -169,6 +172,7 @@ class BrokerServer:
         connection_registry: ConnectionRegistry | None = None,
         pending_dispatch: PendingDispatchStore | None = None,
         secret_delivery_grants: SecretDeliveryGrantRegistry | None = None,
+        session_authorizations: SessionAuthorizationRegistry | None = None,
         max_concurrent_connections: int = 200,
         handshake_timeout_seconds: float = 10.0,
         idle_timeout_seconds: float = 120.0,
@@ -190,6 +194,10 @@ class BrokerServer:
         self.pending_dispatch = pending_dispatch if pending_dispatch is not None else PendingDispatchStore()
         self.secret_delivery_grants = (
             secret_delivery_grants if secret_delivery_grants is not None else SecretDeliveryGrantRegistry()
+        )
+        # Domain F: contexto humano (user_id, app_session_id) de cada sesion, solo en memoria; ver session_authorization.py
+        self.session_authorizations = (
+            session_authorizations if session_authorizations is not None else SessionAuthorizationRegistry()
         )
         self.read_timeout_seconds = read_timeout_seconds
         self.idle_timeout_seconds = idle_timeout_seconds
@@ -243,6 +251,7 @@ class BrokerServer:
         self.connections.clear()
         self.pending_dispatch.clear()
         self.secret_delivery_grants.clear()
+        self.session_authorizations.clear()
 
         # Barrido de material criptografico efimero (seccion 66 del
         # encargo): las claves/certificados de servidor temporales usados
@@ -749,6 +758,9 @@ class _BrokerHttpHandler(BaseHTTPRequestHandler):
             raise InvalidMessageError()
         authenticated = self._authenticated_agent_with_live_connection(db)
 
+        if request.status == "PREAUTH_READY":
+            return self._handle_preauth_ready(db, job_id, authenticated, request)
+
         # E3.1: proyeccion AUTORITATIVA en backend (ver sol_browser_result_service).
         try:
             outcome = browser_result_service.apply_browser_result(
@@ -778,6 +790,55 @@ class _BrokerHttpHandler(BaseHTTPRequestHandler):
             "session_status": outcome.session_status,
         }
         return 200, {"protocol_version": PROTOCOL_VERSION, "job_id": str(updated.id), "status": updated.status}
+
+    def _handle_preauth_ready(self, db: Session, job_id: uuid.UUID, authenticated, request) -> tuple[int, dict]:
+        """Domain F: el Agente senala `PREAUTH_READY` (portal validado por COMPLETO, aun SIN credencial). El broker
+        revalida agente/conexion (ya hecho por `_authenticated_agent_with_live_connection`), job, sesion,
+        usuario solicitante, permisos y boveda -- `authorize_credential_delivery` re-verifica todo en vivo -- y
+        SOLO ENTONCES crea el grant de un solo uso (60 s). Respuesta 200 = el agente puede pedir la credencial
+        de inmediato; cualquier rechazo => el agente NO la pide. No crea ningun estado de sesion/job."""
+        job = repo.get_job(db, tenant_id=authenticated.tenant_id, job_id=job_id)
+        if job is None or job.agent_id != authenticated.agent_id:
+            raise NotFoundError()
+        if request.session_id is not None and request.session_id != job.session_id:
+            raise NotFoundError()
+        ok_body = {
+            "protocol_version": PROTOCOL_VERSION,
+            "job_id": str(job.id),
+            "status": "PREAUTH_READY",
+            "grant_authorized": True,
+        }
+        if self.broker.secret_delivery_grants.peek(tenant_id=authenticated.tenant_id, job_id=job_id) is not None:
+            return 200, ok_body  # autorizacion previa (harnesses de aceptacion): nunca se crea un segundo grant
+        session_row = repo.get_session(db, tenant_id=authenticated.tenant_id, session_id=job.session_id)
+        if session_row is None or session_row.status != "IN_PROGRESS" or job.status != "CLAIMED":
+            raise ClaimRejectedError()
+        context = self.broker.session_authorizations.get(tenant_id=authenticated.tenant_id, session_id=job.session_id)
+        if context is None:
+            raise ClaimRejectedError()  # sin contexto humano en memoria (p. ej. reinicio): falla CERRADO
+        actor = db.get(User, context.user_id)
+        if actor is None or actor.tenant_id != authenticated.tenant_id or not actor.is_active:
+            raise ClaimRejectedError()
+        # Revalida el estado de la credencial EN EL MOMENTO JIT (pudo deshabilitarse tras crear la sesion).
+        credential = vault_repo.get_credential_by_id(
+            db, tenant_id=authenticated.tenant_id, client_id=session_row.client_id, credential_id=session_row.credential_id
+        )
+        if credential is None or credential.status not in USABLE_CREDENTIAL_STATUSES:
+            raise ClaimRejectedError()
+        try:
+            delivery_service.authorize_credential_delivery(
+                self.broker.session_factory,
+                grant_registry=self.broker.secret_delivery_grants,
+                vault_registry=vault_unlock_registry,
+                tenant_id=authenticated.tenant_id,
+                session_id=job.session_id,
+                job_id=job_id,
+                actor=actor,
+                app_session_id=context.app_session_id,
+            )
+        except delivery_service.SolAgentCredentialDeliveryError:
+            raise ClaimRejectedError() from None
+        return 200, ok_body
 
     def _handle_job_credential_request(self, job_id: uuid.UUID) -> None:
         """Fase 5, Bloque 5.2, Domain E1-B: entrega de credencial SOL al

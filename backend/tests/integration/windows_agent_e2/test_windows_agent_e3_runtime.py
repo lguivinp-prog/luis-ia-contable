@@ -189,3 +189,47 @@ def test_E3_claiming_without_executor_factory_still_never_fetches_a_credential(
         runtime.stop()
     finally:
         cleanup_tenant(session_factory, setup["tenant_id"])
+
+
+# --- Domain F: autorizacion JUST-IN-TIME tras PREAUTH_READY (sin `_authorize` previo) -----------------------------
+
+
+def test_E3_jit_authorization_after_preauth_ready_delivers_the_credential_once(
+    session_factory, running_broker, tmp_path, monkeypatch
+):
+    record: dict = {}
+    factory = lambda **hooks: StubExecutor(record=record, **hooks)  # noqa: E731
+    setup, runtime, extra, job_id = _setup(session_factory, running_broker, tmp_path, monkeypatch, factory)
+    try:
+        # contexto humano que la API registra al iniciar la sesion (user + sesion de aplicacion); SIN grant previo
+        running_broker.session_authorizations.register(
+            tenant_id=setup["tenant_id"], session_id=extra["session_id"], user_id=setup["admin_id"],
+            app_session_id=extra["app_session_id"],
+        )
+        assert running_broker.secret_delivery_grants.peek(tenant_id=setup["tenant_id"], job_id=job_id) is None
+        result = runtime.authenticate_claimed_job(job_id, heartbeat_every_seconds=0)
+        assert result.outcome is AuthOutcome.AUTH_SUCCEEDED
+        assert record == {"user": TEST_SOL_USER, "password": TEST_SOL_PASSWORD_DO_NOT_USE}
+        assert _job_status(session_factory, job_id) == "COMPLETED"
+        runtime.stop()
+    finally:
+        cleanup_tenant(session_factory, setup["tenant_id"])
+
+
+def test_E3_preauth_rejected_without_human_context_never_requests_the_credential(
+    session_factory, running_broker, tmp_path, monkeypatch
+):
+    record: dict = {}
+    factory = lambda **hooks: StubExecutor(record=record, **hooks)  # noqa: E731
+    setup, runtime, extra, job_id = _setup(session_factory, running_broker, tmp_path, monkeypatch, factory)
+    try:
+        with patch.object(OperationalBrokerClient, "_request_credential_once") as credential_spy:
+            result = runtime.authenticate_claimed_job(job_id, heartbeat_every_seconds=0)
+            credential_spy.assert_not_called()
+        assert result.outcome is AuthOutcome.BROWSER_FAILURE and result.terminal_reason_code == "CREDENTIAL_UNAVAILABLE"
+        assert record == {}
+        assert running_broker.secret_delivery_grants.peek(tenant_id=setup["tenant_id"], job_id=job_id) is None
+        assert _job_status(session_factory, job_id) == "FAILED"
+        runtime.stop()
+    finally:
+        cleanup_tenant(session_factory, setup["tenant_id"])

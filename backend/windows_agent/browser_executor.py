@@ -422,11 +422,19 @@ class SupervisedAuthExecutor:
 def _authenticate(
     executor: SupervisedAuthExecutor,
     credential_provider: Callable[[], AbstractContextManager[CredentialMaterial]],
+    preauth_ready: Callable[[], bool] | None = None,
 ) -> AuthResult:
     early = executor.open_and_identify_login()
     if early is not None:
         return early
     if executor.is_cancelled:  # cancelacion ANTES de entregar el secreto
+        return make_result(AuthOutcome.CANCELLED)
+    # Domain F: el portal ya esta validado por completo (aun SIN credencial). Se senala PREAUTH_READY al broker, que
+    # revalida y autoriza JUST-IN-TIME la entrega; solo con su confirmacion se pide la credencial. Sin confirmacion:
+    # el endpoint de credencial NO se toca.
+    if preauth_ready is not None and not preauth_ready():
+        return make_result(AuthOutcome.BROWSER_FAILURE, detail=DETAIL_CREDENTIAL_UNAVAILABLE)
+    if executor.is_cancelled:  # cancelacion durante la autorizacion
         return make_result(AuthOutcome.CANCELLED)
     try:
         with credential_provider() as credential:
@@ -442,6 +450,7 @@ def _authenticate(
 def run_authentication(
     executor: SupervisedAuthExecutor,
     credential_provider: Callable[[], AbstractContextManager[CredentialMaterial]],
+    preauth_ready: Callable[[], bool] | None = None,
 ) -> AuthResult:
     """Frontera de credencial. `credential_provider` es
     `OperationalBrokerClient.fetch_credential_for_job` ya parcialmente aplicado:
@@ -449,7 +458,7 @@ def run_authentication(
     navegador se destruye SIEMPRE; si la limpieza falla, un exito deja de serlo
     (`CLEANUP_FAILED`)."""
     try:
-        result = _authenticate(executor, credential_provider)
+        result = _authenticate(executor, credential_provider, preauth_ready)
     except BaseException:
         executor.close()
         raise

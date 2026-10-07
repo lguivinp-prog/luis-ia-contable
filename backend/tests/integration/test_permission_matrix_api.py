@@ -317,6 +317,40 @@ CASES = [
         "contador_client",
         "asistente_client",
     ),
+    # ---- Fase 5, Bloque 5.2, Domain F: API de usuario del acceso SOL supervisado ----
+    ("sol_agent:read", "GET", "/api/v1/sol-access/agents", None, "contador_client", "asistente_client"),
+    (
+        "sol_session:read",
+        "GET",
+        f"/api/v1/sol-access/sessions/{DUMMY_ID}",
+        None,
+        "contador_client",
+        "asistente_client",
+    ),
+    (
+        "sol_session:read",
+        "GET",
+        f"/api/v1/sol-access/clients/{DUMMY_ID}/session",
+        None,
+        "contador_client",
+        "asistente_client",
+    ),
+    (
+        "sol_session:create",
+        "POST",
+        "/api/v1/sol-access/sessions",
+        {},
+        "contador_client",
+        "asistente_client",
+    ),
+    (
+        "sol_session:cancel",
+        "POST",
+        f"/api/v1/sol-access/sessions/{DUMMY_ID}/cancel",
+        {},
+        "contador_client",
+        "asistente_client",
+    ),
 ]
 
 
@@ -350,10 +384,6 @@ def test_matrix_covers_all_56_permissions() -> None:
     from app.core.permissions import Permission
 
     _RESERVED_WITHOUT_ENDPOINTS_YET = {
-        Permission.SOL_SESSION_CREATE.value,
-        Permission.SOL_SESSION_READ.value,
-        Permission.SOL_SESSION_CANCEL.value,
-        Permission.SOL_AGENT_READ.value,
         Permission.SOL_AGENT_MANAGE.value,
     }
 

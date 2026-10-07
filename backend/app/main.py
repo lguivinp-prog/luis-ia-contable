@@ -24,6 +24,7 @@ from app.routers import (
     operational_tasks,
     professional_fees,
     reports,
+    sol_access,
     sol_vault,
     tax_assessments,
     tax_categories,
@@ -108,3 +109,4 @@ app.include_router(google_integrations.router)
 app.include_router(communications.router)
 app.include_router(sol_vault.router)
 app.include_router(sol_vault.credential_router)
+app.include_router(sol_access.router)
