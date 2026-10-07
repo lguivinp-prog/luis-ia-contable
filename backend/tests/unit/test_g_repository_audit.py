@@ -143,3 +143,28 @@ def test_product_code_has_no_post_landing_automation_or_persistent_browser_state
     for forbidden_feature in (r"buz[oó]n\w*\s*\(", r"def\s+\w*(read|list|download)_?(message|mailbox|attachment)",
                               r"def\s+\w*(file|submit)_?declaration", r"def\s+\w*(rectif|pay)\w*\("):
         assert not re.search(forbidden_feature, code, re.IGNORECASE), (path.name, forbidden_feature)
+
+
+# --- R1: el instalador auxiliar de Chromium (setup.exe) no viaja en el paquete (Defender lo elimina al extraer el ZIP) ---
+
+
+def test_build_excludes_only_chromium_setup_exe_and_requires_chrome_exe():
+    build = _text(PACKAGING / "build.ps1")
+    assert r"chrome-win64\setup.exe" in build and "/XF $setupExe" in build
+    assert r"chrome-win64\chrome.exe" in build and "Falta el ejecutable requerido del navegador" in build
+    assert "*.exe" not in build  # nunca una exclusion amplia de ejecutables
+    assert "1243" not in build  # regla independiente de la revision
+
+
+def test_built_package_has_chrome_exe_but_no_setup_exe_in_tree_or_manifest():
+    packages = [p for p in (PACKAGING / "dist").glob("luis-sol-agent-*-win-x64") if p.is_dir()]
+    if not packages:
+        pytest.skip("no hay paquete construido en dist/")
+    pkg = packages[0]
+    chromium_dirs = list((pkg / "browsers").glob("chromium-*"))
+    assert chromium_dirs, "falta el Chromium empaquetado"
+    for chromium in chromium_dirs:
+        assert (chromium / "chrome-win64" / "chrome.exe").is_file()
+        assert not (chromium / "chrome-win64" / "setup.exe").exists()
+    manifest = (pkg / "MANIFEST.sha256").read_text(encoding="utf-8")
+    assert "chrome-win64/chrome.exe" in manifest and "setup.exe" not in manifest

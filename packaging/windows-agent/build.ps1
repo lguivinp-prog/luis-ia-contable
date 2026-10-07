@@ -53,7 +53,17 @@ $chromiumSrc = Join-Path $BrowsersSource $chromiumDirName
 if (-not (Test-Path -LiteralPath $chromiumSrc)) { throw "Falta $chromiumSrc (instale con 'playwright install chromium' en un PLAYWRIGHT_BROWSERS_PATH de build)." }
 $browsersDest = Join-Path $pkgDir "browsers"
 New-Item -ItemType Directory -Force -Path $browsersDest | Out-Null
-Copy-Item -LiteralPath $chromiumSrc -Destination (Join-Path $browsersDest $chromiumDirName) -Recurse
+$chromiumDest = Join-Path $browsersDest $chromiumDirName
+# Se excluye UNICAMENTE el instalador auxiliar de Chromium (`chrome-win64\setup.exe`): no se usa en tiempo de ejecucion
+# (comprobado: version/browser-check/lanzamiento funcionan sin el) y Windows Defender lo elimina al extraer el ZIP, lo que
+# rompe la verificacion del manifiesto. NO se excluye chrome.exe ni ningun otro .exe.
+$setupExe = Join-Path $chromiumSrc "chrome-win64\setup.exe"
+& robocopy.exe $chromiumSrc $chromiumDest /E /XF $setupExe /NFL /NDL /NJH /NJS /NP | Out-Null
+if ($LASTEXITCODE -ge 8) { throw "robocopy del Chromium fallo ($LASTEXITCODE)." }
+$chromeExe = Join-Path $chromiumDest "chrome-win64\chrome.exe"
+if (-not (Test-Path -LiteralPath $chromeExe)) { throw "Falta el ejecutable requerido del navegador: $chromeExe" }
+if (Test-Path -LiteralPath (Join-Path $chromiumDest "chrome-win64\setup.exe")) { throw "setup.exe no debe estar en el paquete." }
+$global:LASTEXITCODE = 0
 
 Write-Host "== Metadatos de build =="
 $commit = (& git -C $repo rev-parse HEAD).Trim()
