@@ -13,9 +13,11 @@ siquiera el codigo de pairing, que se solicita interactivamente
 from __future__ import annotations
 
 import argparse
+import os
 import signal
 import sys
 import uuid
+from pathlib import Path
 
 from windows_agent.config import ConfigError, harden_directory_acl, load_config, resolve_data_directory
 from windows_agent.identity import (
@@ -23,6 +25,12 @@ from windows_agent.identity import (
     IdentityUnprotectError,
     NotPairedError,
     WindowsDpapiIdentityStore,
+)
+from windows_agent.browser_runtime import check_installed_browser, configure_browsers_path
+from windows_agent.install_paths import (
+    default_ca_directory,
+    installed_browsers_directory,
+    read_build_info,
 )
 from windows_agent.logging_setup import configure_agent_logging, log_event
 from windows_agent.pairing import PairingError, pair_agent, prompt_pairing_code
@@ -48,15 +56,60 @@ def _load_ca_certificate_pem(ca_dir: str) -> bytes:
     return cert_path.read_bytes()
 
 
+_LEGACY_CA_DIR = "/var/lib/luis-ia-contable/sol_broker_pki"
+
+
+def _data_dir(args: argparse.Namespace) -> Path:
+    """Directorio de datos del agente: `--data-dir` explicito (instalacion en una raiz personalizada) o, por
+    defecto, `%LOCALAPPDATA%\\LuisIAContable\\SolAgent`. Solo una RUTA (no secreta); la lista blanca de campos de
+    configuracion persistente no cambia."""
+    explicit = getattr(args, "data_dir", None)
+    return Path(explicit) if explicit else resolve_data_directory()
+
+
+def _resolve_ca_dir(args: argparse.Namespace, data_dir: Path) -> str:
+    if args.ca_dir:
+        return str(args.ca_dir)
+    return str(default_ca_directory(data_dir)) if os.name == "nt" else _LEGACY_CA_DIR
+
+
+def _agent_process_running() -> bool:
+    """Sonda NO destructiva: intenta tomar el mutex nombrado y lo libera de inmediato."""
+    probe = WindowsSingleInstanceGuard()
+    try:
+        probe.acquire()
+    except SingleInstanceError:
+        return True
+    except Exception:  # plataforma sin soporte u otro fallo: no se afirma nada
+        return False
+    probe.release()
+    return False
+
+
+def _cmd_version(args: argparse.Namespace) -> int:
+    info = read_build_info()
+    if info is None:
+        print("VERSION=development (no es una build empaquetada)")
+        return 0
+    for key in sorted(info):
+        print(f"{key}={info[key]}")
+    return 0
+
+
+def _cmd_browser_check(args: argparse.Namespace) -> int:
+    """Diagnostico seguro del navegador instalado (ver `browser_runtime`)."""
+    return check_installed_browser()
+
+
 def _cmd_pair(args: argparse.Namespace) -> int:
-    data_dir = resolve_data_directory()
+    data_dir = _data_dir(args)
     data_dir.mkdir(parents=True, exist_ok=True)
     harden_directory_acl(data_dir)
     logger = configure_agent_logging(data_dir)
     identity_store = WindowsDpapiIdentityStore(data_dir)
     config = load_config(data_dir)
 
-    ca_certificate_pem = _load_ca_certificate_pem(args.ca_dir)
+    ca_certificate_pem = _load_ca_certificate_pem(_resolve_ca_dir(args, data_dir))
 
     pairing_id_raw = input("pairing_id (UUID mostrado por el backend): ").strip()
     try:
@@ -86,10 +139,11 @@ def _cmd_pair(args: argparse.Namespace) -> int:
 
 
 def _cmd_status(args: argparse.Namespace) -> int:
-    data_dir = resolve_data_directory()
+    data_dir = _data_dir(args)
     identity_store = WindowsDpapiIdentityStore(data_dir)
     if not identity_store.is_paired():
         print("UNPAIRED -- ejecuta 'python -m windows_agent pair' primero.")
+        _print_install_status(data_dir, args)
         return 0
     try:
         identity = identity_store.load()
@@ -97,11 +151,23 @@ def _cmd_status(args: argparse.Namespace) -> int:
         print("IDENTITY_CORRUPT -- material local ilegible. No se borra ni re-empareja automaticamente.")
         return 1
     print(f"PAIRED -- agent_id={identity.agent_id} certificate_not_after={identity.certificate_not_after}")
+    _print_install_status(data_dir, args)
     return 0
 
 
+def _print_install_status(data_dir: Path, args: argparse.Namespace) -> None:
+    """Estado operativo SEGURO (Domain G): solo hechos no secretos -- nunca claves, tokens ni credenciales."""
+    info = read_build_info()
+    print(f"VERSION={info.get('version') if info else 'development'}")
+    print(f"PROCESS_RUNNING={'YES' if _agent_process_running() else 'NO'}")
+    print(f"CA_CERTIFICATE_PRESENT={'YES' if (Path(_resolve_ca_dir(args, data_dir)) / 'ca.cert.pem').is_file() else 'NO'}")
+    browsers = installed_browsers_directory()
+    if browsers is not None:
+        print(f"INSTALLED_BROWSERS_PRESENT={'YES' if browsers.is_dir() and any(browsers.iterdir()) else 'NO'}")
+
+
 def _cmd_run(args: argparse.Namespace) -> int:
-    data_dir = resolve_data_directory()
+    data_dir = _data_dir(args)
     logger = configure_agent_logging(data_dir)
     identity_store = WindowsDpapiIdentityStore(data_dir)
     config = load_config(data_dir)
@@ -130,7 +196,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
             )
             return 6
 
-        ca_certificate_pem = _load_ca_certificate_pem(args.ca_dir)
+        ca_certificate_pem = _load_ca_certificate_pem(_resolve_ca_dir(args, data_dir))
 
         runtime = AgentRuntime(
             identity=identity,
@@ -183,9 +249,17 @@ def build_parser() -> argparse.ArgumentParser:
         prog="windows_agent", description="Agente Windows nativo SOL (Domain E2)"
     )
     parser.add_argument(
+        "--data-dir",
+        default=None,
+        help="Directorio de datos del agente (identidad/config/logs). Por defecto %%LOCALAPPDATA%%\\LuisIAContable\\SolAgent.",
+    )
+    parser.add_argument(
         "--ca-dir",
-        default="/var/lib/luis-ia-contable/sol_broker_pki",
-        help="Directorio con el certificado PUBLICO de la CA del broker (ca.cert.pem)",
+        default=None,
+        help=(
+            "Directorio con el certificado PUBLICO de la CA del broker (ca.cert.pem). Por defecto en Windows: "
+            "<datos del agente>\\broker_ca (copia publica provista por la instalacion)."
+        ),
     )
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("pair", help="Emparejar este agente con el broker local")
@@ -199,13 +273,20 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     sub.add_parser("status", help="Mostrar el estado de emparejamiento local")
+    sub.add_parser("version", help="Mostrar la version/build del Agente empaquetado")
+    sub.add_parser("browser-check", help="Abrir y cerrar el navegador instalado en about:blank (diagnostico)")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
+    configure_browsers_path()  # solo en build empaquetada: navegador propio de la app
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
+        if args.command == "version":
+            return _cmd_version(args)
+        if args.command == "browser-check":
+            return _cmd_browser_check(args)
         if args.command == "pair":
             return _cmd_pair(args)
         if args.command == "status":

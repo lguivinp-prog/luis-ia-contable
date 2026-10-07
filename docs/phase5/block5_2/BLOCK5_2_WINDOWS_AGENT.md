@@ -526,3 +526,10 @@ Alcance: `AUTHENTICATE_TO_LANDING_ONLY`. Sin automatización SUNAT nueva, sin mi
 - **Contexto de autorización humana.** Es local al proceso (solo ids, TTL 3600 s). Un reinicio del backend lo pierde; no se reconstruye desde la BD, no se recrea ningún grant y no hay entrega de secretos tras la pérdida: el usuario debe iniciar explícitamente un flujo supervisado nuevo. La aceptación de un reinicio real del proceso instalado queda diferida a Domain G.
 - **Habilitación del broker.** Domain F requiere despliegue de producto con `SOL_BROKER_ENABLED=true` y CA/runtime del broker correctamente aprovisionados. El compose de desarrollo no lo habilita a propósito; la configuración operativa pertenece a Domain G.
 - **401 de dominio.** Una contraseña de bóveda incorrecta (`SOL_VAULT_BAD_PASSWORD`, 401) ya no redirige a `/login`: no es una sesión vencida.
+
+## Domain G — Empaquetado, instalación y operación
+
+Ver [BLOCK5_2_DOMAIN_G_OPERATIONS.md](BLOCK5_2_DOMAIN_G_OPERATIONS.md) y [ADR-0073](../../DECISIONS/ADR-0073-sol-agent-packaging-and-local-deployment.md):
+Agente como aplicación por usuario (no servicio) con autoarranque por Task Scheduler, PyInstaller one-folder, binarios e
+identidad separados, backend+broker nativos con CA aprovisionada explícitamente, upgrade/uninstall/purge, recuperación y
+procedimiento manual de reinicio. La disponibilidad del Agente en la API exige además un latido reciente.

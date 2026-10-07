@@ -30,6 +30,7 @@ from app.schemas.sol_access import (
     SolAgentsOut,
 )
 from app.services import sol_access_session_service as session_service
+from app.services import sol_agent_service as agent_service
 from app.services import sol_agent_job_service as job_service
 
 router = APIRouter(prefix="/api/v1/sol-access", tags=["sol-access"])
@@ -98,6 +99,7 @@ def list_agents(
     broker = _broker(request)
     agents = repo.list_agents(db, tenant_id=current_user.tenant_id)
     busy = _busy_agent_ids(db, current_user.tenant_id, [a.id for a in agents])
+    now = clock.db_now(db)
     return SolAgentsOut(
         broker_enabled=broker is not None,
         agents=[
@@ -112,6 +114,7 @@ def list_agents(
                     and a.status == "ACTIVE"
                     and a.id not in busy
                     and broker.connections.is_connected(agent_id=a.id)
+                    and agent_service.is_online(a, now=now)
                 ),
             )
             for a in agents
@@ -205,7 +208,12 @@ def create_session(
 
     agents = [a for a in repo.list_agents(db, tenant_id=tenant_id) if a.status == "ACTIVE"]
     busy = _busy_agent_ids(db, tenant_id, [a.id for a in agents])
-    candidates = [a for a in agents if a.id not in busy and broker.connections.is_connected(agent_id=a.id)]
+    now = clock.db_now(db)
+    candidates = [
+        a
+        for a in agents
+        if a.id not in busy and broker.connections.is_connected(agent_id=a.id) and agent_service.is_online(a, now=now)
+    ]
     if not candidates:
         raise _error(status.HTTP_409_CONFLICT, "SOL_AGENT_UNAVAILABLE")
     agent = max(candidates, key=lambda a: a.last_seen_at or a.paired_at)

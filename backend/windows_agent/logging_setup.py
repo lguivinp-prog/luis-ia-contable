@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import logging.handlers
+import sys
 from pathlib import Path
 
 _MAX_BYTES = 2 * 1024 * 1024  # 2 MiB por archivo
@@ -39,9 +40,11 @@ def configure_agent_logging(data_dir: Path, *, level: int = logging.INFO) -> log
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
 
-    console_handler = logging.StreamHandler()
-    console_handler.setFormatter(formatter)
-    logger.addHandler(console_handler)
+    # La build empaquetada "windowed" (autoarranque, sin consola) tiene `sys.stderr = None`: solo archivo.
+    if sys.stderr is not None:
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(formatter)
+        logger.addHandler(console_handler)
 
     return logger
 

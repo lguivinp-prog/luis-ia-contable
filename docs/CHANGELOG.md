@@ -4,6 +4,12 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
 ## [Unreleased]
 
+### Fase 5, Bloque 5.2, Domain G — Empaquetado y operación del Agente SOL (ver ADR-0073)
+
+- Agente Windows empaquetado con PyInstaller one-folder (`packaging/windows-agent/`), aplicación por usuario con autoarranque por Task Scheduler (NO servicio de Windows), Chromium propio de la app, manifiesto SHA-256, instalación/upgrade/desinstalación/purga con identidad separada de los binarios.
+- Perfil de despliegue local nativo (`deploy/windows-local/`) con broker habilitado, CA aprovisionada explícitamente (`app.broker.provision`), diagnóstico seguro (`app.broker.diagnostics`) y herramienta de operador de pairing (`app.broker.pair_cli`).
+- Corrección: la API de F reporta un Agente como disponible solo con conexión registrada Y latido reciente (un Agente matado sin desconexión limpia seguía "disponible").
+
 ### Fase 5, Bloque 5.1 — Bóveda de credenciales SOL (migración 0017, ver ADR-0068 a ADR-0071)
 
 > Precedido por un spike experimental cerrado en la rama `spike/phase5-sol-vault-crypto` (commit `2096a9b`,

@@ -338,7 +338,8 @@ def test_AN_AP_clean_shutdown_drops_in_memory_secrets_and_state(session_factory,
 
 # E3 (Domain E3): SOLO estos modulos pueden referenciar el portal SOL / Playwright. Todo el
 # resto del paquete (transporte, identidad, runtime, CLI) sigue sin hacerlo.
-_E3_OWNED_MODULES = {"browser_executor.py", "portal_contract.py", "portal_identity.py"}
+# Domain G: `browser_runtime.py` (navegador instalado: ruta propia + diagnostico) tambien es propiedad de E3.
+_E3_OWNED_MODULES = {"browser_executor.py", "portal_contract.py", "portal_identity.py", "browser_runtime.py"}
 
 
 def test_AV_AW_production_package_never_references_sunat_or_playwright_outside_e3_modules():

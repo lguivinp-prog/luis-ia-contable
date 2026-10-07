@@ -90,6 +90,7 @@ def world(session_factory, running_broker, monkeypatch):
             assert r.status_code in {200, 201}, r.text
         if with_agent:
             out["agent"] = _pair_agent(session_factory, running_broker, setup["tenant_id"], setup["admin_id"])
+            assert out["agent"].heartbeat().status_code == 200  # el agente real envia heartbeat tras el HELLO
         return out
 
     yield build, make_user_client, session_factory
@@ -198,6 +199,7 @@ def test_preauth_ready_from_wrong_agent_or_wrong_session_is_rejected(world, runn
     build, _mk, sf = world
     w = build()
     other = _pair_agent(sf, running_broker, w["tenant_id"], w["admin_id"])
+    assert other.heartbeat().status_code == 200
     sid = uuid.UUID(_start(w).json()["id"])
     # el backend elige el agente conectado mas reciente: se identifica al DUENO del job y al ajeno
     owner, stranger = None, None

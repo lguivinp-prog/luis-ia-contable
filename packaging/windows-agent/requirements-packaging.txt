@@ -1,0 +1,8 @@
+# Dependencias de EMPAQUETADO del Agente Windows (Domain G). SOLO de desarrollo/build: no son dependencias del backend.
+# Entorno de build: Windows 11 x64, Python 3.13.14 (venv dedicado `.venv-win-pkg`, nunca el venv de desarrollo E2).
+pyinstaller==6.22.3
+pyinstaller-hooks-contrib==2026.8
+# Runtime del Agente (mismos pins que Domain E2/E3):
+cryptography==43.0.3
+httpx==0.28.1
+playwright==1.63.0

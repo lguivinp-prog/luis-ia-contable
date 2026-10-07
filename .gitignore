@@ -59,3 +59,9 @@ logs/
 *.swp
 *~
 .tmp/
+
+# Domain G: artefactos de empaquetado/despliegue local (nunca versionar)
+packaging/windows-agent/dist/
+packaging/windows-agent/build/
+deploy/windows-local/sol-local.env
+.g-runtime/

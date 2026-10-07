@@ -311,3 +311,28 @@ def test_cancel_discards_human_context_so_a_later_preauth_cannot_authorize(world
     assert w["api"].post(f"/api/v1/sol-access/sessions/{sid}/cancel").status_code == 200
     assert running_broker.session_authorizations.get(tenant_id=w["tenant_id"], session_id=sid) is None
     assert w["agent"].report_status(job_id, "PREAUTH_READY", session_id=sid).status_code in {404, 409}
+
+
+# --- Domain G: un agente matado sin desconexion limpia NO debe figurar disponible (hallazgo del kill abrupto) ----------
+
+
+def test_connected_but_silent_agent_is_not_available_and_session_start_is_rejected(world, running_broker):
+    from app.models.sol_agent_access import SolAgent
+
+    build, _mk, sf = world
+    w = build()
+    assert w["api"].get("/api/v1/sol-access/agents").json()["agents"][0]["available"] is True
+    s = sf()
+    try:
+        agent = s.execute(select(SolAgent).where(SolAgent.id == w["agent"].agent_id)).scalar_one()
+        agent.last_seen_at = datetime.now(UTC) - timedelta(minutes=10)  # sin latidos; el registro aun lo da por conectado
+        s.commit()
+    finally:
+        s.close()
+    assert running_broker.connections.is_connected(agent_id=w["agent"].agent_id)
+    assert w["api"].get("/api/v1/sol-access/agents").json()["agents"][0]["available"] is False
+    r = _start(w)
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "SOL_AGENT_UNAVAILABLE"
+    assert _counts(sf, w["tenant_id"]) == (0, 0)
+    assert w["agent"].heartbeat().status_code == 200  # un latido lo vuelve a dejar disponible
+    assert w["api"].get("/api/v1/sol-access/agents").json()["agents"][0]["available"] is True
