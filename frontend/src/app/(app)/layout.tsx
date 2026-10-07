@@ -30,7 +30,7 @@ function AppLayoutInner({ children }: { children: React.ReactNode }) {
       <Header user={user} />
       <div style={{ display: "flex", flex: 1 }}>
         <Sidebar />
-        <main style={{ flex: 1, padding: "1.5rem" }}>{children}</main>
+        <main style={{ flex: 1, minWidth: 0, padding: "1.5rem" }}>{children}</main>
       </div>
       <InactivityGuard />
     </div>

@@ -190,6 +190,7 @@ CASES = [
     ),
     ("report:export", "POST", "/api/v1/reports/export", {}, "asistente_client", None),
     ("dashboard:read", "GET", "/api/v1/dashboard/monthly", None, "asistente_client", None),
+    ("dashboard:read", "GET", f"/api/v1/cockpit/monthly?tax_period_id={DUMMY_ID}", None, "asistente_client", None),
     (
         "document:file_manage",
         "POST",

@@ -12,6 +12,7 @@ from app.db.session import SessionLocal
 from app.routers import (
     auth,
     clients,
+    cockpit,
     communications,
     dashboard,
     declaration_documents,
@@ -102,6 +103,7 @@ app.include_router(tax_payments.router)
 app.include_router(professional_fees.router)
 app.include_router(reports.router)
 app.include_router(dashboard.router)
+app.include_router(cockpit.router)
 app.include_router(users.router)
 app.include_router(document_integrity.router)
 app.include_router(operational_tasks.router)

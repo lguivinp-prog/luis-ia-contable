@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 
 import { useCurrentUser } from "@/lib/currentUserContext";
 import { hasPermission } from "@/lib/permissions";
+import { COCKPIT_HREF, canViewCockpit } from "@/lib/cockpitNav";
 import { canViewSolVaultNav } from "@/lib/solVaultPermissions";
 
 const NAV_ITEMS = [
@@ -21,7 +22,7 @@ const NAV_ITEMS = [
 export function Sidebar() {
   const pathname = usePathname();
   const { user } = useCurrentUser();
-  let navItems = NAV_ITEMS;
+  let navItems = canViewCockpit(user) ? [{ href: COCKPIT_HREF, label: "Cockpit mensual" }, ...NAV_ITEMS] : NAV_ITEMS;
   if (hasPermission(user, "task:read")) {
     navItems = [
       ...navItems,

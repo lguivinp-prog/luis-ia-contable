@@ -4,6 +4,11 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
 
 ## [Unreleased]
 
+### Producto M1, Domain B — Cockpit Multi-RUC mensual (solo lectura, ver docs/COCKPIT_MULTI_RUC.md)
+
+- `GET /api/v1/cockpit/monthly`: una fila por cliente activo y periodo (incluye clientes sin declaraciones generadas), con SIRE derivado (`NOT_CONFIGURED` distinto de `NOT_APPLICABLE`), fase mensual, riesgo global determinista, agregados de impuesto/honorarios y tarjetas resumen; paginación por cliente. Sin migración ni permisos nuevos.
+- UI `/cockpit` y entrada "Cockpit mensual" en el menú; el Tablero mensual existente no cambia. `main` del layout recibe `min-width: 0` para que las tablas anchas se desplacen dentro de su contenedor.
+
 ### Fase 5, Bloque 5.2, Domain G — Empaquetado y operación del Agente SOL (ver ADR-0073)
 
 - Agente Windows empaquetado con PyInstaller one-folder (`packaging/windows-agent/`), aplicación por usuario con autoarranque por Task Scheduler (NO servicio de Windows), Chromium propio de la app, manifiesto SHA-256, instalación/upgrade/desinstalación/purga con identidad separada de los binarios.
