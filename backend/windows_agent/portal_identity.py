@@ -30,6 +30,10 @@ class SurfaceKind(str, enum.Enum):
     ENTRY = "ENTRY"  # solo paginas publicas de entrada
     LOGIN = "LOGIN"
     LANDING = "LANDING"
+    # Pagina del host de aterrizaje con la ruta del contrato que AUN no cumple la identidad completa del landing (salto de redireccion
+    # hacia el login o hacia el menu: documento cargando o con un titulo transitorio). NO es el landing y NO se acepta como tal; tampoco
+    # es todavia un fallo: los llamadores esperan con plazo ACOTADO (sin clics ni credenciales) y, si no se resuelve, falla cerrado.
+    PENDING = "PENDING"
     FAIL = "FAIL"  # fuera de contrato -> ver `outcome`/`detail`
 
 
@@ -44,6 +48,7 @@ class PageView:
     password_field_visible: bool = False
     invalid_credentials_visible: bool = False
     login_controls_present: bool = False
+    challenge_visible: bool = False  # widget de verificacion humana POSITIVAMENTE identificado (solo se evalua tras el envio)
 
 
 @dataclass(frozen=True)
@@ -53,6 +58,8 @@ class Surface:
     outcome: AuthOutcome | None = None
     detail: str | None = None
     invalid_credentials: bool = False
+    human_challenge: bool = False
+    auth_login_identity: bool = False  # la pagina de autenticacion conserva la ruta/titulo del formulario de login
 
 
 def _fail(detail: str, *, outcome: AuthOutcome = AuthOutcome.PORTAL_CHANGED, code: str | None = None) -> Surface:
@@ -62,6 +69,22 @@ def _fail(detail: str, *, outcome: AuthOutcome = AuthOutcome.PORTAL_CHANGED, cod
 def _host(url: str) -> tuple[str | None, str | None, str]:
     parts = urlsplit(url)
     return parts.scheme or None, parts.hostname, parts.path
+
+
+DETAIL_LANDING_IDENTITY = "landing host reached but landing identity does not match the contract"
+DETAIL_LANDING_TRANSIT = "landing transit did not resolve to a login form"
+
+
+def is_transitional_landing(view: PageView, contract: PortalContract) -> bool:
+    """Pagina del host de aterrizaje en TRANSITO: host + esquema + prefijo de ruta del contrato y sin campo de contraseña, pero con
+    titulo vacio o distinto del esperado. Solo significa "identidad aun no establecida"; nunca se acepta como landing."""
+    scheme, host, path = _host(view.url)
+    return (
+        scheme == contract.required_scheme
+        and host in contract.landing_hosts
+        and path.startswith(contract.landing_path_prefix)
+        and not view.password_field_visible
+    )
 
 
 def is_accepted_landing(view: PageView, contract: PortalContract) -> bool:
@@ -104,13 +127,23 @@ def classify_surface(
         else:
             entry_pages.append((i, v))
 
+    # Avisos/ventanas emergentes del MISMO portal (host de aterrizaje): si exactamente UNA pagina cumple la identidad completa del
+    # landing y ninguna otra muestra un campo de contraseña, las demas se IGNORAN (jamas se usan ni se pulsan). Cualquier otra
+    # combinacion sigue siendo ambigua y falla cerrada.
+    if len(landing_pages) > 1 and not auth_pages:
+        accepted = [(i, v) for i, v in landing_pages if is_accepted_landing(v, contract)]
+        if len(accepted) == 1 and not any(v.password_field_visible for _i, v in landing_pages):
+            landing_pages = accepted
+
     if len(auth_pages) > 1 or len(landing_pages) > 1 or (auth_pages and landing_pages):
         return _fail("ambiguous portal surface")
 
     if landing_pages:
         i, v = landing_pages[0]
         if not is_accepted_landing(v, contract):
-            return _fail("landing host reached but landing identity does not match the contract")
+            if is_transitional_landing(v, contract):
+                return Surface(SurfaceKind.PENDING, page_index=i)
+            return _fail(DETAIL_LANDING_IDENTITY)
         return Surface(SurfaceKind.LANDING, page_index=i)
 
     if auth_pages:
@@ -124,7 +157,10 @@ def classify_surface(
                 return Surface(SurfaceKind.ENTRY)  # DOM aun cargando: se sigue esperando (acotado)
             if contract.auth_title_contains.lower() not in v.title.lower():
                 return _fail("login page title does not match the expected title")
-        return Surface(SurfaceKind.LOGIN, page_index=i, invalid_credentials=v.invalid_credentials_visible)
+        _s2, _h2, path2 = _host(v.url)
+        login_identity = re.fullmatch(contract.auth_path_pattern, path2) is not None and contract.auth_title_contains.lower() in (v.title or "").lower()
+        return Surface(SurfaceKind.LOGIN, page_index=i, invalid_credentials=v.invalid_credentials_visible,
+                       human_challenge=v.challenge_visible, auth_login_identity=login_identity)
 
     return Surface(SurfaceKind.ENTRY if entry_pages else SurfaceKind.NO_PAGES)
 
@@ -143,6 +179,7 @@ class ElementInfo:
     visible: bool
     classes: tuple[str, ...] = ()
     name_text: str = ""  # nombre accesible aproximado: aria-label o texto del boton
+    role: str | None = None  # M2: atributo role (estructural)
 
 
 @dataclass(frozen=True)

@@ -48,6 +48,8 @@ class TaxRegime(str, enum.Enum):
     RER = "RER"
     RMT = "RMT"
     GENERAL = "GENERAL"
+    # Marcador explicito de "regimen NO confirmado": ningun valor por defecto debe confundirse con un dato oficial de SUNAT.
+    SIN_DETERMINAR = "SIN_DETERMINAR"
 
 
 class IssuanceSystem(str, enum.Enum):

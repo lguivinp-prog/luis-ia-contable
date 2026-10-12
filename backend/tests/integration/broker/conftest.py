@@ -22,6 +22,7 @@ from app.broker.server import BrokerServer
 from app.core.config import get_settings
 from app.core.security import hash_password
 from app.models.audit_log import AuditLog
+from app.models.client_ficha_ruc import ClientFichaRucSnapshot, ClientOnboarding
 from app.models.client import Client
 from app.models.client_sol_credential import ClientSolCredential
 from app.models.session import Session as AppSession
@@ -176,6 +177,9 @@ def cleanup_tenant(session_factory, tenant_id: uuid.UUID) -> None:
     session = session_factory()
     try:
         session.execute(delete(AuditLog).where(AuditLog.tenant_id == tenant_id))
+        # M2: onboardings y snapshots de la Ficha referencian clientes/sesiones: se borran primero
+        session.execute(delete(ClientOnboarding).where(ClientOnboarding.tenant_id == tenant_id))
+        session.execute(delete(ClientFichaRucSnapshot).where(ClientFichaRucSnapshot.tenant_id == tenant_id))
         session.execute(delete(SolAgentJob).where(SolAgentJob.tenant_id == tenant_id))
         session.execute(delete(SolAgentPairing).where(SolAgentPairing.tenant_id == tenant_id))
         session.execute(delete(SolAccessSession).where(SolAccessSession.tenant_id == tenant_id))

@@ -1,5 +1,6 @@
 "use client";
 
+import { SecureForm } from "@/components/ui/SecureForm";
 import { useCallback, useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
@@ -356,7 +357,7 @@ export default function UsersPage() {
 
       <div className="surface-card" style={{ padding: "1.25rem", maxWidth: "420px" }}>
         <h2 style={{ fontSize: "1.1rem", marginBottom: "1rem" }}>Nuevo usuario</h2>
-        <form onSubmit={handleCreate} style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+        <SecureForm onSubmit={handleCreate} style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
           {createError && <div className="error-banner">{createError}</div>}
           <Input
             label="Correo"
@@ -388,7 +389,7 @@ export default function UsersPage() {
           <Button type="submit" disabled={creating}>
             {creating ? "Creando…" : "Crear usuario"}
           </Button>
-        </form>
+        </SecureForm>
       </div>
     </div>
   );

@@ -9,7 +9,7 @@ export type RucStatus =
 
 export type FiscalAddressCondition = "HABIDO" | "NO_HABIDO" | "NO_HALLADO" | "PENDIENTE";
 
-export type TaxRegime = "NRUS" | "RER" | "RMT" | "GENERAL";
+export type TaxRegime = "NRUS" | "RER" | "RMT" | "GENERAL" | "SIN_DETERMINAR";
 
 export type IssuanceSystem = "manual" | "electronico" | "mixto";
 

@@ -376,6 +376,29 @@ CASES = [
         "contador_client",
         "asistente_client",
     ),
+    # ---- Producto M2: destinos de SOL, Ficha RUC y alta asistida (composicion de permisos EXISTENTES) ----
+    ("sol_session:read", "GET", "/api/v1/sol-access/destinations", None, "contador_client", "asistente_client"),
+    ("client:read", "GET", f"/api/v1/clients/{DUMMY_ID}/ficha-ruc/snapshots", None, "asistente_client", None),
+    ("client:read", "GET", f"/api/v1/clients/{DUMMY_ID}/ficha-ruc/snapshots/{DUMMY_ID_2}", None, "asistente_client", None),
+    (
+        "client:write",
+        "POST",
+        f"/api/v1/clients/{DUMMY_ID}/ficha-ruc/snapshots/{DUMMY_ID_2}/accept",
+        {"accepted_fields": ["business_name"], "expected_version": 1},
+        "contador_client",
+        "asistente_client",
+    ),
+    (
+        "client:write",
+        "POST",
+        f"/api/v1/clients/{DUMMY_ID}/ficha-ruc/snapshots/{DUMMY_ID_2}/reject",
+        {"expected_version": 1},
+        "contador_client",
+        "asistente_client",
+    ),
+    ("client:write", "POST", "/api/v1/client-onboardings", {"ruc": "20100070970"}, "contador_client", "asistente_client"),
+    ("client:write", "GET", f"/api/v1/client-onboardings/{DUMMY_ID}", None, "contador_client", "asistente_client"),
+    ("client:write", "POST", f"/api/v1/client-onboardings/{DUMMY_ID}/cancel", {}, "contador_client", "asistente_client"),
 ]
 
 

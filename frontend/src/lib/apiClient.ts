@@ -1,3 +1,4 @@
+import { loginUrlFor } from "@/lib/authRedirect";
 import { isDomainUnauthorizedBody } from "@/lib/apiAuthRedirect";
 import { readCsrfTokenFromCookie } from "@/lib/csrf";
 
@@ -45,7 +46,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       domainError = false;
     }
     if (!domainError && !window.location.pathname.startsWith("/login")) {
-      window.location.href = "/login";
+      window.location.href = loginUrlFor(window.location.pathname + window.location.search);
     }
   }
 
@@ -85,7 +86,7 @@ async function requestFormData<T>(path: string, formData: FormData): Promise<T> 
 
   if (response.status === 401 && typeof window !== "undefined") {
     if (!window.location.pathname.startsWith("/login")) {
-      window.location.href = "/login";
+      window.location.href = loginUrlFor(window.location.pathname + window.location.search);
     }
   }
 
@@ -125,7 +126,7 @@ async function requestGetBlob(path: string): Promise<{ blob: Blob; filename: str
 
   if (response.status === 401 && typeof window !== "undefined") {
     if (!window.location.pathname.startsWith("/login")) {
-      window.location.href = "/login";
+      window.location.href = loginUrlFor(window.location.pathname + window.location.search);
     }
   }
 

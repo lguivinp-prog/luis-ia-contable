@@ -57,6 +57,9 @@ class AgentHello(_StrictModel):
 
 class HeartbeatRequest(_StrictModel):
     protocol_version: int
+    # M2: job que el agente SOSTIENE ahora (control humano incluido); permite reconciliar sesiones huerfanas tras un
+    # reinicio y readoptar el job si cayo el broker. Un agente anterior lo omite (`None`).
+    holding_job_id: uuid.UUID | None = None
 
 
 class JobAvailableResponse(_StrictModel):
@@ -68,6 +71,9 @@ class JobAvailableResponse(_StrictModel):
     session_id: uuid.UUID | None
     scope: str | None
     expires_at: datetime | None
+    # M2: destino aprobado por el SERVIDOR (enum cerrado) y si debe extraerse la Ficha. Nunca URL/selector.
+    destination: str | None = None
+    extract_ficha: bool = False
 
 
 class JobClaimRequest(_StrictModel):
@@ -109,6 +115,61 @@ AGENT_REPORTABLE_REASON_CODES = (
 )
 
 
+# M2: codigos de DIAGNOSTICO estructural que el Agente puede adjuntar a un fallo -- lista CERRADA (replica de
+# `windows_agent.diagnostics.DIAGNOSTIC_CODES`; una prueba exige que coincidan). Nunca texto libre.
+DIAGNOSTIC_CODES = frozenset(
+    {
+    "AMBIGUOUS_PORTAL_SURFACE",
+    "AUTH_SURFACE_IN_FRAME",
+    "BLOCKED_BY_INTERMEDIATE_SCREEN",
+    "BROWSER_CLOSED_OR_FAILED",
+    "CLEANUP_FAILED",
+    "CONTACT_VALIDATION_INTERSTITIAL",
+    "CREDENTIALS_REJECTED_BY_PORTAL",
+    "CREDENTIAL_UNAVAILABLE",
+    "DESTINATION_NOT_ALLOWED",
+    "ENTRY_LINK_NOT_FOUND",
+    "FICHA_CONTENT_NOT_READY",
+    "FICHA_DESTINATION_MISMATCH",
+    "FICHA_FRAME_NOT_VALIDATED",
+    "FICHA_MENU_ENTRY_MISSING_OR_AMBIGUOUS",
+    "FICHA_MENU_STRUCTURE_MISMATCH",
+    "FICHA_REPORT_REJECTED",
+    "FICHA_TAXPAYER_NOT_IDENTIFIED",
+    "HUMAN_ACTION_REQUIRED",
+    "HUMAN_CHALLENGE_TIMEOUT",
+    "HUMAN_CONTROL_REPORT_REJECTED",
+    "INFORMATIONAL_MODAL",
+    "LANDING_BEFORE_AUTHENTICATION",
+    "LANDING_IDENTITY_MISMATCH",
+    "LANDING_PAGE_NOT_FOUND",
+    "LANDING_TRANSIT_UNRESOLVED",
+    "AUTH_NAVIGATION_STALLED",
+    "LOGIN_CHANGED_BEFORE_SUBMIT",
+    "LOGIN_CONTROL_MISMATCH",
+    "LOGIN_MODE_CONTROLS_MISSING",
+    "LOGIN_MODE_STATE_AMBIGUOUS",
+    "LOGIN_PATH_MISMATCH",
+    "LOGIN_RUC_MODE_ACTIVATION_FAILED",
+    "LOGIN_RUC_VISIBILITY_MISMATCH",
+    "LOGIN_SUBMIT_NAME_MISMATCH",
+    "LOGIN_SURFACE_NOT_REACHED",
+    "LOGIN_TITLE_MISMATCH",
+    "NAVIGATION_BUDGET_EXHAUSTED",
+    "NAVIGATION_TIMEOUT",
+    "RETURNED_TO_ENTRY_PAGE",
+    "SECOND_SUBMISSION_REFUSED",
+    "SHELL_LOGIN_CONTROLS_PRESENT",
+    "SHELL_MARKER_MISSING_OR_AMBIGUOUS",
+    "SHELL_STRUCTURE_MISMATCH",
+    "UNCLASSIFIED_PORTAL_CHANGE",
+    "UNEXPECTED_ERROR",
+    "UNEXPECTED_EXECUTOR_ERROR",
+    "UNKNOWN_PAGE_OR_HOST",
+    }
+)
+
+
 class JobStatusReport(_StrictModel):
     """Resultado semantico del navegador, ya validado por el backend antes de
     cualquier transicion (el Agente NUNCA elige un estado de BD):
@@ -118,6 +179,8 @@ class JobStatusReport(_StrictModel):
     - `PREAUTH_READY` (Domain F): el portal ya fue validado por completo y el agente esta listo para pedir la
       credencial; el broker revalida y, solo entonces, autoriza la entrega (grant de un solo uso). No es un
       estado de sesion ni de job: unicamente esta senal, sin secretos;
+    - `HUMAN_CONTROL` (M2): destino validado y automatizacion TERMINADA; el navegador sigue abierto bajo control del
+      humano (NO terminal); despues el agente reporta `COMPLETED` cuando el humano cierra el navegador;
     - `FAILED` + `reason_code` (lista cerrada): fallo terminal.
 
     `session_id` es opcional pero, si se envia, debe coincidir con la sesion del
@@ -126,15 +189,31 @@ class JobStatusReport(_StrictModel):
 
     protocol_version: int
     job_id: uuid.UUID
-    status: str = Field(pattern=r"^(COMPLETED|FAILED|WAITING_FOR_USER|PREAUTH_READY)$")
+    status: str = Field(pattern=r"^(COMPLETED|FAILED|WAITING_FOR_USER|PREAUTH_READY|HUMAN_CONTROL)$")
     reason_code: str | None = Field(default=None, pattern=r"^(" + "|".join(AGENT_REPORTABLE_REASON_CODES) + r")$")
     session_id: uuid.UUID | None = None
+    diagnostic_code: str | None = Field(default=None, pattern=r"^[A-Z0-9_]{3,48}$")
 
     @model_validator(mode="after")
     def _reason_code_only_with_failed(self) -> JobStatusReport:
         if (self.status == "FAILED") != (self.reason_code is not None):
             raise ValueError("reason_code is required for FAILED and forbidden otherwise")
+        if self.diagnostic_code is not None and self.status not in {"FAILED", "WAITING_FOR_USER"}:
+            raise ValueError("diagnostic_code is only allowed with FAILED or WAITING_FOR_USER")
         return self
+
+
+class FichaReport(_StrictModel):
+    """M2: campos ESTRUCTURADOS de la Ficha RUC extraidos por el Agente (lista blanca de rotulos). El backend los valida
+    con un esquema estricto (`FichaRucFieldsV1`) y es la autoridad; aqui solo se acota el tamano/forma del mensaje.
+    Nunca HTML, DOM, texto de pagina arbitrario ni credenciales."""
+
+    protocol_version: int
+    job_id: uuid.UUID
+    session_id: uuid.UUID | None = None
+    schema_version: int = Field(ge=1, le=100)
+    fields: dict = Field(max_length=40)
+    malformed: list[str] = Field(default_factory=list, max_length=20)
 
 
 class SessionCancelNotice(_StrictModel):
@@ -195,6 +274,8 @@ class CredentialDeliveryResponse(_StrictModel):
 # --- limites de tamano (seccion 62 del encargo: acotar antes de trabajo caro) ---
 
 MAX_MESSAGE_BYTES = 16_384
+# La Ficha RUC completa (tributos, representantes, establecimientos) es mayor que un mensaje de control; solo ese endpoint admite mas.
+MAX_FICHA_MESSAGE_BYTES = 128 * 1024
 MAX_CSR_PEM_BYTES = 8192
 
 # Fase 5, Bloque 5.2, Domain E1-A/E1-B (seccion 19 del documento de

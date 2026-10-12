@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
+import { loginUrlFor } from "@/lib/authRedirect";
+
 const SESSION_COOKIE_NAME = process.env.SESSION_COOKIE_NAME ?? "luis_ia_contable_session";
 
 // En Next.js 16 el archivo "middleware.ts" fue renombrado a "proxy.ts" (ver
@@ -11,8 +13,10 @@ export function proxy(request: NextRequest) {
   const hasSessionCookie = request.cookies.has(SESSION_COOKIE_NAME);
 
   if (!hasSessionCookie) {
-    const loginUrl = new URL("/login", request.url);
-    return NextResponse.redirect(loginUrl);
+    // La cookie es SameSite=Strict: una navegacion iniciada desde otro sitio (enlace de una app/chat/correo) llega SIN cookie aunque la
+    // sesion siga vigente. Se conserva el destino (`?next=`, solo ruta interna segura) para volver tras autenticar o al detectar la sesion.
+    const destination = request.nextUrl.pathname + request.nextUrl.search;
+    return NextResponse.redirect(new URL(loginUrlFor(destination), request.url));
   }
 
   return NextResponse.next();

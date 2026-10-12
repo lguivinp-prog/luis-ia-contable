@@ -1,5 +1,7 @@
 "use client";
 
+import { SecureForm } from "@/components/ui/SecureForm";
+import { DeliberateInput } from "@/components/ui/DeliberateInput";
 import { useCallback, useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
@@ -446,10 +448,9 @@ export default function SolVaultPage() {
       {!pendingRecoveryCode && !status?.initialized && canInitialize && (
         <section className="surface-card" style={{ padding: "1.25rem" }}>
           <h2 style={{ fontSize: "1.05rem", marginBottom: "0.75rem" }}>Inicializar bóveda</h2>
-          <form onSubmit={handleInitialize} style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-            <Input
+          <SecureForm onSubmit={handleInitialize} style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+            <DeliberateInput secret
               label="Contraseña personal de la bóveda"
-              type="password"
               minLength={VAULT_PASSWORD_MIN_LENGTH}
               maxLength={VAULT_PASSWORD_MAX_LENGTH}
               required
@@ -460,23 +461,22 @@ export default function SolVaultPage() {
             <Button type="submit" disabled={working || !isValidVaultPassword(initPassword)}>
               Inicializar bóveda
             </Button>
-          </form>
+          </SecureForm>
         </section>
       )}
 
       {status?.status === "RECOVERY_REQUIRED" && canRecover && (
         <section className="surface-card" style={{ padding: "1.25rem" }}>
           <h2 style={{ fontSize: "1.05rem", marginBottom: "0.75rem" }}>Recuperar acceso</h2>
-          <form onSubmit={handleRecover} style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-            <Input
+          <SecureForm onSubmit={handleRecover} style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+            <DeliberateInput
               label="Código de recuperación"
               required
               value={recoverCode}
               onChange={(e) => setRecoverCode(e.target.value)}
             />
-            <Input
+            <DeliberateInput secret
               label="Nueva contraseña personal"
-              type="password"
               minLength={VAULT_PASSWORD_MIN_LENGTH}
               maxLength={VAULT_PASSWORD_MAX_LENGTH}
               required
@@ -486,7 +486,7 @@ export default function SolVaultPage() {
             <Button type="submit" disabled={working || !isValidVaultPassword(recoverNewPassword)}>
               Recuperar acceso
             </Button>
-          </form>
+          </SecureForm>
         </section>
       )}
 
@@ -502,10 +502,9 @@ export default function SolVaultPage() {
       {status?.initialized && status.status === "ACTIVE" && !status.unlocked && (
         <section className="surface-card" style={{ padding: "1.25rem" }}>
           <h2 style={{ fontSize: "1.05rem", marginBottom: "0.75rem" }}>Desbloquear bóveda</h2>
-          <form onSubmit={handleUnlock} style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-            <Input
+          <SecureForm onSubmit={handleUnlock} style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+            <DeliberateInput secret
               label="Contraseña personal de la bóveda"
-              type="password"
               required
               value={unlockPassword}
               onChange={(e) => setUnlockPassword(e.target.value)}
@@ -513,7 +512,7 @@ export default function SolVaultPage() {
             <Button type="submit" disabled={working}>
               Desbloquear
             </Button>
-          </form>
+          </SecureForm>
         </section>
       )}
 
@@ -535,13 +534,12 @@ export default function SolVaultPage() {
 
           <section className="surface-card" style={{ padding: "1.25rem" }}>
             <h2 style={{ fontSize: "1.05rem", marginBottom: "0.75rem" }}>Cambiar contraseña personal</h2>
-            <form
+            <SecureForm
               onSubmit={handleChangePassword}
               style={{ display: "flex", flexDirection: "column", gap: "0.75rem", maxWidth: "420px" }}
             >
-              <Input
+              <DeliberateInput secret
                 label="Nueva contraseña personal"
-                type="password"
                 minLength={VAULT_PASSWORD_MIN_LENGTH}
                 maxLength={VAULT_PASSWORD_MAX_LENGTH}
                 required
@@ -551,7 +549,7 @@ export default function SolVaultPage() {
               <Button type="submit" disabled={working || !isValidVaultPassword(newPassword)}>
                 Cambiar contraseña
               </Button>
-            </form>
+            </SecureForm>
           </section>
 
           {canRecover && (
@@ -708,7 +706,7 @@ export default function SolVaultPage() {
           <p style={{ color: "var(--muted)", marginBottom: "0.75rem" }}>
             Pide a la persona que te invitó el identificador de la invitación.
           </p>
-          <form
+          <SecureForm
             onSubmit={handleAcceptInvitation}
             style={{ display: "flex", flexDirection: "column", gap: "0.75rem", maxWidth: "420px" }}
           >
@@ -718,9 +716,8 @@ export default function SolVaultPage() {
               value={acceptInvitationId}
               onChange={(e) => setAcceptInvitationId(e.target.value)}
             />
-            <Input
+            <DeliberateInput secret
               label="Elige tu propia contraseña personal de bóveda"
-              type="password"
               minLength={VAULT_PASSWORD_MIN_LENGTH}
               maxLength={VAULT_PASSWORD_MAX_LENGTH}
               required
@@ -730,7 +727,7 @@ export default function SolVaultPage() {
             <Button type="submit" disabled={working || !isValidVaultPassword(acceptPassword)}>
               Aceptar invitación
             </Button>
-          </form>
+          </SecureForm>
         </section>
       )}
     </div>

@@ -92,6 +92,16 @@ class AuthResult:
     detail: str | None = None
     credential_submissions: int = 0
     post_landing_clicks: int = 0
+    # M2 (navegacion a destino): clics de navegacion HACIA el destino (<= presupuesto del contrato); los clics
+    # posteriores a la validacion del destino (`post_landing_clicks` en modo destino) deben ser SIEMPRE 0.
+    destination_clicks: int = 0
+    destination_reached: bool = False
+    ficha_reported: bool = False
+    # Diagnostico ESTRUCTURAL y saneado (ver `diagnostics`): etapa y codigo estable del fallo, observacion solo con contadores/booleanos.
+    stage: str | None = None
+    diagnostic_code: str | None = None
+    observation: dict | None = None
+    shell_reached: bool = False
 
 
 @dataclass(frozen=True)
@@ -141,6 +151,15 @@ class PortalContract:
     # Hechos OBSERVADOS en LIVE-B (documentales: el reconocimiento sigue siendo por prefijo+titulo, ver el docstring).
     landing_observed_path: str | None = None
     landing_observed_title: str | None = None
+    # Desafio humano POSITIVO tras el envio: elementos VISIBLES y de tamaño real que contienen un widget de verificacion. Sin uno de estos
+    # (y sin texto de credenciales invalidas) una pagina de autenticacion que no avanza NO es una accion humana: es navegacion pendiente
+    # (`AUTH_NAVIGATION_PENDING`) y, vencido el plazo, `AUTH_NAVIGATION_STALLED`. Lectura pura; jamas se pulsa nada.
+    human_challenge_selectors: tuple[str, ...] = (
+        "iframe[src*='captcha' i]:not([hidden])",
+        "[id*='captcha' i]:not(input):not(script):not(.grecaptcha-badge)",
+        "[class*='captcha' i]:not(input):not(script):not(.grecaptcha-badge)",
+    )
+    human_challenge_min_size: tuple[int, int] = (40, 30)
 
     def login_field_ids(self) -> tuple[str, ...]:
         return (

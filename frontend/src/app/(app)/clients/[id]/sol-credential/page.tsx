@@ -1,5 +1,7 @@
 "use client";
 
+import { SecureForm } from "@/components/ui/SecureForm";
+import { DeliberateInput } from "@/components/ui/DeliberateInput";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
@@ -221,7 +223,7 @@ export default function ClientSolCredentialPage() {
           <h2 style={{ fontSize: "1.05rem", marginBottom: "0.75rem" }}>
             {credential ? "Actualizar credencial" : "Registrar credencial SOL"}
           </h2>
-          <form
+          <SecureForm
             onSubmit={credential ? handleUpdate : handleCreate}
             style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}
           >
@@ -233,7 +235,7 @@ export default function ClientSolCredentialPage() {
                 onChange={(e) => setCredentialKind(e.target.value as SolCredentialKind)}
               />
             )}
-            <Input
+            <DeliberateInput
               label="Usuario SOL"
               required={!credential}
               value={solUsername}
@@ -246,9 +248,8 @@ export default function ClientSolCredentialPage() {
                 ) : undefined
               }
             />
-            <Input
+            <DeliberateInput secret
               label="Contraseña SOL"
-              type="password"
               required={!credential}
               value={solPassword}
               onChange={(e) => setSolPassword(e.target.value)}
@@ -285,7 +286,7 @@ export default function ClientSolCredentialPage() {
             <Button type="submit" disabled={working}>
               {credential ? "Guardar cambios" : "Registrar credencial"}
             </Button>
-          </form>
+          </SecureForm>
         </section>
       )}
     </div>

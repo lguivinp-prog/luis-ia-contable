@@ -134,6 +134,70 @@ def test_E3_credential_via_existing_contract_one_use_and_job_reported_completed(
         cleanup_tenant(session_factory, setup["tenant_id"])
 
 
+def test_M2_agent_reconnects_with_a_new_hello_when_the_broker_connection_is_lost_mid_session(
+    session_factory, running_broker, tmp_path, monkeypatch
+):
+    """El broker se reinicio/reemplazo la conexion mientras el agente sostiene el job: el siguiente tick hace un HELLO
+    NUEVO (nunca reutiliza el id obsoleto) y sigue declarando el job que sostiene."""
+    holder: dict = {}
+
+    class LosesTheConnectionWhileWaiting(StubExecutor):
+        def await_outcome(self):
+            holder["original"] = holder["runtime"].connection_id
+            holder["runtime"]._connection_id = "conexion-obsoleta-de-prueba"  # el broker ya no la conoce
+            for _ in range(3):  # espera humana: el runtime sigue latiendo en cada tick
+                self._tick()
+            holder["during"] = (holder["runtime"].connection_id, holder["runtime"]._active_job_id)
+            return super().await_outcome()
+
+    record: dict = {}
+    factory = lambda **hooks: LosesTheConnectionWhileWaiting(record=record, **hooks)  # noqa: E731
+    setup, runtime, extra, job_id = _setup(session_factory, running_broker, tmp_path, monkeypatch, factory)
+    holder["runtime"] = runtime
+    try:
+        _authorize(session_factory, running_broker, setup, extra, job_id)
+        result = runtime.authenticate_claimed_job(job_id, heartbeat_every_seconds=0)
+        assert result.outcome is AuthOutcome.AUTH_SUCCEEDED and record["user"] == TEST_SOL_USER
+        reconnected, still_holding = holder["during"]
+        assert reconnected not in {None, holder["original"], "conexion-obsoleta-de-prueba"}  # HELLO nuevo
+        assert still_holding == job_id  # nunca solto el job ni lo "resucito": siguio declarandolo
+        assert _job_status(session_factory, job_id) == "COMPLETED"  # y pudo reportar el resultado por la nueva conexion
+        runtime.stop()
+    finally:
+        cleanup_tenant(session_factory, setup["tenant_id"])
+
+
+def test_M2_unexpected_executor_error_is_reported_as_failed_and_the_job_is_released(
+    session_factory, running_broker, tmp_path, monkeypatch
+):
+    """Un error inesperado del ejecutor (p. ej. un timeout de Playwright) no deja la sesion "en curso": se informa FAILED y el agente
+    deja de declarar el job (la aceptacion en vivo dejo la sesion IN_PROGRESS porque el error solo se registraba)."""
+
+    class ExplodingExecutor(StubExecutor):
+        def await_outcome(self):
+            raise TimeoutError("Locator.click: Timeout 30000ms exceeded.")
+
+    factory = lambda **hooks: ExplodingExecutor(record={}, **hooks)  # noqa: E731
+    setup, runtime, extra, job_id = _setup(session_factory, running_broker, tmp_path, monkeypatch, factory)
+    try:
+        _authorize(session_factory, running_broker, setup, extra, job_id)
+        assert runtime._active_job_id == job_id
+        runtime._authenticate_safely(job_id)  # no propaga la excepcion
+        assert _job_status(session_factory, job_id) == "FAILED"
+        assert runtime._active_job_id is None  # el heartbeat ya no lo declara
+        s = session_factory()
+        try:
+            from app.models.sol_agent_access import SolAccessSession
+
+            row = s.execute(select(SolAccessSession).where(SolAccessSession.id == extra["session_id"])).scalar_one()
+            assert row.status == "FAILED" and row.terminal_reason_code == "INTERNAL_ERROR"
+        finally:
+            s.close()
+        runtime.stop()
+    finally:
+        cleanup_tenant(session_factory, setup["tenant_id"])
+
+
 def test_E3_failed_authentication_is_reported_as_failed_job(session_factory, running_broker, tmp_path, monkeypatch):
     factory = lambda **hooks: StubExecutor(  # noqa: E731
         record={}, outcome=AuthOutcome.INVALID_CREDENTIALS, **hooks

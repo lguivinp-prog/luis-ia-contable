@@ -22,6 +22,7 @@ const TAX_REGIME_OPTIONS = [
   { value: "NRUS", label: "NRUS" },
   { value: "RER", label: "RER" },
   { value: "RMT", label: "RMT" },
+  { value: "SIN_DETERMINAR", label: "Sin determinar" },
   { value: "GENERAL", label: "General" },
 ];
 

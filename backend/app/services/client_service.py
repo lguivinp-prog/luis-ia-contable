@@ -137,7 +137,14 @@ def update_client(
     if data.ruc != client.ruc and client_repository.get_by_ruc(db, tenant_id, data.ruc):
         raise DuplicateRucError(f"Ya existe un contribuyente con RUC {data.ruc}")
 
+    previous_regime = client.tax_regime
     update_values = data.model_dump(exclude=_ENUM_FIELDS)
+    enum_values = {
+        "person_type": data.person_type.value, "ruc_status": data.ruc_status.value,
+        "fiscal_address_condition": data.fiscal_address_condition.value, "tax_regime": data.tax_regime.value,
+        "issuance_system": data.issuance_system.value if data.issuance_system else None,
+    }
+    unchanged = all(getattr(client, f) == v for f, v in {**update_values, **enum_values}.items())
     for field, value in update_values.items():
         setattr(client, field, value)
     client.person_type = data.person_type.value
@@ -145,6 +152,8 @@ def update_client(
     client.fiscal_address_condition = data.fiscal_address_condition.value
     client.tax_regime = data.tax_regime.value
     client.issuance_system = data.issuance_system.value if data.issuance_system else None
+    if unchanged:
+        return client  # solicitud duplicada o sin cambios: ni escritura ni auditoria repetida
     client.updated_by = user_id
 
     db.flush()
@@ -159,6 +168,19 @@ def update_client(
         ip_address=ip_address,
         user_agent=user_agent,
     )
+    if client.tax_regime != previous_regime:
+        # Trazabilidad: el cambio de regimen por esta via es SIEMPRE manual (una persona, con su usuario); solo se registran los codigos.
+        audit_service.record(
+            db,
+            tenant_id=tenant_id,
+            user_id=user_id,
+            action=AuditAction.CLIENT_TAX_REGIME_MANUAL_CHANGE,
+            entity_type="client",
+            entity_id=client.id,
+            metadata={"from": previous_regime, "to": client.tax_regime, "source": "MANUAL"},
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
     return client
 
 

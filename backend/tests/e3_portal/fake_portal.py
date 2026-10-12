@@ -30,11 +30,15 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs
 
+from tests.e3_portal import m2_shell
+
 LANDING_PATH = "/cl-ti-itmenu/MenuInternet.htm"  # observado en LIVE-B
 AUTH_HOP_PATH = "/cl-ti-itmenu/AutenticaMenuInternet.htm"  # redireccion intermedia (originalUrl de Spike A)
 WRONG_APP_LANDING_PATH = "/otra-app/MenuInternet.htm"
 LOGIN_PATH = "/v1/clientessol/fixture-client-0001/oauth2/loginMenuSol"
-FORBIDDEN_PATH_PREFIXES = ("/buzon", "/declaraciones", "/pagos", "/tramites", "/download")
+WELCOME_PATH = "/v1/clientessol/fixture-client-0001/oauth2/welcome"  # transito de autenticacion posterior al envio
+# M2: tambien SIRE y las acciones consecuentes dentro de la Ficha (imprimir/modificar): jamas deben solicitarse.
+FORBIDDEN_PATH_PREFIXES = ("/buzon", "/declaraciones", "/pagos", "/tramites", "/download", "/sire", "/ficha/", "/contacto/")
 DECOY_PATH_PREFIX = "/decoy"
 
 
@@ -46,6 +50,7 @@ class FakeSolPortal:
         self.submissions: list[dict[str, str]] = []
         self.mode_clicks: list[str] = []
         self.hang_seconds = 6.0
+        self.hop_delay_ms = 700  # retardo del salto del host de aterrizaje antes de redirigir al login
         self._lock = threading.Lock()
         portal = self
 
@@ -136,6 +141,10 @@ class FakeSolPortal:
             return self.url("auth", "/otra/ruta/loginMenuSol")
         if s == "frame_login":
             return self.url("entry", "/frame_host")
+        if s.startswith("m2_login_hop"):
+            # El login del portal REAL pasa por un salto del host de aterrizaje (observado en vivo en el preflight): una pagina de transito
+            # en `e-menu` con la ruta del menu y un titulo que aun no es el del landing, que redirige al login.
+            return self.url("menu", "/otra/ruta/Salto.htm" if s == "m2_login_hop_wrong_path" else "/cl-ti-itmenu/SaltoLogin.htm")
         return self.url("auth", LOGIN_PATH)
 
     def _entry_html(self) -> str:
@@ -176,7 +185,7 @@ class FakeSolPortal:
         challenge_html = ""
         if challenge:
             challenge_html = (
-                "<div id='human'><p>Verificación humana (fixture)</p></div>"
+                "<div id='captcha-widget' class='captcha-box' style='width:300px;height:80px'><p>Verificación humana (fixture)</p></div>"
                 "<script>setInterval(async()=>{const r=await fetch('/challenge_status');"
                 f"if((await r.text())==='released'){{location.href='{self.landing_url}';}}}},150);</script>"
             )
@@ -203,7 +212,41 @@ function doLogin() {{
 }}
 </script></body></html>"""
 
+    def _welcome_html(self) -> str:
+        """Pagina de transito de autenticacion POSTERIOR al envio («Bienvenidos a SUNAT»): ruta y titulo distintos del login, sin
+        formulario. Variantes (`m2_auth_*`): welcome_redirect / welcome_slow (redirigen solas al menu), welcome_chain (via el salto del host
+        de aterrizaje), welcome_stuck (se queda), welcome_empty (sin ningun control), welcome_challenge (widget de verificacion humana que
+        el humano libera), welcome_popup (abre otra ventana)."""
+        s = self.scenario
+        landing = self.url("menu", AUTH_HOP_PATH)
+        script = ""
+        body = "<p>Bienvenidos (fixture)</p>"
+        if s in {"m2_auth_welcome_redirect", "m2_auth_welcome_chain", "m2_auth_welcome_slow"}:
+            delay = {"m2_auth_welcome_redirect": 800, "m2_auth_welcome_chain": 300, "m2_auth_welcome_slow": 4000}[s]
+            script = f"setTimeout(function(){{location.replace({landing!r});}}, {delay});"
+        elif s == "m2_auth_welcome_empty":
+            body = ""
+        elif s == "m2_auth_welcome_challenge":
+            body = "<div id='captcha-widget' class='captcha-box' style='width:300px;height:80px'><p>Verificación humana (fixture)</p></div>"
+            script = (
+                "setInterval(async()=>{const r=await fetch('/challenge_status');"
+                f"if((await r.text())==='released'){{location.href={landing!r};}}}},150);"
+            )
+        elif s == "m2_auth_welcome_script_missing":
+            body = '<h1>Bienvenidos (fixture)</h1><script src="/auth_app.js"></script>'
+        elif s == "m2_auth_welcome_script_unreachable":
+            body = '<h1>Bienvenidos (fixture)</h1><script src="http://127.0.0.1:1/auth_app.js"></script>'
+        elif s == "m2_auth_welcome_js_error":
+            script = "throw new TypeError('fixture');"
+        elif s == "m2_auth_welcome_hang":
+            script = f"setTimeout(function(){{location.replace({self.url('menu', '/cl-ti-itmenu/Hang.htm')!r});}}, 300);"
+        elif s == "m2_auth_welcome_popup":
+            script = "window.open(" + repr(self.url("menu", "/aviso.html")) + ",'aviso','width=300,height=200');"
+        return f"<html><head><title>Bienvenidos a SUNAT</title></head><body>{body}<script>{script}</script></body></html>"
+
     def _landing_html(self) -> str:
+        if self.scenario.startswith("m2_"):
+            return m2_shell.shell_html(self.scenario, self.url("ficha", m2_shell.FICHA_PATH))
         title = "Otra aplicacion" if self.scenario == "bad_landing" else "SUNAT - Menú SOL"
         login_form = (
             '<input id="txtContrasena" type="password" placeholder="Contraseña" maxlength="12">'
@@ -225,6 +268,15 @@ function doLogin() {{
             h._send(200, self._entry_html())
         elif host == "entry.localhost" and path == "/frame_host":
             h._send(200, f"<html><head><title>x</title></head><body><iframe src='{self.url('auth', LOGIN_PATH)}'></iframe></body></html>")
+        elif host == "auth.localhost" and path == WELCOME_PATH and self.scenario == "m2_auth_welcome_server_error":
+            h._send(500, "<html><head><title>Error</title></head><body><h1>Error interno (fixture)</h1></body></html>")
+        elif host == "auth.localhost" and path.startswith(WELCOME_PATH) and self.scenario.startswith("m2_auth_"):
+            h._send(200, self._welcome_html())
+        elif host == "auth.localhost" and path == "/auth_app.js":
+            h._send(404, "not found", "text/plain")  # recurso JS del proveedor que no carga
+        elif host == "menu.localhost" and path == "/cl-ti-itmenu/Hang.htm":
+            time.sleep(25.0)  # redireccion detenida: el servidor no responde
+            h._send(200, "<html><head><title>x</title></head><body></body></html>")
         elif host in {"auth.localhost", "evil.localhost"} and (path.startswith("/v1/clientessol/") or path.startswith("/otra/")):
             h._send(200, self._login_html())
         elif path == "/mode_click":
@@ -237,6 +289,29 @@ function doLogin() {{
             h._send(302, "", headers={"Location": self.landing_url})
         elif host == "menu.localhost" and path in {LANDING_PATH, WRONG_APP_LANDING_PATH}:
             h._send(200, self._landing_html())
+        elif host == "ficha.localhost" and path.startswith("/ol-ti-itmoddatruc/"):
+            h._send(200, m2_shell.ficha_html(self.scenario))
+        elif host == "menu.localhost" and path in {"/cl-ti-itmenu/SaltoLogin.htm", "/otra/ruta/Salto.htm"} and self.scenario.startswith("m2_login_hop"):
+            s = self.scenario
+            login_url = self.url("auth", LOGIN_PATH)
+            if s == "m2_login_hop_shell":
+                # un shell AUTENTICADO completo (marcador DOM positivo) ANTES de entregar credenciales: sesion inesperada
+                h._send(200, m2_shell.shell_html("m2_success", self.url("ficha", m2_shell.FICHA_PATH)))
+                return
+            title = {"m2_login_hop_empty_title": "", "m2_login_hop_menu_title": "SUNAT - Menú SOL", "m2_login_hop_menu_title_never": "SUNAT - Menú SOL",
+                     "m2_login_hop_popup": "SUNAT - Menú SOL"}.get(s, "Redirigiendo (fixture)")
+            never = s in {"m2_login_hop_never", "m2_login_hop_wrong_path", "m2_login_hop_menu_title_never"}
+            if never:
+                action = ""
+            elif s == "m2_login_hop_new_page":
+                # el login se abre en OTRA Page mientras el transito sigue abierto: dos Pages simultaneas (ambiguo => fallo cerrado)
+                action = f"setTimeout(function(){{window.open({login_url!r});}}, {self.hop_delay_ms});"
+            else:
+                action = f"setTimeout(function(){{location.replace({login_url!r});}}, {self.hop_delay_ms});"
+            popup = "window.open('/aviso.html','aviso','width=300,height=200');" if s == "m2_login_hop_popup" else ""
+            h._send(200, f"<html><head><title>{title}</title></head><body><p>Un momento (fixture)</p><script>{popup}{action}</script></body></html>")
+        elif host == "menu.localhost" and path == "/aviso.html":
+            h._send(200, "<html><head><title>Aviso (fixture)</title></head><body><p>Aviso informativo (fixture)</p></body></html>")
         elif host == "evil.localhost":
             h._send(200, "<html><head><title>SUNAT - Menú SOL</title></head><body>unexpected</body></html>")
         else:
@@ -256,6 +331,16 @@ function doLogin() {{
             if self.scenario == "challenge_never":
                 self.challenge_released.clear()
             h._send(200, self._login_html(challenge=True))
+        elif self.scenario == "m2_auth_welcome_drop":
+            import socket
+
+            h.close_connection = True
+            h.connection.shutdown(socket.SHUT_RDWR)  # interrupcion de conexion durante el envio
+        elif self.scenario == "m2_auth_welcome_sensitive":
+            # ruta, query y fragmento con identificadores SINTETICOS sensibles: nada de esto puede llegar a la traza
+            h._send(302, "", headers={"Location": self.url("auth", WELCOME_PATH) + "/20123456786/JUAN-PEREZ?code=CODE-SECRET-123&state=STATE-SECRET-456#access_token=TOKEN-SECRET-789"})
+        elif self.scenario.startswith("m2_auth_"):
+            h._send(302, "", headers={"Location": self.url("auth", WELCOME_PATH)})  # el envio llega a la pagina «Bienvenidos a SUNAT»
         elif self.scenario == "unexpected_landing":
             h._send(302, "", headers={"Location": self.url("evil", "/x")})
         else:

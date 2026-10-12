@@ -1,12 +1,14 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { SecureForm } from "@/components/ui/SecureForm";
+import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
-import { ApiError } from "@/lib/apiClient";
-import { login } from "@/lib/auth";
+import { fetchCurrentUser, login } from "@/lib/auth";
+import { safeNextPath } from "@/lib/authRedirect";
+import { describeLoginError } from "@/lib/loginError";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -15,26 +17,36 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  function destination(): string {
+    // el destino viaja en `?next=` y solo se acepta una ruta interna segura (nunca una URL externa)
+    return safeNextPath(new URLSearchParams(window.location.search).get("next")) ?? "/clients";
+  }
+
+  // Un enlace abierto desde otro sitio llega sin cookie (SameSite=Strict) aunque la sesion siga vigente: esta consulta es una peticion del
+  // propio sitio, que SI lleva la cookie. Si la sesion es valida se vuelve al destino sin pedir otra vez las credenciales.
+  useEffect(() => {
+    let alive = true;
+    fetchCurrentUser()
+      .then(() => {
+        if (alive) router.replace(destination());
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
     setSubmitting(true);
     try {
       await login(email, password);
-      router.push("/clients");
+      router.push(destination());
       router.refresh();
     } catch (err) {
-      if (err instanceof ApiError && err.status === 401) {
-        setError("Correo o contraseña incorrectos.");
-      } else if (err instanceof ApiError && err.status === 429) {
-        setError(
-          typeof err.detail === "string"
-            ? err.detail
-            : "Demasiados intentos. Intenta nuevamente más tarde."
-        );
-      } else {
-        setError("No se pudo iniciar sesión. Intenta nuevamente.");
-      }
+      setError(describeLoginError(err));
     } finally {
       setSubmitting(false);
     }
@@ -50,7 +62,7 @@ export default function LoginPage() {
         background: "var(--background)",
       }}
     >
-      <form
+      <SecureForm
         onSubmit={handleSubmit}
         className="surface-card"
         style={{ width: "360px", padding: "2rem", display: "flex", flexDirection: "column", gap: "1rem" }}
@@ -84,7 +96,7 @@ export default function LoginPage() {
         <Button type="submit" disabled={submitting}>
           {submitting ? "Ingresando…" : "Ingresar"}
         </Button>
-      </form>
+      </SecureForm>
     </div>
   );
 }

@@ -168,12 +168,19 @@ class AgentTestClient:
         return response
 
     def heartbeat(
-        self, *, ssl_context: ssl.SSLContext | None = None, headers: dict[str, str] | None = None
+        self,
+        *,
+        ssl_context: ssl.SSLContext | None = None,
+        headers: dict[str, str] | None = None,
+        holding_job_id: uuid.UUID | None = None,
     ) -> httpx.Response:
+        payload: dict = {"protocol_version": PROTOCOL_VERSION}
+        if holding_job_id is not None:
+            payload["holding_job_id"] = str(holding_job_id)
         with self._operational_client(ssl_context=ssl_context) as client:
             return client.post(
                 f"{self.operational_base_url}/agent/heartbeat",
-                json={"protocol_version": PROTOCOL_VERSION},
+                json=payload,
                 headers=self._connection_headers(headers),
             )
 
@@ -224,11 +231,14 @@ class AgentTestClient:
             )
 
     def report_status(
-        self, job_id: uuid.UUID, status: str, reason_code: str | None = None, session_id: uuid.UUID | None = None
+        self, job_id: uuid.UUID, status: str, reason_code: str | None = None, session_id: uuid.UUID | None = None,
+        diagnostic_code: str | None = None,
     ) -> httpx.Response:
         payload: dict = {"protocol_version": PROTOCOL_VERSION, "job_id": str(job_id), "status": status}
         if reason_code is not None:
             payload["reason_code"] = reason_code
+        if diagnostic_code is not None:
+            payload["diagnostic_code"] = diagnostic_code
         if session_id is not None:
             payload["session_id"] = str(session_id)
         with self._operational_client() as client:
@@ -236,6 +246,20 @@ class AgentTestClient:
                 f"{self.operational_base_url}/agent/jobs/{job_id}/status",
                 json=payload,
                 headers=self._connection_headers(),
+            )
+
+    def report_ficha(
+        self, job_id: uuid.UUID, fields: dict, *, session_id: uuid.UUID | None = None, schema_version: int = 1,
+        malformed: list[str] | None = None,
+    ) -> httpx.Response:
+        """M2: reporta los campos ESTRUCTURADOS de la Ficha RUC (datos FICTICIOS en las pruebas)."""
+        payload: dict = {"protocol_version": PROTOCOL_VERSION, "job_id": str(job_id), "schema_version": schema_version,
+                         "fields": fields, "malformed": malformed or []}
+        if session_id is not None:
+            payload["session_id"] = str(session_id)
+        with self._operational_client() as client:
+            return client.post(
+                f"{self.operational_base_url}/agent/jobs/{job_id}/ficha", json=payload, headers=self._connection_headers()
             )
 
     def report_error(self, *, job_id: uuid.UUID | None, error_code: str) -> httpx.Response:

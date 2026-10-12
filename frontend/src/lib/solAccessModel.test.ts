@@ -5,8 +5,12 @@ import {
   classifyStartFailure,
   createStartGuard,
   describeCancelError,
+  describeSession,
   describeSessionState,
+  DESTINATION_LABEL,
+  visibleDestinations,
   describeStartError,
+  describeDiagnostic,
   describeTerminalReason,
   evaluatePreflight,
   FORBIDDEN_POST_LANDING_ACTIONS,
@@ -26,7 +30,8 @@ function session(status: string, extra: Partial<SolAccessSessionOut> = {}): SolA
   return {
     id: "s1", client_id: "c1", scope: "AUTHENTICATE_TO_LANDING_ONLY", status, terminal_reason_code: null,
     operation_result: null, created_at: "", started_at: null, waiting_for_user_at: null, completed_at: null,
-    expires_at: "", version: 1, is_terminal: terminal, ...extra,
+    expires_at: "", version: 1, is_terminal: terminal, destination: null, extract_ficha: false,
+    human_control_at: null, ...extra,
   };
 }
 const credential = { status: "NEEDS_VALIDATION" } as SolCredentialStatusOut;
@@ -77,6 +82,15 @@ describe("acciones", () => {
       const actions = availableActions(session(s), true) as string[];
       for (const forbidden of FORBIDDEN_POST_LANDING_ACTIONS) expect(actions).not.toContain(forbidden);
     }
+  });
+
+  it("la instruccion de WAITING_FOR_USER explica los avisos de SUNAT sin que Luis IA toque los datos de contacto", () => {
+    expect(WAITING_FOR_USER_INSTRUCTIONS.join(" ")).toContain("Luis IA nunca confirma ni modifica tus datos de contacto.");
+  });
+
+  it("una sesion estancada que se cerro se explica como reintentable y no como 'en curso'", () => {
+    expect(describeSessionState("FAILED").terminal).toBe(true);
+    expect(describeTerminalReason("JOB_EXPIRED")?.message).toMatch(/Puedes reintentar/);
   });
 
   it("la instruccion de WAITING_FOR_USER no pide ingresar nada en la web", () => {
@@ -152,5 +166,73 @@ describe("permisos", () => {
     expect(canStartSolSession(mk(["sol_session:create"]))).toBe(false);
     expect(canStartSolSession(mk(["sol_session:create", "sol_credential:read"]))).toBe(true);
     expect(canCancelSolSession(mk(["sol_session:cancel"]))).toBe(true);
+  });
+});
+
+describe("M2: control humano y destinos", () => {
+  it("HUMAN_CONTROL no es terminal, se sondea y se puede cancelar", () => {
+    const hc = session("HUMAN_CONTROL", { destination: "FICHA_RUC" });
+    expect(isTerminalSession(hc)).toBe(false);
+    expect(shouldPoll(hc)).toBe(true);
+    expect(availableActions(hc, true)).toEqual(["cancel"]);
+    expect(describeSessionState("HUMAN_CONTROL").label).toBe("El navegador es tuyo");
+    expect(describeSession(hc).description).toContain("Ficha RUC");
+    expect(describeSession(hc).description).toContain("el control es tuyo");
+  });
+
+  it("SUCCEEDED con destino significa que el humano cerro el navegador (no 'autenticacion hasta el menu')", () => {
+    const done = session("SUCCEEDED", { destination: "MENU_SOL" });
+    expect(describeSession(done).description).toBe("Se abrió Menú SOL y el navegador local ya se cerró.");
+    expect(describeSession(session("SUCCEEDED")).description).toBe("Autenticación completada hasta el menú SOL.");
+  });
+
+  it("solo se muestran destinos que el servidor habilita Y que la UI conoce (nunca SIRE ni afines)", () => {
+    expect(visibleDestinations(["MENU_SOL", "FICHA_RUC"])).toEqual(["MENU_SOL", "FICHA_RUC"]);
+    expect(visibleDestinations(["SIRE", "DECLARACIONES_Y_PAGOS", "DECLARA_FACIL", "TRAMITES_Y_CONSULTAS", "FICHA_RUC"])).toEqual(["FICHA_RUC"]);
+    expect(visibleDestinations(null)).toEqual([]);
+    expect(Object.keys(DESTINATION_LABEL)).toEqual(["MENU_SOL", "FICHA_RUC"]);
+  });
+});
+
+
+describe("diagnostico estructural del fallo", () => {
+  it("traduce los codigos de la lista cerrada y distingue identidad, bloqueo y tiempo", () => {
+    expect(describeDiagnostic("LOGIN_CONTROL_MISMATCH")?.message).toContain("aún no se pidió ninguna clave");
+    expect(describeDiagnostic("BLOCKED_BY_INTERMEDIATE_SCREEN")?.message).toContain("no pulsó nada");
+    expect(describeDiagnostic("NAVIGATION_TIMEOUT")?.message).toContain("tardó demasiado");
+    expect(describeDiagnostic("SHELL_MARKER_MISSING_OR_AMBIGUOUS")?.message).toContain("Iniciaste sesión");
+    expect(describeDiagnostic("FICHA_FRAME_NOT_VALIDATED")?.code).toBe("FICHA_FRAME_NOT_VALIDATED");
+    expect(describeDiagnostic("LANDING_TRANSIT_UNRESOLVED")?.message).toContain("aún no se pidió ninguna clave");
+    expect(describeDiagnostic("LANDING_BEFORE_AUTHENTICATION")?.message).toContain("ya autenticado");
+  });
+
+  it("un codigo desconocido con formato valido no inventa texto y uno con formato invalido se descarta", () => {
+    expect(describeDiagnostic("CODIGO_NUEVO_DEL_AGENTE")?.message).toBe("Fallo técnico no clasificado.");
+    for (const bad of [null, undefined, "", "minusculas", "<script>", "A".repeat(80), "con espacios"]) {
+      expect(describeDiagnostic(bad as string | null | undefined), String(bad)).toBeNull();
+    }
+  });
+});
+
+
+describe("motivos de la espera humana (aviso de validacion de contacto)", () => {
+  it("explica al contador que debe resolverlo el y que Luis IA no toca ni confirma nada", () => {
+    const contact = describeDiagnostic("CONTACT_VALIDATION_INTERSTITIAL")?.message ?? "";
+    expect(contact).toContain("Resuélvela tú");
+    expect(contact).toContain("no pulsa «Finalizar»");
+    expect(contact).toMatch(/no envía códigos/);
+    expect(describeDiagnostic("INFORMATIONAL_MODAL")?.message).toContain("Ciérrala tú");
+    expect(describeDiagnostic("HUMAN_ACTION_REQUIRED")?.message).toContain("bloquea el avance");
+    expect(describeDiagnostic("FICHA_CONTENT_NOT_READY")?.message).toContain("no se extrajo nada");
+  });
+});
+
+describe("navegación de autenticación detenida (sin acción humana)", () => {
+  it("no pide completar una verificación que no existe", () => {
+    const stalled = describeDiagnostic("AUTH_NAVIGATION_STALLED")?.message ?? "";
+    expect(stalled).toContain("no mostraba ninguna verificación");
+    expect(stalled).toContain("nueva sesión supervisada");
+    expect(stalled).not.toContain("Completa la verificación");
+    expect(describeDiagnostic("HUMAN_ACTION_REQUIRED")?.message).toContain("Resuélvela en el navegador");
   });
 });

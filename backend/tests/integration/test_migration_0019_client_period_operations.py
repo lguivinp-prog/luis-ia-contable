@@ -27,9 +27,10 @@ def _tables(url) -> set[str]:
     return {r[0] for r in rows}
 
 
-def test_single_head_is_0019() -> None:
+def test_single_head_is_0020_after_m2() -> None:
     script = ScriptDirectory.from_config(make_alembic_config())
-    assert script.get_heads() == ["0019"]
+    assert script.get_heads() == ["0020"]  # M2 avanzo la cabeza; 0019 sigue encadenado a 0018
+    assert script.get_revision("0020").down_revision == "0019"
     assert script.get_revision("0019").down_revision == "0018"
 
 

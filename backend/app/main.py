@@ -13,6 +13,7 @@ from app.routers import (
     auth,
     clients,
     cockpit,
+    ficha_ruc,
     communications,
     dashboard,
     declaration_documents,
@@ -104,6 +105,7 @@ app.include_router(professional_fees.router)
 app.include_router(reports.router)
 app.include_router(dashboard.router)
 app.include_router(cockpit.router)
+app.include_router(ficha_ruc.router)
 app.include_router(users.router)
 app.include_router(document_integrity.router)
 app.include_router(operational_tasks.router)

@@ -396,7 +396,9 @@ def test_no_secret_in_any_api_response_or_session_schema(world, running_broker):
         assert TEST_SOL_USER not in body and TEST_SOL_PASSWORD_DO_NOT_USE not in body and _VAULT_PASSWORD not in body
     assert set(w["api"].get(f"/api/v1/sol-access/sessions/{sid}").json()) == {
         "id", "client_id", "scope", "status", "terminal_reason_code", "operation_result", "created_at", "started_at",
-        "waiting_for_user_at", "completed_at", "expires_at", "version", "is_terminal"}
+        "waiting_for_user_at", "completed_at", "expires_at", "version", "is_terminal",
+        # M2: solo metadatos seguros (destino del enum cerrado, bandera de extraccion, instante del control humano)
+        "destination", "extract_ficha", "human_control_at", "diagnostic_code"}  # + codigo de diagnostico (lista cerrada, solo FAILED)
 
 
 def test_session_creation_requires_csrf_and_authentication(world, running_broker):

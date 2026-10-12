@@ -1,31 +1,50 @@
 "use client";
 
+import { SecureForm } from "@/components/ui/SecureForm";
+import { DeliberateInput } from "@/components/ui/DeliberateInput";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
-import { Input } from "@/components/ui/Input";
 import { useCurrentUser } from "@/lib/currentUserContext";
-import { cancelSolSession, createSolSession, fetchClientSolSession, fetchSolAgents } from "@/lib/solAccess";
+import { fetchFichaOverview, listFichaSnapshots } from "@/lib/fichaRuc";
+import { describeOfficialRegime, formatDateTime, UNCHANGED_MESSAGE, verificationOutcome } from "@/lib/fichaRucModel";
+import {
+  cancelSolSession,
+  createSolSession,
+  fetchClientSolSession,
+  fetchSolAgents,
+  fetchSolDestinations,
+} from "@/lib/solAccess";
 import {
   availableActions,
   classifyStartFailure,
   createStartGuard,
   describeCancelError,
+  DESTINATION_LABEL,
   describeConnectionTrouble,
-  describeSessionState,
+  describeSession,
   describeStartError,
+  describeDiagnostic,
   describeTerminalReason,
   evaluatePreflight,
   nextPollDelayMs,
   operationalHint,
   shouldPoll,
+  visibleDestinations,
   WAITING_FOR_USER_INSTRUCTIONS,
 } from "@/lib/solAccessModel";
 import { canCancelSolSession, canStartSolSession, canViewSupervisedSolAccess } from "@/lib/solAccessPermissions";
+import { canRefreshFicha } from "@/lib/sunatPermissions";
 import { fetchClientSolCredentialStatus, fetchSolVaultStatus, unlockSolVault } from "@/lib/solVault";
-import type { SolAccessSessionOut, SolAgentsOut } from "@/lib/types/solAccess";
+import type { FichaOverview, FichaSnapshot } from "@/lib/types/fichaRuc";
+import type { SolAccessSessionOut, SolAgentsOut, SolDestination } from "@/lib/types/solAccess";
 import type { SolCredentialStatusOut, SolVaultStatusOut } from "@/lib/types/solVault";
+
+function changedCount(snapshot: FichaSnapshot): number {
+  return snapshot.diff.filter((d) => d.changed).length;
+}
 
 function detailOf(err: unknown): unknown {
   return (err as { detail?: unknown } | undefined)?.detail;
@@ -38,6 +57,7 @@ export default function ClientSolAccessPage() {
   const canView = canViewSupervisedSolAccess(user);
   const canStart = canStartSolSession(user);
   const canCancel = canCancelSolSession(user);
+  const canRefresh = canRefreshFicha(user);
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -45,6 +65,9 @@ export default function ClientSolAccessPage() {
   const [credential, setCredential] = useState<SolCredentialStatusOut | null>(null);
   const [vault, setVault] = useState<SolVaultStatusOut | null>(null);
   const [agents, setAgents] = useState<SolAgentsOut | null>(null);
+  const [destinations, setDestinations] = useState<SolDestination[]>([]);
+  const [pendingProposal, setPendingProposal] = useState<FichaSnapshot | null>(null);
+  const [overview, setOverview] = useState<FichaOverview | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [cancelling, setCancelling] = useState(false);
@@ -59,15 +82,35 @@ export default function ClientSolAccessPage() {
   const [unlockError, setUnlockError] = useState<string | null>(null);
 
   const loadContext = useCallback(async () => {
-    const [cred, vlt, agt] = await Promise.allSettled([
+    const [cred, vlt, agt, dst] = await Promise.allSettled([
       fetchClientSolCredentialStatus(clientId),
       fetchSolVaultStatus(),
       fetchSolAgents(),
+      fetchSolDestinations(),
     ]);
     setCredential(cred.status === "fulfilled" ? cred.value : null);
     setVault(vlt.status === "fulfilled" ? vlt.value : null);
     setAgents(agt.status === "fulfilled" ? agt.value : null);
+    // Solo destinos habilitados por el servidor Y conocidos por la UI (los no validados nunca se muestran).
+    setDestinations(dst.status === "fulfilled" ? visibleDestinations(dst.value.destinations) : []);
   }, [clientId]);
+
+  // Propuesta pendiente de la Ficha RUC (para ofrecer la revision humana). Solo con permiso de edicion.
+  const loadProposal = useCallback(async () => {
+    if (!canRefresh) return;
+    try {
+      const [snaps, summary] = await Promise.all([listFichaSnapshots(clientId), fetchFichaOverview(clientId)]);
+      setPendingProposal(snaps.find((snap) => snap.review_status === "PENDING_REVIEW") ?? null);
+      setOverview(summary);
+    } catch {
+      setPendingProposal(null);
+    }
+  }, [clientId, canRefresh]);
+
+  const sessionStatus = session?.status;
+  useEffect(() => {
+    void Promise.resolve().then(() => loadProposal());
+  }, [loadProposal, sessionStatus]);
 
   // Carga inicial: restaura la sesion activa desde el backend (la UI no recuerda nada por si misma).
   useEffect(() => {
@@ -138,13 +181,15 @@ export default function ClientSolAccessPage() {
     }
   }
 
-  async function handleStart() {
+  async function handleStart(destination?: SolDestination, extractFicha = false) {
+    // Cada intencion nueva (otra sesion tras una terminal / otro destino) usa su PROPIA clave de idempotencia.
+    if (!session || session.is_terminal === true) guardRef.current.reset();
     const key = guardRef.current.begin();
     if (key === null) return;
     setStarting(true);
     setActionError(null);
     try {
-      const created = await createSolSession(clientId, key);
+      const created = await createSolSession(clientId, key, { destination, extractFicha });
       guardRef.current.finish("created");
       setSession(created);
     } catch (err) {
@@ -187,8 +232,9 @@ export default function ClientSolAccessPage() {
 
   const preflight = evaluatePreflight({ canStart, credential, vault, agents, session });
   const actions = availableActions(session, canCancel);
-  const state = session ? describeSessionState(session.status) : null;
+  const state = session ? describeSession(session) : null;
   const reason = session ? describeTerminalReason(session.terminal_reason_code) : null;
+  const diagnostic = session && (session.status === "FAILED" || session.status === "WAITING_FOR_USER") ? describeDiagnostic(session.diagnostic_code) : null;
   const trouble = describeConnectionTrouble(failures);
   const vaultLocked = vault != null && vault.initialized && vault.status === "ACTIVE" && !vault.unlocked;
   const active = session != null && polling;
@@ -196,9 +242,9 @@ export default function ClientSolAccessPage() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem", maxWidth: "640px" }}>
       <div>
-        <h1 style={{ fontSize: "1.4rem" }}>Acceso SOL supervisado</h1>
+        <h1 style={{ fontSize: "1.4rem" }}>Centro SUNAT del cliente</h1>
         <p style={{ color: "var(--muted)", marginTop: "0.35rem" }}>
-          Autentica hasta el menú SOL con el agente local. Nunca se muestran usuario, clave ni datos de la sesión.
+          Acceso SOL supervisado: abre un destino validado de SOL con el agente local y lo deja en tus manos. Nunca se muestran usuario, clave ni datos de la sesión.
         </p>
       </div>
 
@@ -231,12 +277,10 @@ export default function ClientSolAccessPage() {
           <h2 id="sol-access-boveda" style={{ fontSize: "1.05rem", marginBottom: "0.75rem" }}>
             Desbloquear bóveda
           </h2>
-          <form onSubmit={handleUnlock} style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-            <Input
+          <SecureForm onSubmit={handleUnlock} style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+            <DeliberateInput secret
               id="sol-access-vault-password"
               label="Contraseña de la bóveda"
-              type="password"
-              autoComplete="off"
               required
               value={vaultPassword}
               onChange={(e) => setVaultPassword(e.target.value)}
@@ -245,20 +289,92 @@ export default function ClientSolAccessPage() {
             <Button type="submit" disabled={unlocking || !vaultPassword}>
               {unlocking ? "Desbloqueando…" : "Desbloquear bóveda"}
             </Button>
-          </form>
+          </SecureForm>
+        </section>
+      )}
+
+      {overview && (
+        <section className="surface-card" style={{ padding: "1.25rem" }} aria-labelledby="sol-access-info">
+          <h2 id="sol-access-info" style={{ fontSize: "1.05rem", marginBottom: "0.5rem" }}>
+            Información SUNAT guardada
+          </h2>
+          <p>
+            <strong>Régimen según SUNAT:</strong>{" "}
+            {describeOfficialRegime(overview).confirmed
+              ? `${describeOfficialRegime(overview).text} (al ${formatDateTime(describeOfficialRegime(overview).asOf)})`
+              : describeOfficialRegime(overview).text}
+          </p>
+          <p style={{ color: "var(--muted)", marginTop: "0.3rem" }}>
+            {overview.latest_accepted
+              ? `Última Ficha RUC aceptada: consultada el ${formatDateTime(overview.latest_accepted.retrieved_at)}. Puedes revisarla en la ficha del cliente sin abrir SUNAT.`
+              : "Aún no hay una Ficha RUC aceptada."}
+          </p>
+          {overview.pending_snapshot_id && (
+            <p role="status" style={{ marginTop: "0.4rem", fontWeight: 600 }}>
+              Hay cambios de la Ficha RUC sin revisar.{" "}
+              {canRefresh && (
+                <Link href={`/clients/${clientId}/ficha-ruc/${overview.pending_snapshot_id}`}>Revisar la propuesta pendiente</Link>
+              )}
+            </p>
+          )}
+          {overview.last_unchanged_verification_at && !overview.pending_snapshot_id && (
+            <p style={{ color: "var(--muted)", marginTop: "0.3rem" }}>
+              Última verificación sin cambios: {formatDateTime(overview.last_unchanged_verification_at)}.
+            </p>
+          )}
+          <p style={{ marginTop: "0.4rem" }}>
+            <Link href={`/clients/${clientId}`}>Ver Información SUNAT del cliente</Link>
+          </p>
         </section>
       )}
 
       {!session || !active ? (
         canStart && (
-          <section className="surface-card" style={{ padding: "1.25rem" }}>
-            <Button type="button" onClick={handleStart} disabled={!preflight.canStart || starting}>
-              {starting ? "Iniciando…" : "Iniciar acceso SOL"}
-            </Button>
-            {!preflight.canStart && (
-              <p style={{ color: "var(--muted)", marginTop: "0.5rem" }}>
-                Completa los requisitos pendientes para habilitar el inicio.
+          <section className="surface-card" style={{ padding: "1.25rem", display: "flex", flexDirection: "column", gap: "1rem" }}>
+            <div>
+              <h2 style={{ fontSize: "1.05rem", marginBottom: "0.4rem" }}>Abrir en SUNAT (solo ver)</h2>
+              <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap" }}>
+                {destinations.map((destination) => (
+                  <Button
+                    key={destination}
+                    type="button"
+                    onClick={() => void handleStart(destination)}
+                    disabled={!preflight.canStart || starting}
+                  >
+                    Abrir {DESTINATION_LABEL[destination]}
+                  </Button>
+                ))}
+                <Button type="button" variant="secondary" onClick={() => void handleStart()} disabled={!preflight.canStart || starting}>
+                  {starting ? "Iniciando…" : "Solo autenticar (hasta el menú)"}
+                </Button>
+              </div>
+              <p style={{ color: "var(--muted)", marginTop: "0.4rem", fontSize: "0.85rem" }}>
+                Abre el destino en el navegador local y lo deja en tus manos. No lee ni guarda datos.
               </p>
+            </div>
+            {canRefresh && destinations.includes("FICHA_RUC") && (
+              <div>
+                <h2 style={{ fontSize: "1.05rem", marginBottom: "0.4rem" }}>Actualizar datos desde Ficha RUC</h2>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => void handleStart("FICHA_RUC", true)}
+                  disabled={!preflight.canStart || starting}
+                >
+                  Actualizar datos desde Ficha RUC
+                </Button>
+                <p style={{ color: "var(--muted)", marginTop: "0.4rem", fontSize: "0.85rem" }}>
+                  Lee la Ficha RUC y la compara con la última guardada. Verás cada cambio por separado y decides cuál aceptar; si no hay
+                  cambios, se indica «{UNCHANGED_MESSAGE}». Los datos internos (contactos, honorarios, notas) no se tocan.
+                </p>
+              </div>
+            )}
+            <p style={{ color: "var(--muted)", fontSize: "0.85rem" }}>
+              Se inicia sesión con la credencial guardada en la bóveda; si SUNAT muestra un aviso de contacto, lo resuelves tú en la
+              ventana del navegador (pulsando «Finalizar» cuando corresponda). Nada se envía, presenta, paga ni modifica en SUNAT.
+            </p>
+            {!preflight.canStart && (
+              <p style={{ color: "var(--muted)" }}>Completa los requisitos pendientes para habilitar el inicio.</p>
             )}
           </section>
         )
@@ -282,6 +398,7 @@ export default function ClientSolAccessPage() {
           {session.status === "WAITING_FOR_USER" && (
             <div className="simulated-banner" style={{ marginTop: "0.75rem", fontWeight: 600 }}>
               <p>Requiere tu intervención</p>
+              {diagnostic && <p data-testid="sol-waiting-reason" style={{ marginTop: "0.35rem", fontWeight: 400 }}>{diagnostic.message}</p>}
               <ul style={{ marginTop: "0.35rem", paddingLeft: "1.2rem" }}>
                 {WAITING_FOR_USER_INSTRUCTIONS.map((line) => (
                   <li key={line}>{line}</li>
@@ -297,6 +414,19 @@ export default function ClientSolAccessPage() {
             <p style={{ marginTop: "0.5rem" }}>
               {reason.message}
               {reason.supportCode ? <span style={{ color: "var(--muted)" }}> (código: {reason.supportCode})</span> : null}
+              {diagnostic ? <span data-testid="sol-diagnostic" style={{ display: "block", marginTop: "0.3rem" }}>{diagnostic.message} <span style={{ color: "var(--muted)" }}>(diagnóstico: {diagnostic.code})</span></span> : null}
+            </p>
+          )}
+          {session.status === "SUCCEEDED" && session.destination === "FICHA_RUC" && verificationOutcome(overview, session.created_at) === "UNCHANGED" && (
+            <p data-testid="ficha-unchanged" role="status" style={{ marginTop: "0.75rem", fontWeight: 600 }}>
+              {UNCHANGED_MESSAGE}
+            </p>
+          )}
+          {pendingProposal && canRefresh && (
+            <p style={{ marginTop: "0.75rem" }}>
+              <Link href={`/clients/${clientId}/ficha-ruc/${pendingProposal.id}`}>
+                Revisar la propuesta de la Ficha RUC ({changedCount(pendingProposal)} {changedCount(pendingProposal) === 1 ? "cambio" : "cambios"})
+              </Link>
             </p>
           )}
           {actions.includes("cancel") && (

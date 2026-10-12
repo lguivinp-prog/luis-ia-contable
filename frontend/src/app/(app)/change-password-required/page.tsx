@@ -1,5 +1,6 @@
 "use client";
 
+import { SecureForm } from "@/components/ui/SecureForm";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
@@ -66,7 +67,7 @@ export default function ChangePasswordRequiredPage() {
         Un administrador te asignó una contraseña temporal. Debes establecer una contraseña propia antes
         de continuar.
       </p>
-      <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+      <SecureForm onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
         {error && <div className="error-banner">{error}</div>}
         <Input
           label="Contraseña actual (temporal)"
@@ -97,7 +98,7 @@ export default function ChangePasswordRequiredPage() {
         <Button type="submit" disabled={submitting}>
           {submitting ? "Guardando…" : "Cambiar contraseña"}
         </Button>
-      </form>
+      </SecureForm>
     </div>
   );
 }

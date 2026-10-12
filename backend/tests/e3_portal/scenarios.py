@@ -81,7 +81,7 @@ class FakeCredentialProvider:
 
 def _executor(portal: FakeSolPortal, **kw) -> SupervisedAuthExecutor:
     defaults = dict(navigation_timeout_seconds=20.0, settle_grace_seconds=1.5, challenge_timeout_seconds=30.0,
-                    poll_interval_seconds=0.1, pre_credential_attempts=2)
+                    poll_interval_seconds=0.1, pre_credential_attempts=2, landing_hop_grace_seconds=1.5)
     defaults.update(kw)
     return SupervisedAuthExecutor(test_contract(portal), headless=False, **defaults)
 

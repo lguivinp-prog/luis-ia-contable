@@ -188,9 +188,13 @@ def test_login_snapshot_js_is_read_only_and_never_reads_field_values():
 
 def test_executor_has_a_single_evaluate_call_three_fills_and_three_clicks():
     code = _executor_code()
-    assert code.count(".evaluate(") == 1 and "_LOGIN_SNAPSHOT_JS" in code
+    # dos lecturas de SOLO LECTURA con scripts CONSTANTES: la instantanea de ids del login/shell y la lectura estructural de avisos
+    # intermedios (`interstitial.INTERSTITIAL_JS`, vocabulario cerrado); ninguna recibe datos del llamador ni modifica la pagina.
+    assert code.count(".evaluate(") == 2 and "_LOGIN_SNAPSHOT_JS" in code and "interstitial.INTERSTITIAL_JS" in code
     assert code.count(".fill(") == 3
-    assert code.count(".click(") == 3  # entrada, activacion RUC (max 1), enviar; ninguno posterior al landing
+    # entrada, activacion RUC (max 1), enviar + (M2) `guarded_click`: el UNICO clic post-aterrizaje, sujeto al presupuesto
+    # de navegacion del destino (0 por defecto, congelado tras validar el destino).
+    assert code.count(".click(") == 5  # + la comprobacion SIN efectos (`trial=True`) previa al unico clic post-aterrizaje
 
 
 def test_ruc_mode_activation_is_capped_at_one_click_by_construction():

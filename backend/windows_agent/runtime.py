@@ -15,6 +15,7 @@ conecte "job reclamado" con "solicitar credencial"."""
 
 from __future__ import annotations
 
+import json
 import ssl
 import time
 import uuid
@@ -24,8 +25,10 @@ from logging import Logger, getLogger
 
 import httpx
 
+from windows_agent import auth_trace
 from windows_agent.broker_client import BrokerUnreachableError, OperationalBrokerClient
 from windows_agent.browser_executor import SupervisedAuthExecutor, run_authentication
+from windows_agent.destination_executor import run_destination_session
 from windows_agent.portal_contract import AGENT_REPORTABLE_REASON_CODES, AuthOutcome, AuthResult
 from windows_agent.config import AgentConfig
 from windows_agent.identity import AgentIdentity
@@ -84,6 +87,8 @@ class AgentRuntime:
         self._auth_executor_factory = auth_executor_factory
         self._cancelled_jobs: set[uuid.UUID] = set()
         self._job_sessions: dict[uuid.UUID, uuid.UUID] = {}
+        # M2: (destino aprobado por el servidor, extraer Ficha) por job reclamado. Nunca URL/selector.
+        self._job_destinations: dict[uuid.UUID, tuple[str | None, bool]] = {}
 
     def _default_client_factory(self, ssl_context: ssl.SSLContext) -> OperationalBrokerClient:
         return OperationalBrokerClient(
@@ -124,7 +129,7 @@ class AgentRuntime:
     def heartbeat_once(self) -> dict:
         assert self._client is not None and self._connection_id is not None, "connect() debe llamarse primero"
         try:
-            result = self._client.heartbeat(connection_id=self._connection_id)
+            result = self._client.heartbeat(connection_id=self._connection_id, holding_job_id=self._active_job_id)
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code == 401:
                 self.state = AgentState.REVOKED
@@ -248,6 +253,7 @@ class AgentRuntime:
         session_raw = job_info.get("session_id")
         if session_raw is not None:
             self._job_sessions[job_id] = uuid.UUID(str(session_raw))
+        self._job_destinations[job_id] = (job_info.get("destination"), bool(job_info.get("extract_ficha")))
         log_event(self._logger, "job_claimed", job_id=str(job_id))
         # DELIBERADAMENTE nada mas aqui -- ver el docstring del modulo.
         return job_id
@@ -270,6 +276,19 @@ class AgentRuntime:
             raise
         except Exception as exc:  # noqa: BLE001 -- nunca mata el bucle; nunca registra contenido
             log_event(self._logger, "auth_unexpected_error", error=type(exc).__name__)
+            # Nunca se deja la sesion "en curso": se informa el fallo (el backend valida y cierra sesion y job; un reporte
+            # duplicado o rechazado es inocuo) y se deja de declarar el job como sostenido.
+            accepted = self._send_status(job_id, "FAILED", "INTERNAL_ERROR", "UNEXPECTED_ERROR")
+            log_event(self._logger, "auth_diagnostic", job_id=str(job_id), stage="UNKNOWN", diagnostic_code="UNEXPECTED_ERROR", report_accepted=accepted)
+        finally:
+            self._release_job(job_id)
+
+    def _release_job(self, job_id: uuid.UUID) -> None:
+        """El agente ya no sostiene este job (termino, fallo o se cancelo): el heartbeat deja de declararlo."""
+        if self._active_job_id == job_id:
+            self._active_job_id = None
+        self._job_sessions.pop(job_id, None)
+        self._job_destinations.pop(job_id, None)
 
     def authenticate_claimed_job(self, job_id: uuid.UUID, *, heartbeat_every_seconds: float = 3.0) -> AuthResult:
         """Ejecuta la autenticacion supervisada de un job YA reclamado. La
@@ -285,10 +304,15 @@ class AgentRuntime:
             return job_id in self._cancelled_jobs
 
         def _tick() -> None:
-            if time.monotonic() - last_beat[0] < heartbeat_every_seconds or self._connection_id is None:
+            if time.monotonic() - last_beat[0] < heartbeat_every_seconds:
                 return
             last_beat[0] = time.monotonic()
             try:
+                if self._connection_id is None:
+                    # M2: el broker se reinicio o reemplazo la conexion mientras el humano sigue en el navegador:
+                    # HELLO nuevo; el heartbeat siguiente (con `holding_job_id`) readopta el job si sigue vigente.
+                    self.connect()
+                    log_event(self._logger, "auth_reconnected", job_id=str(job_id))
                 self.heartbeat_once()
             except AgentRevokedError:
                 raise
@@ -298,14 +322,28 @@ class AgentRuntime:
         def _on_state(state: AuthOutcome) -> None:
             log_event(self._logger, "auth_state", state=state.value, job_id=str(job_id))
             if state is AuthOutcome.WAITING_FOR_USER:
-                self._send_status(job_id, "WAITING_FOR_USER")  # el backend valida y proyecta a la sesion
+                # el backend valida y proyecta a la sesion; el motivo (categoria cerrada) permite explicar al contador que hacer
+                self._send_status(job_id, "WAITING_FOR_USER", None, getattr(executor, "waiting_reason", None))
 
         executor = self._auth_executor_factory(is_cancelled=_is_cancelled, tick=_tick, on_state=_on_state)
-        result = run_authentication(
-            executor,
-            lambda: client.fetch_credential_for_job(connection_id=self._connection_id or "", job_id=job_id),
-            preauth_ready=lambda: self._send_status(job_id, "PREAUTH_READY"),
+        credential_provider = lambda: client.fetch_credential_for_job(  # noqa: E731
+            connection_id=self._connection_id or "", job_id=job_id
         )
+        destination, extract_ficha = self._job_destinations.pop(job_id, (None, False))
+        if destination is None:
+            result = run_authentication(
+                executor, credential_provider, preauth_ready=lambda: self._send_status(job_id, "PREAUTH_READY")
+            )
+        else:
+            result = run_destination_session(
+                executor,
+                credential_provider,
+                lambda: self._send_status(job_id, "PREAUTH_READY"),
+                destination=destination,
+                extract_ficha=extract_ficha,
+                report_ficha=lambda payload: self._report_ficha(job_id, payload),
+                report_human_control=lambda: self._send_status(job_id, "HUMAN_CONTROL"),
+            )
         log_event(
             self._logger,
             "auth_result",
@@ -314,11 +352,28 @@ class AgentRuntime:
             terminal_reason_code=result.terminal_reason_code,
             credential_submissions=result.credential_submissions,
             post_landing_clicks=result.post_landing_clicks,
+            destination_clicks=result.destination_clicks,
+            destination_reached=result.destination_reached,
         )
         self._report_auth_result(job_id, result)
         return result
 
-    def _send_status(self, job_id: uuid.UUID, status: str, reason_code: str | None = None) -> bool:
+    def _report_ficha(self, job_id: uuid.UUID, payload: dict) -> bool:
+        """Reporta los campos estructurados de la Ficha; nunca lanza. `False` => el backend la rechazo o no respondio."""
+        if self._client is None or self._connection_id is None:
+            return False
+        try:
+            return self._client.report_ficha(
+                connection_id=self._connection_id, job_id=job_id, session_id=self._job_sessions.get(job_id),
+                payload=payload,
+            )
+        except (BrokerUnreachableError, httpx.HTTPError, OSError):
+            log_event(self._logger, "ficha_report_failed", job_id=str(job_id))
+            return False
+
+    def _send_status(
+        self, job_id: uuid.UUID, status: str, reason_code: str | None = None, diagnostic_code: str | None = None
+    ) -> bool:
         """Un reporte semantico por el contrato existente (`/status` extendido). Nunca lanza."""
         if self._client is None or self._connection_id is None:
             return False
@@ -329,6 +384,7 @@ class AgentRuntime:
                 status=status,
                 reason_code=reason_code,
                 session_id=self._job_sessions.get(job_id),
+                diagnostic_code=diagnostic_code,
             )
             return True
         except (BrokerUnreachableError, httpx.HTTPError, OSError):
@@ -346,8 +402,32 @@ class AgentRuntime:
             code = result.terminal_reason_code
             if code not in AGENT_REPORTABLE_REASON_CODES:
                 code = "INTERNAL_ERROR"
-            self._send_status(job_id, "FAILED", code)
+            accepted = self._send_status(job_id, "FAILED", code, result.diagnostic_code)
+            self._log_diagnostic(job_id, result, report_accepted=accepted)
         self._active_job_id = None
+
+    def _log_diagnostic(self, job_id: uuid.UUID, result: AuthResult, *, report_accepted: bool) -> None:
+        """Diagnostico ESTRUCTURAL saneado del fallo (etapa, codigo estable, contadores/booleanos; nunca contenido del portal)."""
+        from windows_agent import diagnostics
+
+        obs = result.observation or {}
+        log_event(
+            self._logger,
+            "auth_diagnostic",
+            job_id=str(job_id),
+            stage=result.stage,
+            diagnostic_code=result.diagnostic_code,
+            detail=diagnostics.safe_detail(result.detail),
+            shell_reached=result.shell_reached,
+            ficha_reached=result.destination_reached,
+            destination_clicks=result.destination_clicks,
+            last_safe_action=obs.get("last_safe_action"),
+            page_count=obs.get("page_count"),
+            frame_count=obs.get("frame_count"),
+            surface_kind=obs.get("surface_kind"),
+            observation=json.dumps(auth_trace.scrub({k: v for k, v in obs.items() if k not in {"last_safe_action"}}), sort_keys=True)[:9000],
+            report_accepted=report_accepted,
+        )
 
     def report_cancellation_observed(self, *, job_id: uuid.UUID) -> None:
         """Actualiza el estado EN MEMORIA del job activo tras observar una

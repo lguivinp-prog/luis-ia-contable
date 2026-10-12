@@ -6,11 +6,19 @@ export type SolSessionStatus =
   | "WAITING_FOR_AGENT"
   | "WAITING_FOR_USER"
   | "IN_PROGRESS"
+  | "HUMAN_CONTROL"
   | "SUCCEEDED"
   | "PARTIAL_FAILURE"
   | "FAILED"
   | "CANCELLED"
   | "EXPIRED";
+
+// Allowlist cerrada de destinos LIVE-VALIDADOS (M2). El frontend solo envia este enum: nunca URL, selector ni script.
+export type SolDestination = "MENU_SOL" | "FICHA_RUC";
+
+export interface SolDestinationsOut {
+  destinations: SolDestination[];
+}
 
 export interface SolAccessSessionOut {
   id: string;
@@ -26,6 +34,11 @@ export interface SolAccessSessionOut {
   expires_at: string;
   version: number;
   is_terminal: boolean;
+  destination: SolDestination | string | null;
+  extract_ficha: boolean;
+  human_control_at: string | null;
+  /** Codigo de diagnostico estructural del fallo (lista cerrada; nunca texto del portal). */
+  diagnostic_code?: string | null;
 }
 
 export interface SolAgentOut {

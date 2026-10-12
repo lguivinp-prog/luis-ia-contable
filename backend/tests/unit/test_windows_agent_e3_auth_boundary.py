@@ -176,7 +176,13 @@ def test_product_browser_code_has_no_persistence_capture_or_free_form_interactio
 def test_product_browser_code_has_only_the_three_authorised_clicks_and_one_goto():
     code = _code_only(_source())
     assert code.count(".goto(") == 1  # unica navegacion directa: la entrada autorizada
-    assert code.count(".click(") == 3  # enlace de entrada, modo RUC, enviar (nunca post-landing)
+    # enlace de entrada, modo RUC, enviar + (M2) el UNICO camino post-aterrizaje: `guarded_click`, que rechaza el clic si
+    # el presupuesto de navegacion del destino esta agotado o la automatizacion fue congelada.
+    # `guarded_click` hace una comprobacion de accionabilidad SIN efectos (`trial=True`) y despues UN clic real.
+    assert code.count(".click(") == 5
+    guarded = code.split("def guarded_click", 1)[1].split("def ", 1)[0]
+    assert guarded.count(".click(") == 2 and guarded.count("trial=True") == 1
+    assert "_nav_budget <= 0" in guarded and "_AutomationStopped" in guarded and "_NavigationBlocked" in guarded
 
 
 def test_product_code_never_references_buzon_or_other_forbidden_scope():

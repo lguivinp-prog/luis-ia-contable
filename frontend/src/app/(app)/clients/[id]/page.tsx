@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Select } from "@/components/ui/Select";
 import { ClientForm } from "@/components/clients/ClientForm";
+import { SunatInformation } from "@/components/clients/SunatInformation";
 import { apiClient } from "@/lib/apiClient";
 import { buildClientUpdatePayload } from "@/lib/clientUpdatePayload";
 import { useCurrentUser } from "@/lib/currentUserContext";
@@ -31,6 +32,7 @@ export default function ClientDetailPage() {
   const [newStatus, setNewStatus] = useState<ServiceStatus | "">("");
   const [statusNote, setStatusNote] = useState("");
   const [statusError, setStatusError] = useState<string | null>(null);
+  const [infoVersion, setInfoVersion] = useState(0); // fuerza releer «Información SUNAT» tras guardar (el regimen interno cambia)
 
   useEffect(() => {
     apiClient.get<Client>(`/clients/${params.id}`).then(setClient);
@@ -40,6 +42,7 @@ export default function ClientDetailPage() {
     const payload = buildClientUpdatePayload(values);
     const updated = await apiClient.put<Client>(`/clients/${params.id}`, payload);
     setClient(updated);
+    setInfoVersion((v) => v + 1);
   }
 
   async function handleStatusChange() {
@@ -98,7 +101,7 @@ export default function ClientDetailPage() {
           {canViewSupervisedSolAccess(user) && (
             <Link href={`/clients/${client.id}/sol-access`}>
               <Button variant="secondary" type="button">
-                Acceso SOL supervisado
+                Centro SUNAT
               </Button>
             </Link>
           )}
@@ -136,8 +139,14 @@ export default function ClientDetailPage() {
         </section>
       )}
 
+      <SunatInformation key={infoVersion} clientId={client.id} canOpenCenter={canViewSupervisedSolAccess(user)} />
+
       <section>
-        <h2 style={{ fontSize: "1.05rem", marginBottom: "0.75rem" }}>Datos del contribuyente</h2>
+        <h2 style={{ fontSize: "1.05rem", marginBottom: "0.75rem" }}>Datos internos del contribuyente</h2>
+        <p style={{ color: "var(--muted)", marginBottom: "0.5rem", fontSize: "0.85rem" }}>
+          Contactos, honorarios, etiquetas y notas son datos internos de tu estudio; la información tributaria oficial está en «Información
+          SUNAT».
+        </p>
         {canWrite ? (
           <ClientForm initialValues={client} onSubmit={handleSubmit} submitLabel="Guardar cambios" lockRuc />
         ) : (

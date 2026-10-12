@@ -60,6 +60,7 @@ const FISCAL_ADDRESS_CONDITION_OPTIONS = [
 const TAX_REGIME_OPTIONS = [
   { value: "NRUS", label: "NRUS" },
   { value: "RER", label: "RER" },
+  { value: "SIN_DETERMINAR", label: "Sin determinar (no confirmado por SUNAT)" },
   { value: "RMT", label: "RMT" },
   { value: "GENERAL", label: "General" },
 ];
@@ -79,7 +80,7 @@ const DEFAULT_VALUES: ClientBase = {
   district: null,
   main_economic_activity: null,
   secondary_economic_activities: null,
-  tax_regime: "RMT",
+  tax_regime: "SIN_DETERMINAR", // nunca un regimen por defecto: se confirma con la Ficha RUC o lo elige un profesional
   activities_start_date: null,
   issuance_system: null,
   phone: null,
@@ -106,14 +107,18 @@ export function ClientForm({ initialValues, onSubmit, submitLabel, lockRuc }: Cl
   const [values, setValues] = useState<ClientBase>(initialValues ?? DEFAULT_VALUES);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [saved, setSaved] = useState(false);
 
   function update<K extends keyof ClientBase>(key: K, value: ClientBase[K]) {
+    setSaved(false);
     setValues((prev) => ({ ...prev, [key]: value }));
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
+    setSaved(false);
+    if (submitting) return; // doble envio: una sola solicitud en curso
 
     if (!isValidRuc(values.ruc)) {
       setError("El RUC ingresado no tiene un dígito verificador válido.");
@@ -123,6 +128,7 @@ export function ClientForm({ initialValues, onSubmit, submitLabel, lockRuc }: Cl
     setSubmitting(true);
     try {
       await onSubmit(values);
+      setSaved(true); // confirmacion visible: antes un guardado correcto no mostraba nada
     } catch (err) {
       setError(describeSubmitError(err));
     } finally {
@@ -132,7 +138,12 @@ export function ClientForm({ initialValues, onSubmit, submitLabel, lockRuc }: Cl
 
   return (
     <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "1.25rem", maxWidth: "640px" }}>
-      {error && <div className="error-banner">{error}</div>}
+      {error && <div className="error-banner" role="alert">{error}</div>}
+      {saved && (
+        <div role="status" data-testid="client-saved" style={{ border: "1px solid var(--success, #2e7d32)", borderRadius: "6px", padding: "0.6rem 0.8rem" }}>
+          Cambios guardados. Si modificaste el régimen tributario, quedó registrado como corrección manual.
+        </div>
+      )}
 
       <div style={{ display: "flex", gap: "1rem", alignItems: "flex-end" }}>
         <Input
@@ -182,6 +193,9 @@ export function ClientForm({ initialValues, onSubmit, submitLabel, lockRuc }: Cl
           value={values.tax_regime}
           onChange={(event) => update("tax_regime", event.target.value as ClientBase["tax_regime"])}
         />
+        <p style={{ color: "var(--muted)", fontSize: "0.8rem", alignSelf: "flex-end" }}>
+          Si corriges el régimen a mano (por ejemplo desde el reporte oficial), queda registrado como corrección manual, no como dato de SUNAT.
+        </p>
       </div>
 
       <div style={{ display: "flex", gap: "1rem" }}>

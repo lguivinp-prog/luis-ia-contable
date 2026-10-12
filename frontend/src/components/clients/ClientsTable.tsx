@@ -4,6 +4,8 @@ import { Table } from "@/components/ui/Table";
 import { SERVICE_STATUS_SEMAPHORE, StatusSemaphore } from "@/components/ui/StatusSemaphore";
 import type { Client } from "@/lib/types/client";
 
+const TAX_REGIME_DISPLAY: Record<string, string> = { SIN_DETERMINAR: "Sin determinar" };
+
 export function ClientsTable({ clients }: { clients: Client[] }) {
   return (
     <Table
@@ -28,7 +30,7 @@ export function ClientsTable({ clients }: { clients: Client[] }) {
         {
           key: "tax_regime",
           header: "Régimen",
-          render: (client) => client.tax_regime,
+          render: (client) => TAX_REGIME_DISPLAY[client.tax_regime] ?? client.tax_regime,
         },
         {
           key: "monthly_fee",

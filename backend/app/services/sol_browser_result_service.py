@@ -13,6 +13,8 @@ llamar aqui.
 
 Relacion job/sesion (explicita):
 - `WAITING_FOR_USER` es un estado de SESION; el job sigue `CLAIMED`.
+- M2: `HUMAN_CONTROL` (destino validado, automatizacion terminada, navegador abierto bajo control humano) es un estado
+  de SESION NO terminal con el job aun `CLAIMED`; una sesion con destino solo llega a `SUCCEEDED` DESDE `HUMAN_CONTROL`;
 - el job pasa a `COMPLETED` SOLO junto con la sesion `SUCCEEDED` (misma
   transaccion), y a `FAILED` junto con la sesion `FAILED`;
 - `WAITING_FOR_USER -> SUCCEEDED` se materializa con dos saltos LEGALES en la
@@ -59,7 +61,27 @@ class BrowserResultOutcome:
     idempotent: bool = False
 
 
+# Motivos de la espera humana que el agente puede declarar (categorias cerradas; replica de `windows_agent.interstitial.WAITING_REASONS`).
+WAITING_REASON_CODES = frozenset({"CONTACT_VALIDATION_INTERSTITIAL", "INFORMATIONAL_MODAL", "HUMAN_ACTION_REQUIRED"})
 _NON_TERMINAL_PRE_RESULT = {"WAITING_FOR_AGENT", "IN_PROGRESS", "WAITING_FOR_USER"}
+
+
+def _snapshot_exists(db: Session, session_id: uuid.UUID) -> bool:
+    from sqlalchemy import select
+
+    from app.models.client_ficha_ruc import ClientFichaRucSnapshot
+
+    from app.models.audit_log import AuditAction, AuditLog
+
+    if db.execute(select(ClientFichaRucSnapshot.id).where(ClientFichaRucSnapshot.session_id == session_id)).first() is not None:
+        return True
+    # Flujo B: una Ficha IDENTICA al ultimo snapshot aceptado se verifica sin crear otro snapshot (queda constancia en auditoria).
+    return db.execute(
+        select(AuditLog.id).where(
+            AuditLog.action == AuditAction.FICHA_VERIFIED_NO_CHANGES.value,
+            AuditLog.log_metadata["session_id"].astext == str(session_id),
+        )
+    ).first() is not None
 
 
 def _promote_to_in_progress(db: Session, tenant_id: uuid.UUID, session_row):
@@ -80,6 +102,7 @@ def apply_browser_result(
     claimed_session_id: uuid.UUID | None,
     status: str,
     reason_code: str | None,
+    diagnostic_code: str | None = None,
 ) -> BrowserResultOutcome:
     try:
         session_row, job = job_service._lock_session_then_job(db, tenant_id=tenant_id, job_id=job_id)
@@ -97,8 +120,30 @@ def apply_browser_result(
             raise BrowserResultRejectedError()
         session_row = _promote_to_in_progress(db, tenant_id, session_row)
         session_row = session_service.report_waiting_for_user(
+            db, tenant_id=tenant_id, session_id=session_row.id, expected_version=session_row.version,
+            diagnostic_code=diagnostic_code if diagnostic_code in WAITING_REASON_CODES else None,
+        )
+        return BrowserResultOutcome(job.id, job.status, session_row.status)
+
+    if status == "HUMAN_CONTROL":
+        # M2: destino validado + automatizacion TERMINADA; el navegador sigue abierto bajo control del humano.
+        if sstatus == "HUMAN_CONTROL" and job.status == "CLAIMED":
+            return BrowserResultOutcome(job.id, job.status, sstatus, idempotent=True)
+        if (
+            job.status != "CLAIMED"
+            or job.credential_delivered_at is None
+            or session_row.scope != "NAVIGATE_TO_DESTINATION"
+            or sstatus not in _NON_TERMINAL_PRE_RESULT
+        ):
+            raise BrowserResultRejectedError()
+        if session_row.extract_ficha and not _snapshot_exists(db, session_row.id):
+            raise BrowserResultRejectedError()  # la extraccion pedida debio reportarse ANTES del traspaso
+        session_row = _promote_to_in_progress(db, tenant_id, session_row)
+        session_row = session_service.report_human_control(
             db, tenant_id=tenant_id, session_id=session_row.id, expected_version=session_row.version
         )
+        job.expires_at = session_row.expires_at  # el job vive lo que el control humano (nunca mas que la sesion)
+        db.flush()
         return BrowserResultOutcome(job.id, job.status, session_row.status)
 
     if status == "COMPLETED":
@@ -106,9 +151,16 @@ def apply_browser_result(
             return BrowserResultOutcome(job.id, job.status, sstatus, idempotent=True)
         # Exito solo si la credencial fue realmente entregada a este job: un
         # HTTP 200 del agente nunca basta para declarar la sesion exitosa.
-        if job.status != "CLAIMED" or job.credential_delivered_at is None or sstatus not in _NON_TERMINAL_PRE_RESULT:
+        if job.status != "CLAIMED" or job.credential_delivered_at is None or sstatus not in _NON_TERMINAL_PRE_RESULT | {"HUMAN_CONTROL"}:
             raise BrowserResultRejectedError()
-        session_row = _promote_to_in_progress(db, tenant_id, session_row)
+        # M2: una sesion con destino solo puede completarse DESDE el control humano (el humano cerro el navegador);
+        # nunca se declara exito sin haber alcanzado y validado el destino.
+        if session_row.scope == "NAVIGATE_TO_DESTINATION" and sstatus != "HUMAN_CONTROL":
+            raise BrowserResultRejectedError()
+        if session_row.scope != "NAVIGATE_TO_DESTINATION" and sstatus == "HUMAN_CONTROL":
+            raise BrowserResultRejectedError()
+        if sstatus != "HUMAN_CONTROL":
+            session_row = _promote_to_in_progress(db, tenant_id, session_row)
         session_row = session_service.report_succeeded(
             db, tenant_id=tenant_id, session_id=session_row.id, expected_version=session_row.version
         )
@@ -129,11 +181,11 @@ def apply_browser_result(
         if session_row.terminal_reason_code == reason_code:
             return BrowserResultOutcome(job.id, job.status, sstatus, idempotent=True)
         raise BrowserResultRejectedError()  # resultado duplicado CONFLICTIVO
-    if job.status != "CLAIMED" or sstatus not in _NON_TERMINAL_PRE_RESULT:
+    if job.status != "CLAIMED" or sstatus not in _NON_TERMINAL_PRE_RESULT | {"HUMAN_CONTROL"}:
         raise BrowserResultRejectedError()
     session_row = session_service.report_failed(
         db, tenant_id=tenant_id, session_id=session_row.id, expected_version=session_row.version,
-        terminal_reason_code=reason_code,
+        terminal_reason_code=reason_code, diagnostic_code=diagnostic_code,
     )
     job = job_service.fail_job(db, tenant_id=tenant_id, job_id=job.id, expected_version=job.version)
     return BrowserResultOutcome(job.id, job.status, session_row.status)

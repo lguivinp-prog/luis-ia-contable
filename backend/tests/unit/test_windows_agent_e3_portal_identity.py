@@ -104,3 +104,34 @@ def test_outcome_to_terminal_reason_uses_only_existing_domain_c_codes():
     for outcome, code in TERMINAL_REASON_BY_OUTCOME.items():
         assert code is None or code in valid, (outcome, code)
     assert set(TERMINAL_REASON_BY_OUTCOME) == set(AuthOutcome)
+
+
+def test_popup_window_on_the_landing_host_is_ignored_when_exactly_one_page_is_the_landing():
+    from dataclasses import replace
+
+    popup = PageView(url="https://e-menu.sunat.gob.pe/aviso/contacto", title="Aviso")
+    surface = classify_surface((LANDING, popup), C)
+    assert surface.kind is SurfaceKind.LANDING and surface.page_index == 0
+    assert classify_surface((popup, LANDING), C).page_index == 1
+    # dos landings completos, un aviso con campo de contraseña o un aviso en OTRO host siguen fallando cerrado
+    assert classify_surface((LANDING, LANDING), C).kind is SurfaceKind.FAIL
+    assert classify_surface((LANDING, replace(popup, password_field_visible=True)), C).kind is SurfaceKind.FAIL
+    assert classify_surface((LANDING, PageView(url="https://evil.example.com/", title="x")), C).kind is SurfaceKind.FAIL
+    assert classify_surface((LOGIN, LANDING, popup), C).kind is SurfaceKind.FAIL
+
+
+def test_landing_host_page_in_transit_is_pending_never_accepted_and_never_an_immediate_failure():
+    """Observado en vivo: el login pasa por una pagina del host de aterrizaje con la ruta del menu y un titulo transitorio."""
+    from dataclasses import replace
+
+    base = "https://e-menu.sunat.gob.pe/cl-ti-itmenu/SaltoLogin.htm"
+    for title in ("", "Cargando", "Otra cosa"):
+        surface = classify_surface((ENTRY, PageView(url=base, title=title)), C)
+        assert surface.kind is SurfaceKind.PENDING and surface.page_index == 1, title
+    # no es evidencia suficiente por si sola: el landing aceptado exige ademas titulo y ausencia de login
+    assert classify_surface((PageView(url=base, title="SUNAT - Menú SOL"),), C).kind is SurfaceKind.LANDING
+    # ruta fuera del contrato, esquema distinto, otro host o un campo de contraseña visible => fallo inmediato
+    assert classify_surface((PageView(url="https://e-menu.sunat.gob.pe/otra/ruta", title=""),), C).kind is SurfaceKind.FAIL
+    assert classify_surface((PageView(url="http://e-menu.sunat.gob.pe/cl-ti-itmenu/x", title=""),), C).kind is SurfaceKind.FAIL
+    assert classify_surface((replace(PageView(url=base, title=""), password_field_visible=True),), C).kind is SurfaceKind.FAIL
+    assert classify_surface((PageView(url="https://e-renta.sunat.gob.pe/cl-ti-itmenu/x", title=""),), C).kind is SurfaceKind.FAIL

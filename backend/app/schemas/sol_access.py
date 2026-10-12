@@ -6,15 +6,27 @@ excepciones del agente: solo estado autoritativo y metadatos seguros."""
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
+
+# Allowlist cerrada de destinos LIVE-VALIDADOS (M2). El frontend solo envia este enum: nunca URL, selector ni script.
+SolDestination = Literal["MENU_SOL", "FICHA_RUC"]
 
 
 class CreateSolAccessSessionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     client_id: UUID
     idempotency_key: UUID
+    destination: SolDestination | None = None
+    # solo con FICHA_RUC: extrae la Ficha y genera una PROPUESTA pendiente de revision humana (requiere client:write)
+    extract_ficha: bool = False
+
+
+class SolDestinationsOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    destinations: list[SolDestination]
 
 
 class SolAgentOut(BaseModel):
@@ -49,3 +61,8 @@ class SolAccessSessionOut(BaseModel):
     expires_at: datetime
     version: int
     is_terminal: bool
+    destination: str | None = None
+    extract_ficha: bool = False
+    human_control_at: datetime | None = None
+    # M2: codigo de diagnostico estructural del fallo (lista cerrada; nunca texto del portal). Solo en sesiones FAILED.
+    diagnostic_code: str | None = None

@@ -69,10 +69,12 @@ from app.broker.pending_dispatch import PendingDispatchStore
 from app.broker.protocol import (
     PROTOCOL_VERSION,
     MAX_CREDENTIAL_DELIVERY_RESPONSE_BYTES,
+    MAX_FICHA_MESSAGE_BYTES,
     MAX_MESSAGE_BYTES,
     AgentErrorReport,
     CredentialDeliveryRequest,
     CredentialDeliveryResponse,
+    FichaReport,
     HeartbeatRequest,
     JobAvailableResponse,
     JobClaimRequest,
@@ -89,12 +91,14 @@ from app.core.sol_vault_registry import vault_unlock_registry
 from app.models.user import User
 from app.repositories import sol_agent_access_repository as repo
 from app.repositories import sol_vault_repository as vault_repo
+from app.services import ficha_ruc_service as ficha_service
 from app.services import sol_access_session_service as session_service
 from app.services import sol_agent_credential_delivery_service as delivery_service
 from app.services import sol_browser_result_service as browser_result_service
 from app.services import sol_agent_job_service as job_service
 from app.services import sol_agent_pairing_service as pairing_service
 from app.services import sol_agent_service
+from app.services import sol_human_control_reconciler as hc_reconciler
 
 _ALLOWED_HOSTS = {"127.0.0.1", "localhost"}
 
@@ -382,13 +386,13 @@ class _BrokerHttpHandler(BaseHTTPRequestHandler):
     def _send_error_code(self, exc: BrokerTransportError) -> None:
         self._send_json(exc.http_status, {"error": exc.code})
 
-    def _read_json_bounded(self) -> dict:
+    def _read_json_bounded(self, max_bytes: int = MAX_MESSAGE_BYTES) -> dict:
         raw_length = self.headers.get("Content-Length", "0")
         try:
             length = int(raw_length)
         except ValueError:
             raise InvalidMessageError() from None
-        if length < 0 or length > MAX_MESSAGE_BYTES:
+        if length < 0 or length > max_bytes:
             raise PayloadTooLargeError()
         if length == 0:
             return {}
@@ -581,6 +585,10 @@ class _BrokerHttpHandler(BaseHTTPRequestHandler):
         if method == "POST" and m:
             self._run(lambda db: self._handle_job_status(db, uuid.UUID(m.group(1))))
             return
+        m = re.match(r"^/agent/jobs/([0-9a-fA-F-]{36})/ficha$", path)
+        if method == "POST" and m:
+            self._run(lambda db: self._handle_job_ficha(db, uuid.UUID(m.group(1))))
+            return
         m = re.match(r"^/agent/jobs/([0-9a-fA-F-]{36})/credential$", path)
         if method == "POST" and m:
             self._handle_job_credential_request(uuid.UUID(m.group(1)))
@@ -687,16 +695,36 @@ class _BrokerHttpHandler(BaseHTTPRequestHandler):
     def _handle_heartbeat(self, db: Session) -> tuple[int, dict]:
         body = self._read_json_bounded()
         try:
-            HeartbeatRequest.model_validate(body)
+            heartbeat = HeartbeatRequest.model_validate(body)
         except ValidationError:
             raise InvalidMessageError() from None
         self._require_protocol_version(body)
         authenticated = self._authenticated_agent_with_live_connection(db)
 
         sol_agent_service.record_heartbeat(db, tenant_id=authenticated.tenant_id, agent_id=authenticated.agent_id)
+        hc_reconciler.reconcile_on_heartbeat(
+            db,
+            tenant_id=authenticated.tenant_id,
+            agent_id=authenticated.agent_id,
+            holding_job_id=heartbeat.holding_job_id,
+        )
 
         response: dict = {"protocol_version": PROTOCOL_VERSION, "ok": True, "cancel_notice": None}
         record = self.broker.connections.get(agent_id=authenticated.agent_id)
+        held = heartbeat.holding_job_id
+        if held is not None:
+            held_job = repo.get_job(db, tenant_id=authenticated.tenant_id, job_id=held)
+            if held_job is not None and held_job.agent_id == authenticated.agent_id:
+                if held_job.status == "CLAIMED":
+                    # tras reiniciar el broker el registro en memoria perdio el job: se readopta (nunca se resucita
+                    # uno terminal), de modo que una cancelacion posterior llegue al agente.
+                    if record is not None and record.active_job_id is None:
+                        self.broker.connections.set_active_job(agent_id=authenticated.agent_id, job_id=held_job.id)
+                        record = self.broker.connections.get(agent_id=authenticated.agent_id)
+                elif held_job.status in {"CANCELLED", "EXPIRED", "FAILED"}:
+                    response["cancel_notice"] = SessionCancelNotice(job_id=held_job.id).model_dump(mode="json")
+                    self.broker.connections.set_active_job(agent_id=authenticated.agent_id, job_id=None)
+                    return 200, response
         if record is not None and record.active_job_id is not None:
             job = repo.get_job(db, tenant_id=authenticated.tenant_id, job_id=record.active_job_id)
             if job is not None and job.status == "CANCELLED":
@@ -719,7 +747,14 @@ class _BrokerHttpHandler(BaseHTTPRequestHandler):
 
         session_row = repo.get_session(db, tenant_id=authenticated.tenant_id, session_id=job.session_id)
         scope = session_row.scope if session_row is not None else None
-        response = JobAvailableResponse(job_id=job.id, session_id=job.session_id, scope=scope, expires_at=job.expires_at)
+        response = JobAvailableResponse(
+            job_id=job.id,
+            session_id=job.session_id,
+            scope=scope,
+            expires_at=job.expires_at,
+            destination=session_row.destination if session_row is not None else None,
+            extract_ficha=bool(session_row.extract_ficha) if session_row is not None else False,
+        )
         return 200, response.model_dump(mode="json")
 
     def _handle_job_claim(self, db: Session, job_id: uuid.UUID) -> tuple[int, dict]:
@@ -771,6 +806,7 @@ class _BrokerHttpHandler(BaseHTTPRequestHandler):
                 claimed_session_id=request.session_id,
                 status=request.status,
                 reason_code=request.reason_code,
+                diagnostic_code=request.diagnostic_code,
             )
         except browser_result_service.BrowserResultNotFoundError:
             raise NotFoundError() from None
@@ -790,6 +826,36 @@ class _BrokerHttpHandler(BaseHTTPRequestHandler):
             "session_status": outcome.session_status,
         }
         return 200, {"protocol_version": PROTOCOL_VERSION, "job_id": str(updated.id), "status": updated.status}
+
+    def _handle_job_ficha(self, db: Session, job_id: uuid.UUID) -> tuple[int, dict]:
+        """M2: el Agente reporta los campos ESTRUCTURADOS de la Ficha RUC. El backend valida, compara el RUC con el del
+        cliente (WRONG_TAXPAYER_CONTEXT => la sesion falla) y deja una propuesta PENDIENTE de revision humana."""
+        body = self._read_json_bounded(MAX_FICHA_MESSAGE_BYTES)
+        try:
+            request = FichaReport.model_validate(body)
+        except ValidationError:
+            raise InvalidMessageError() from None
+        if request.protocol_version != PROTOCOL_VERSION or request.job_id != job_id:
+            raise InvalidMessageError() if request.job_id != job_id else ProtocolVersionUnsupportedError()
+        authenticated = self._authenticated_agent_with_live_connection(db)
+        try:
+            outcome = ficha_service.store_snapshot_from_agent(
+                db,
+                tenant_id=authenticated.tenant_id,
+                agent_id=authenticated.agent_id,
+                job_id=job_id,
+                claimed_session_id=request.session_id,
+                schema_version=request.schema_version,
+                raw_fields=request.fields,
+                malformed=request.malformed,
+            )
+        except ficha_service.FichaServiceError as exc:
+            if exc.code in {"FICHA_JOB_NOT_FOUND"}:
+                raise NotFoundError() from None
+            raise ClaimRejectedError() from None
+        if outcome.wrong_taxpayer:
+            self.broker.connections.set_active_job(agent_id=authenticated.agent_id, job_id=None)
+        return 200, {"protocol_version": PROTOCOL_VERSION, "job_id": str(job_id), "accepted": bool(outcome.accepted)}
 
     def _handle_preauth_ready(self, db: Session, job_id: uuid.UUID, authenticated, request) -> tuple[int, dict]:
         """Domain F: el Agente senala `PREAUTH_READY` (portal validado por COMPLETO, aun SIN credencial). El broker

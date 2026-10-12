@@ -5,8 +5,8 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+    # Sin puerto publicado en el host: solo el backend (red de compose) llega a PostgreSQL. Publicarlo en todas las
+    # interfaces expondria la base de datos; para inspeccionarla use `docker compose exec db psql`.
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./infrastructure/docker/postgres/init:/docker-entrypoint-initdb.d
@@ -27,7 +27,7 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       TEST_DATABASE_URL: ${TEST_DATABASE_URL}
     ports:
-      - "${BACKEND_PORT:-8000}:8000"
+      - "127.0.0.1:${BACKEND_PORT:-8000}:8000"
     volumes:
       - ./backend:/app
       - document_storage:/var/lib/luis-ia-contable/documents
@@ -53,8 +53,11 @@ services:
       NEXT_PUBLIC_APP_ENV: ${NEXT_PUBLIC_APP_ENV:-development}
       BACKEND_INTERNAL_URL: ${BACKEND_INTERNAL_URL:-http://backend:8000}
       SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME:-luis_ia_contable_session}
+    # La cache de desarrollo de Next (`.next/dev`, en el volumen nombrado) sobrevive a los reinicios y puede conservar un arbol de rutas
+    # OBSOLETO (sintoma: una pagina existente responde 404). Se descarta en CADA arranque; no hay datos de aplicacion en ella.
+    command: ["sh", "-c", "rm -rf .next/dev .next/cache && exec npm run dev -- --hostname 0.0.0.0"]
     ports:
-      - "${FRONTEND_PORT:-3000}:3000"
+      - "127.0.0.1:${FRONTEND_PORT:-3000}:3000"
     volumes:
       - ./frontend:/app
       - frontend_node_modules:/app/node_modules

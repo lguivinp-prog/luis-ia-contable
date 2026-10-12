@@ -33,7 +33,7 @@ describe("acceso SOL supervisado -- fuentes", () => {
   });
 
   it("la contrasena de la boveda es type=password, se limpia y no se persiste", () => {
-    expect(page).toMatch(/type="password"/);
+    expect(page).toMatch(/type="password"|<DeliberateInput\s+secret/); // campo enmascarado y sin autocompletado
     expect(page).toMatch(/setVaultPassword\(""\)/);
     expect(page).toContain('id="sol-access-vault-password"'); // etiqueta asociada (nombre accesible)
   });
@@ -46,7 +46,7 @@ describe("acceso SOL supervisado -- fuentes", () => {
 
   it("no hay inicio automatico: start solo desde el handler del boton", () => {
     expect(page.match(/createSolSession\(/g)?.length).toBe(1);
-    expect(page).toMatch(/onClick=\{handleStart\}/);
+    expect(page).toMatch(/onClick=\{\(\) => void handleStart\(/);  // M2: cada boton de destino inicia por su handler
   });
 
   it("el sondeo va solo al backend y se detiene en terminal", () => {

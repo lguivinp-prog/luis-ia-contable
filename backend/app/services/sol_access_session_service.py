@@ -29,6 +29,12 @@ from app.repositories import sol_agent_access_repository as repo
 from app.services import audit_service
 
 SESSION_TTL_SECONDS_DEFAULT = 30 * 60  # ver Domain A.1 seccion 6 -- valor deferred sin impacto DDL
+# M2: el control humano tras alcanzar el destino dura como maximo esto (desde el inicio del control humano);
+# vencido => `expire_session` (perezoso) cierra la sesion. Sin sesiones inmortales.
+HUMAN_CONTROL_TTL_SECONDS = 30 * 60
+SCOPE_LANDING = "AUTHENTICATE_TO_LANDING_ONLY"
+SCOPE_DESTINATION = "NAVIGATE_TO_DESTINATION"
+VALID_DESTINATIONS = frozenset({"MENU_SOL", "FICHA_RUC"})  # allowlist de destinos LIVE-VALIDADOS
 
 _TERMINAL: frozenset[str] = frozenset(SESSION_TERMINAL_STATUSES)
 _TRANSITIONS: dict[str, frozenset[str]] = {
@@ -39,8 +45,11 @@ _TRANSITIONS: dict[str, frozenset[str]] = {
     "CREATED": frozenset({"WAITING_FOR_AGENT", "CANCELLED", "EXPIRED"}),
     "WAITING_FOR_AGENT": frozenset({"IN_PROGRESS", "CANCELLED", "EXPIRED", "FAILED"}),
     "IN_PROGRESS": frozenset(
-        {"WAITING_FOR_USER", "SUCCEEDED", "PARTIAL_FAILURE", "FAILED", "CANCELLED", "EXPIRED"}
+        {"WAITING_FOR_USER", "HUMAN_CONTROL", "SUCCEEDED", "PARTIAL_FAILURE", "FAILED", "CANCELLED", "EXPIRED"}
     ),
+    # M2: automatizacion terminada, navegador abierto bajo control humano. El fin normal es SUCCEEDED (cuando el
+    # humano cierra el navegador); cancelacion y expiracion siguen siendo autoridad del backend.
+    "HUMAN_CONTROL": frozenset({"SUCCEEDED", "CANCELLED", "EXPIRED", "FAILED"}),
     "WAITING_FOR_USER": frozenset({"IN_PROGRESS", "CANCELLED", "EXPIRED", "FAILED"}),
 }
 _TERMINAL_REASON_CODE_VALUES = frozenset(c.value for c in SolAccessTerminalReasonCode)
@@ -123,6 +132,8 @@ def _idempotency_payload_matches(session_row: SolAccessSession, payload: dict) -
         and session_row.credential_id == payload["credential_id"]
         and session_row.requested_by_user_id == payload["requested_by_user_id"]
         and session_row.scope == payload["scope"]
+        and session_row.destination == payload.get("destination")
+        and bool(session_row.extract_ficha) == bool(payload.get("extract_ficha", False))
     )
 
 
@@ -134,24 +145,37 @@ def create_session(
     credential_id: uuid.UUID,
     requested_by_user_id: uuid.UUID,
     idempotency_key: uuid.UUID,
-    scope: str = "AUTHENTICATE_TO_LANDING_ONLY",
+    scope: str = SCOPE_LANDING,
     session_ttl_seconds: int = SESSION_TTL_SECONDS_DEFAULT,
+    destination: str | None = None,
+    extract_ficha: bool = False,
 ) -> SolAccessSession:
     """Valida tenant/cliente/credencial antes de insertar (en vez de confiar
     unicamente en el `IntegrityError` de las FKs compuestas, que son el
     backstop, no la unica linea de defensa). Idempotente por
     `(tenant_id, idempotency_key)`: mismo payload canonico -> devuelve la
     sesion existente; payload distinto -> `IdempotencyKeyConflictError`."""
-    if scope != "AUTHENTICATE_TO_LANDING_ONLY":
+    if destination is not None:
+        scope = SCOPE_DESTINATION  # un destino implica el alcance de navegacion
+    if scope not in {SCOPE_LANDING, SCOPE_DESTINATION}:
         raise SolAccessSessionServiceError(
             "SOL_ACCESS_SCOPE_NOT_SUPPORTED", f"scope no soportado: {scope}"
         )
+    # Allowlist cerrada: destino desconocido => FALLA CERRADO (el frontend solo envia el enum, nunca URL/selector).
+    if (scope == SCOPE_DESTINATION) != (destination is not None) or (
+        destination is not None and destination not in VALID_DESTINATIONS
+    ):
+        raise SolAccessSessionServiceError("SOL_DESTINATION_NOT_ALLOWED", "destino no permitido")
+    if extract_ficha and destination != "FICHA_RUC":
+        raise SolAccessSessionServiceError("SOL_EXTRACTION_NOT_ALLOWED", "la extraccion solo aplica a FICHA_RUC")
 
     payload = {
         "client_id": client_id,
         "credential_id": credential_id,
         "requested_by_user_id": requested_by_user_id,
         "scope": scope,
+        "destination": destination,
+        "extract_ficha": extract_ficha,
     }
     existing = repo.get_session_by_idempotency_key(db, tenant_id=tenant_id, idempotency_key=idempotency_key)
     if existing is not None:
@@ -187,6 +211,8 @@ def create_session(
         credential_id=credential_id,
         requested_by_user_id=requested_by_user_id,
         scope=scope,
+        destination=destination,
+        extract_ficha=extract_ficha,
         status="CREATED",
         idempotency_key=idempotency_key,
         created_at=now,
@@ -215,8 +241,24 @@ def create_session(
         action=AuditAction.SOL_SESSION_CREATED,
         entity_type="sol_access_session",
         entity_id=session_row.id,
-        metadata={"client_id": str(client_id), "credential_id": str(credential_id), "scope": scope},
+        metadata={
+            "client_id": str(client_id),
+            "credential_id": str(credential_id),
+            "scope": scope,
+            "destination": destination,
+            "extract_ficha": extract_ficha,
+        },
     )
+    if destination is not None:
+        audit_service.record(
+            db,
+            tenant_id=tenant_id,
+            user_id=requested_by_user_id,
+            action=AuditAction.SUNAT_DESTINATION_REQUESTED,
+            entity_type="sol_access_session",
+            entity_id=session_row.id,
+            metadata={"destination": destination, "extract_ficha": extract_ficha},
+        )
     return session_row
 
 
@@ -270,6 +312,10 @@ def _transition_locked(
         session_row.started_at = now
     if target_status == "WAITING_FOR_USER":
         session_row.waiting_for_user_at = now
+    if target_status == "HUMAN_CONTROL":
+        session_row.human_control_at = now
+        # el control humano tiene su PROPIO limite (desde ahora), nunca mas corto que el vigente
+        session_row.expires_at = max(session_row.expires_at, now + timedelta(seconds=HUMAN_CONTROL_TTL_SECONDS))
     if target_status in _TERMINAL:
         session_row.completed_at = now
         if target_status == "CANCELLED":
@@ -348,7 +394,7 @@ def start_progress(
 
 
 def report_waiting_for_user(
-    db: Session, *, tenant_id: uuid.UUID, session_id: uuid.UUID, expected_version: int
+    db: Session, *, tenant_id: uuid.UUID, session_id: uuid.UUID, expected_version: int, diagnostic_code: str | None = None
 ) -> SolAccessSession:
     session_row = repo.get_session_for_update(db, tenant_id=tenant_id, session_id=session_id)
     if session_row is None:
@@ -368,6 +414,8 @@ def report_waiting_for_user(
         action=AuditAction.WAITING_FOR_HUMAN,
         entity_type="sol_access_session",
         entity_id=result.id,
+        # M2: motivo (categoria cerrada, p. ej. CONTACT_VALIDATION_INTERSTITIAL) para explicar al contador que hacer; nunca texto del portal
+        metadata={"diagnostic_code": diagnostic_code} if diagnostic_code else None,
     )
     return result
 
@@ -427,6 +475,36 @@ def report_wrong_taxpayer_context(
     return result
 
 
+def report_human_control(
+    db: Session, *, tenant_id: uuid.UUID, session_id: uuid.UUID, expected_version: int
+) -> SolAccessSession:
+    """M2: el destino fue validado y la automatizacion TERMINO; el navegador sigue abierto bajo control del humano.
+    NO es terminal ni implica que la sesion/navegador ya termino. Solo para sesiones con destino."""
+    session_row = repo.get_session_for_update(db, tenant_id=tenant_id, session_id=session_id)
+    if session_row is None:
+        raise SessionNotFoundError()
+    if session_row.scope != SCOPE_DESTINATION:
+        raise InvalidSessionTransitionError(session_row.status, "HUMAN_CONTROL")
+    result = _transition_locked(
+        db,
+        session_row,
+        target_status="HUMAN_CONTROL",
+        expected_version=expected_version,
+        terminal_reason_code=None,
+        operation_result="DESTINATION_REACHED",
+    )
+    audit_service.record(
+        db,
+        tenant_id=tenant_id,
+        user_id=None,
+        action=AuditAction.SOL_HUMAN_CONTROL_STARTED,
+        entity_type="sol_access_session",
+        entity_id=result.id,
+        metadata={"destination": result.destination},
+    )
+    return result
+
+
 def report_succeeded(
     db: Session, *, tenant_id: uuid.UUID, session_id: uuid.UUID, expected_version: int
 ) -> SolAccessSession:
@@ -442,7 +520,8 @@ def report_succeeded(
         target_status="SUCCEEDED",
         expected_version=expected_version,
         terminal_reason_code=None,
-        operation_result="LANDING_REACHED",
+        # una sesion con destino que termina (el humano cerro el navegador) conserva DESTINATION_REACHED
+        operation_result="DESTINATION_REACHED" if session_row.scope == SCOPE_DESTINATION else "LANDING_REACHED",
     )
 
 
@@ -472,7 +551,8 @@ def report_partial_failure(
 
 
 def report_failed(
-    db: Session, *, tenant_id: uuid.UUID, session_id: uuid.UUID, expected_version: int, terminal_reason_code: str
+    db: Session, *, tenant_id: uuid.UUID, session_id: uuid.UUID, expected_version: int, terminal_reason_code: str,
+    diagnostic_code: str | None = None,
 ) -> SolAccessSession:
     session_row = repo.get_session_for_update(db, tenant_id=tenant_id, session_id=session_id)
     if session_row is None:
@@ -492,7 +572,7 @@ def report_failed(
         action=AuditAction.SESSION_FAILED,
         entity_type="sol_access_session",
         entity_id=result.id,
-        metadata={"terminal_reason_code": terminal_reason_code},
+        metadata={"terminal_reason_code": terminal_reason_code, **({"diagnostic_code": diagnostic_code} if diagnostic_code else {})},
     )
     return result
 

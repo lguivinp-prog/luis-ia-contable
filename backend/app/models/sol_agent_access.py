@@ -29,6 +29,16 @@ from app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 
 class SolAccessScope(str, enum.Enum):
     AUTHENTICATE_TO_LANDING_ONLY = "AUTHENTICATE_TO_LANDING_ONLY"
+    # M2: navegacion a un destino validado (enum cerrado `SolAccessDestination`) y traspaso al humano.
+    NAVIGATE_TO_DESTINATION = "NAVIGATE_TO_DESTINATION"
+
+
+class SolAccessDestination(str, enum.Enum):
+    """Allowlist de destinos LIVE-VALIDADOS (M2). SIRE/Declaraciones y Pagos/Declara Facil/Tramites y Consultas NO
+    existen aqui: no se validaron en vivo y no se exponen."""
+
+    MENU_SOL = "MENU_SOL"
+    FICHA_RUC = "FICHA_RUC"
 
 
 class SolAccessSessionStatus(str, enum.Enum):
@@ -36,6 +46,9 @@ class SolAccessSessionStatus(str, enum.Enum):
     WAITING_FOR_AGENT = "WAITING_FOR_AGENT"
     WAITING_FOR_USER = "WAITING_FOR_USER"
     IN_PROGRESS = "IN_PROGRESS"
+    # M2: destino validado, la automatizacion TERMINO y el navegador sigue abierto bajo control del humano.
+    # NO es terminal: la sesion termina (SUCCEEDED/CANCELLED/EXPIRED) cuando el control humano acaba.
+    HUMAN_CONTROL = "HUMAN_CONTROL"
     SUCCEEDED = "SUCCEEDED"
     PARTIAL_FAILURE = "PARTIAL_FAILURE"
     FAILED = "FAILED"
@@ -45,6 +58,7 @@ class SolAccessSessionStatus(str, enum.Enum):
 
 class SolAccessOperationResult(str, enum.Enum):
     LANDING_REACHED = "LANDING_REACHED"
+    DESTINATION_REACHED = "DESTINATION_REACHED"
 
 
 class SolAccessTerminalReasonCode(str, enum.Enum):
@@ -97,6 +111,9 @@ class SolAgentPairingStatus(str, enum.Enum):
 
 
 _SESSION_STATUS_VALUES = tuple(s.value for s in SolAccessSessionStatus)
+_SCOPE_VALUES = tuple(s.value for s in SolAccessScope)
+_DESTINATION_VALUES = tuple(d.value for d in SolAccessDestination)
+_OPERATION_RESULT_VALUES = tuple(r.value for r in SolAccessOperationResult)
 _TERMINAL_REASON_CODE_VALUES = tuple(c.value for c in SolAccessTerminalReasonCode)
 _AGENT_STATUS_VALUES = tuple(s.value for s in SolAgentStatus)
 _JOB_STATUS_VALUES = tuple(s.value for s in SolAgentJobStatus)
@@ -203,16 +220,23 @@ class SolAccessSession(Base, UUIDPrimaryKeyMixin):
         # (`IN ('X',)`), asi que se comparan por igualdad explicita en vez
         # de reutilizar el idioma `IN {tuple}` de los demas enums (que sí
         # tienen 2+ valores).
+        CheckConstraint(f"scope IN {_SCOPE_VALUES}", name="ck_sol_access_sessions_scope"),
         CheckConstraint(
-            f"scope = '{SolAccessScope.AUTHENTICATE_TO_LANDING_ONLY.value}'",
-            name="ck_sol_access_sessions_scope",
+            f"destination IS NULL OR destination IN {_DESTINATION_VALUES}",
+            name="ck_sol_access_sessions_destination",
+        ),
+        CheckConstraint(
+            "(scope = 'NAVIGATE_TO_DESTINATION') = (destination IS NOT NULL)",
+            name="ck_sol_access_sessions_scope_destination_coherence",
+        ),
+        CheckConstraint(
+            "NOT extract_ficha OR destination = 'FICHA_RUC'", name="ck_sol_access_sessions_extract_ficha_destination"
         ),
         CheckConstraint(
             f"status IN {_SESSION_STATUS_VALUES}", name="ck_sol_access_sessions_status"
         ),
         CheckConstraint(
-            f"operation_result IS NULL OR operation_result = "
-            f"'{SolAccessOperationResult.LANDING_REACHED.value}'",
+            f"operation_result IS NULL OR operation_result IN {_OPERATION_RESULT_VALUES}",
             name="ck_sol_access_sessions_operation_result",
         ),
         CheckConstraint(
@@ -258,6 +282,10 @@ class SolAccessSession(Base, UUIDPrimaryKeyMixin):
     waiting_for_user_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # M2
+    destination: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    extract_ficha: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=False, server_default=sa.false())
+    human_control_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
