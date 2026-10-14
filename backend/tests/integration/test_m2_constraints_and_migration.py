@@ -22,10 +22,12 @@ from tests.integration._sol_agent_access_helpers import (
 # ------------------------------------------------------------------------------------------------- migracion
 
 
-def test_single_head_is_0020_and_chains_from_0019():
+def test_single_head_is_0024_after_m3_and_0020_chains_from_0019():
     script = ScriptDirectory.from_config(make_alembic_config())
-    assert script.get_heads() == ["0020"]
-    assert script.get_revision("0020").down_revision == "0019"
+    assert script.get_heads() == ["0024"]
+    assert script.get_revision("0024").down_revision == "0023"
+    assert script.get_revision("0020").down_revision == "0019" and script.get_revision("0021").down_revision == "0020"
+    assert script.get_revision("0022").down_revision == "0021"
 
 
 def _constraint_def(url, table, name):
@@ -123,7 +125,8 @@ def test_valid_destination_session_and_human_control_state_are_accepted(db_sessi
 @pytest.mark.parametrize("overrides", [
     {"scope": "NAVIGATE_TO_DESTINATION", "destination": None},  # alcance de navegacion SIN destino
     {"scope": "AUTHENTICATE_TO_LANDING_ONLY", "destination": "MENU_SOL"},  # destino SIN alcance de navegacion
-    {"destination": "SIRE"}, {"destination": "DECLARACIONES_Y_PAGOS"}, {"destination": "https://x"},
+    {"destination": "BUZON_SUNAT"}, {"destination": "https://x"},  # M3: SIRE & co. son CONOCIDOS (migracion 0021); lo demas no
+    {"destination": "SIRE", "extract_ficha": True},  # extraer fuera de FICHA_RUC
     {"destination": "MENU_SOL", "extract_ficha": True},  # extraer fuera de FICHA_RUC
     {"scope": "OTRO"}, {"status": "NOPE"}, {"operation_result": "OTHER"},
 ])
@@ -266,3 +269,9 @@ def test_onboarding_status_is_validated_by_the_database(db_session, tenant, admi
     db_session.add(ClientOnboarding(tenant_id=tenant.id, client_id=client.id, created_by=admin_user.id, status="NOPE"))
     with pytest.raises(IntegrityError):
         db_session.flush()
+
+
+@pytest.mark.parametrize("destination", ["SIRE", "SIRE_RVIE", "SIRE_RCE", "SIRE_GENERACION_REGISTROS", "DECLARACIONES_Y_PAGOS", "DECLARA_FACIL", "TRAMITES_Y_CONSULTAS"])
+def test_m3_known_destinations_are_accepted_by_the_database_without_enabling_them(db_session, tenant, admin_user, destination):
+    _scoped_session(db_session, tenant, admin_user, destination=destination)
+    db_session.flush()  # la BD ya no es un segundo catalogo desalineado; la habilitacion la decide el backend

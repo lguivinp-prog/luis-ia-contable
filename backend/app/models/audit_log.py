@@ -140,6 +140,11 @@ class AuditAction(str, enum.Enum):
     AUTH_SUCCEEDED = "AUTH_SUCCEEDED"
     # M2: navegacion supervisada, Ficha RUC y alta asistida (metadata sin credenciales/HTML/cookies)
     SUNAT_DESTINATION_REQUESTED = "SUNAT_DESTINATION_REQUESTED"
+    # M3: aceptacion real controlada de un destino (autorizacion acotada, consumo, revocacion, resultado confirmado por el propietario)
+    SOL_ACCEPTANCE_GRANTED = "SOL_ACCEPTANCE_GRANTED"
+    SOL_ACCEPTANCE_CONSUMED = "SOL_ACCEPTANCE_CONSUMED"
+    SOL_ACCEPTANCE_REVOKED = "SOL_ACCEPTANCE_REVOKED"
+    SOL_ACCEPTANCE_RESULT_RECORDED = "SOL_ACCEPTANCE_RESULT_RECORDED"
     SOL_HUMAN_CONTROL_STARTED = "SOL_HUMAN_CONTROL_STARTED"
     FICHA_RUC_RETRIEVED = "FICHA_RUC_RETRIEVED"
     FICHA_PROPOSAL_CREATED = "FICHA_PROPOSAL_CREATED"

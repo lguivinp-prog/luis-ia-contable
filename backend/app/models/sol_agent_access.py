@@ -15,6 +15,7 @@ import sqlalchemy as sa
 from sqlalchemy import (
     CheckConstraint,
     DateTime,
+    ForeignKey,
     ForeignKeyConstraint,
     Index,
     Integer,
@@ -34,11 +35,18 @@ class SolAccessScope(str, enum.Enum):
 
 
 class SolAccessDestination(str, enum.Enum):
-    """Allowlist de destinos LIVE-VALIDADOS (M2). SIRE/Declaraciones y Pagos/Declara Facil/Tramites y Consultas NO
-    existen aqui: no se validaron en vivo y no se exponen."""
+    """Catalogo de destinos CONOCIDOS (M3). Que un destino exista aqui NO lo habilita: la habilitacion la decide
+    `app.core.sunat_destinations` (solo LIVE_VALIDATED). Debe coincidir con el CHECK de la BD (migracion 0021)."""
 
     MENU_SOL = "MENU_SOL"
     FICHA_RUC = "FICHA_RUC"
+    SIRE = "SIRE"
+    SIRE_RVIE = "SIRE_RVIE"
+    SIRE_RCE = "SIRE_RCE"
+    SIRE_GENERACION_REGISTROS = "SIRE_GENERACION_REGISTROS"
+    DECLARACIONES_Y_PAGOS = "DECLARACIONES_Y_PAGOS"
+    DECLARA_FACIL = "DECLARA_FACIL"
+    TRAMITES_Y_CONSULTAS = "TRAMITES_Y_CONSULTAS"
 
 
 class SolAccessSessionStatus(str, enum.Enum):
@@ -286,6 +294,10 @@ class SolAccessSession(Base, UUIDPrimaryKeyMixin):
     destination: Mapped[str | None] = mapped_column(String(30), nullable=True)
     extract_ficha: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=False, server_default=sa.false())
     human_control_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # M3: autorizacion de aceptacion real consumida por esta sesion (destino aun no habilitado globalmente); NULL en el flujo normal
+    acceptance_grant_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("sol_destination_acceptances.id", name="fk_sol_access_sessions_acceptance_grant"), nullable=True
+    )
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

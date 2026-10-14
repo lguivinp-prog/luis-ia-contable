@@ -13,6 +13,7 @@ import { describeOfficialRegime, formatDateTime, UNCHANGED_MESSAGE, verification
 import {
   cancelSolSession,
   createSolSession,
+  fetchCredentialDestinations,
   fetchClientSolSession,
   fetchSolAgents,
   fetchSolDestinations,
@@ -26,20 +27,26 @@ import {
   describeConnectionTrouble,
   describeSession,
   describeStartError,
+  describeDestinationStates,
   describeDiagnostic,
   describeTerminalReason,
+  destinationUiState,
   evaluatePreflight,
   nextPollDelayMs,
   operationalHint,
+  resolveSelectedProfile,
+  selectionRequiredFor,
   shouldPoll,
   visibleDestinations,
   WAITING_FOR_USER_INSTRUCTIONS,
 } from "@/lib/solAccessModel";
-import { canCancelSolSession, canStartSolSession, canViewSupervisedSolAccess } from "@/lib/solAccessPermissions";
+import { canCancelSolSession, canManageAcceptance, canStartSolSession, canViewSupervisedSolAccess } from "@/lib/solAccessPermissions";
+import { AcceptancePanel } from "@/components/sunat/AcceptancePanel";
 import { canRefreshFicha } from "@/lib/sunatPermissions";
-import { fetchClientSolCredentialStatus, fetchSolVaultStatus, unlockSolVault } from "@/lib/solVault";
+import { fetchClientSolCredentials, fetchSolVaultStatus, unlockSolVault } from "@/lib/solVault";
+import { CredentialProfilePicker } from "@/components/sunat/CredentialProfilePicker";
 import type { FichaOverview, FichaSnapshot } from "@/lib/types/fichaRuc";
-import type { SolAccessSessionOut, SolAgentsOut, SolDestination } from "@/lib/types/solAccess";
+import type { SolAccessSessionOut, SolAgentsOut, SolCredentialPermissions, SolDestination, SolDestinationInfo } from "@/lib/types/solAccess";
 import type { SolCredentialStatusOut, SolVaultStatusOut } from "@/lib/types/solVault";
 
 function changedCount(snapshot: FichaSnapshot): number {
@@ -58,14 +65,18 @@ export default function ClientSolAccessPage() {
   const canStart = canStartSolSession(user);
   const canCancel = canCancelSolSession(user);
   const canRefresh = canRefreshFicha(user);
+  const canAccept = canManageAcceptance(user);
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [session, setSession] = useState<SolAccessSessionOut | null>(null);
-  const [credential, setCredential] = useState<SolCredentialStatusOut | null>(null);
+  const [profiles, setProfiles] = useState<SolCredentialStatusOut[]>([]);
+  const [chosenProfileId, setChosenProfileId] = useState<string | null>(null);
+  const [permissions, setPermissions] = useState<SolCredentialPermissions[]>([]);
   const [vault, setVault] = useState<SolVaultStatusOut | null>(null);
   const [agents, setAgents] = useState<SolAgentsOut | null>(null);
   const [destinations, setDestinations] = useState<SolDestination[]>([]);
+  const [catalog, setCatalog] = useState<SolDestinationInfo[]>([]);
   const [pendingProposal, setPendingProposal] = useState<FichaSnapshot | null>(null);
   const [overview, setOverview] = useState<FichaOverview | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -82,17 +93,20 @@ export default function ClientSolAccessPage() {
   const [unlockError, setUnlockError] = useState<string | null>(null);
 
   const loadContext = useCallback(async () => {
-    const [cred, vlt, agt, dst] = await Promise.allSettled([
-      fetchClientSolCredentialStatus(clientId),
+    const [cred, vlt, agt, dst, perm] = await Promise.allSettled([
+      fetchClientSolCredentials(clientId),
       fetchSolVaultStatus(),
       fetchSolAgents(),
       fetchSolDestinations(),
+      fetchCredentialDestinations(clientId),
     ]);
-    setCredential(cred.status === "fulfilled" ? cred.value : null);
+    setProfiles(cred.status === "fulfilled" ? cred.value : []);
+    setPermissions(perm.status === "fulfilled" ? perm.value.credentials : []);
     setVault(vlt.status === "fulfilled" ? vlt.value : null);
     setAgents(agt.status === "fulfilled" ? agt.value : null);
     // Solo destinos habilitados por el servidor Y conocidos por la UI (los no validados nunca se muestran).
     setDestinations(dst.status === "fulfilled" ? visibleDestinations(dst.value.destinations) : []);
+    setCatalog(dst.status === "fulfilled" ? (dst.value.catalog ?? []) : []);
   }, [clientId]);
 
   // Propuesta pendiente de la Ficha RUC (para ofrecer la revision humana). Solo con permiso de edicion.
@@ -181,6 +195,8 @@ export default function ClientSolAccessPage() {
     }
   }
 
+  const selectedProfile = resolveSelectedProfile(profiles, chosenProfileId);
+
   async function handleStart(destination?: SolDestination, extractFicha = false) {
     // Cada intencion nueva (otra sesion tras una terminal / otro destino) usa su PROPIA clave de idempotencia.
     if (!session || session.is_terminal === true) guardRef.current.reset();
@@ -189,7 +205,8 @@ export default function ClientSolAccessPage() {
     setStarting(true);
     setActionError(null);
     try {
-      const created = await createSolSession(clientId, key, { destination, extractFicha });
+      // Con varios perfiles el usuario ELIGE la credencial; el servidor jamas elige ni reintenta con otra.
+      const created = await createSolSession(clientId, key, { destination, extractFicha, credentialId: selectedProfile?.id });
       guardRef.current.finish("created");
       setSession(created);
     } catch (err) {
@@ -230,7 +247,15 @@ export default function ClientSolAccessPage() {
   if (loading) return <p>Cargando…</p>;
   if (!canView) return <p>No tienes permiso para ver el acceso SOL supervisado.</p>;
 
-  const preflight = evaluatePreflight({ canStart, credential, vault, agents, session });
+  const preflight = evaluatePreflight({ canStart, credential: selectedProfile, vault, agents, session, selectionRequired: selectionRequiredFor(profiles, chosenProfileId) });
+  const selectedPermissions = permissions.find((c) => c.credential_id === selectedProfile?.id) ?? null;
+  // Un destino con estructura validada solo se ofrece si ESTE perfil lo tiene disponible (prueba propia): la prueba de una credencial no se extrapola.
+  const permissionFor = (id: SolDestination) => selectedPermissions?.destinations.find((d) => d.destination === id) ?? null;
+  const openable = (id: SolDestination) => {
+    const info = catalog.find((c) => c.id === id);
+    if (!info?.requires_profile_proof) return true;
+    return permissionFor(id)?.available === true;
+  };
   const actions = availableActions(session, canCancel);
   const state = session ? describeSession(session) : null;
   const reason = session ? describeTerminalReason(session.terminal_reason_code) : null;
@@ -333,8 +358,9 @@ export default function ClientSolAccessPage() {
           <section className="surface-card" style={{ padding: "1.25rem", display: "flex", flexDirection: "column", gap: "1rem" }}>
             <div>
               <h2 style={{ fontSize: "1.05rem", marginBottom: "0.4rem" }}>Abrir en SUNAT (solo ver)</h2>
+              <CredentialProfilePicker clientId={clientId} profiles={profiles} chosenId={chosenProfileId} onChoose={setChosenProfileId} disabled={starting} />
               <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap" }}>
-                {destinations.map((destination) => (
+                {destinations.filter(openable).map((destination) => (
                   <Button
                     key={destination}
                     type="button"
@@ -352,6 +378,51 @@ export default function ClientSolAccessPage() {
                 Abre el destino en el navegador local y lo deja en tus manos. No lee ni guarda datos.
               </p>
             </div>
+            {selectedPermissions && (
+              <details data-testid="profile-destination-states">
+                <summary style={{ cursor: "pointer", fontWeight: 600 }}>Estado por destino de «{selectedPermissions.profile_name}»</summary>
+                <ul style={{ listStyle: "none", padding: 0, margin: "0.4rem 0 0", display: "flex", flexDirection: "column", gap: "0.35rem" }}>
+                  {selectedPermissions.destinations.map((d) => (
+                    <li key={d.destination} data-testid={`perm-${d.destination}`} data-permitted={d.permitted} style={{ fontSize: "0.85rem" }}>
+                      <strong>{DESTINATION_LABEL[d.destination]}</strong>: {describeDestinationStates(d)}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
+            {catalog.some((d) => d.offered !== false && (!d.enabled || !openable(d.id))) && (
+              <div data-testid="unvalidated-destinations">
+                <h2 style={{ fontSize: "1.05rem", marginBottom: "0.4rem" }}>Otros destinos de SUNAT</h2>
+                <ul style={{ listStyle: "none", padding: 0, display: "flex", flexDirection: "column", gap: "0.35rem" }}>
+                  {catalog
+                    .filter((d) => d.offered !== false && (!d.enabled || !openable(d.id)))
+                    .map((d) => {
+                      const state = destinationUiState(d, session, permissionFor(d.id));
+                      return (
+                        <li key={d.id} data-testid={`dest-${d.id}`} data-state={state.key} data-evidence={d.evidence ?? "NONE"}>
+                          <strong>{d.label}</strong> · {state.label}
+                          {d.open_only ? " · solo apertura supervisada" : d.evidence === "ARRIVAL_ONLY" ? " · falta la ruta de menú" : ""}
+                        </li>
+                      );
+                    })}
+                </ul>
+                <p style={{ color: "var(--muted)", marginTop: "0.4rem", fontSize: "0.85rem" }}>
+                  Estos destinos no se abren automáticamente: o no tienen evidencia validada (Generación de Registros se abre a mano desde el Menú SOL), o el perfil
+                  elegido todavía no superó su propia prueba real. Usa «Abrir Menú SOL» y navega tú dentro de tus permisos, o pide al propietario que autorice una prueba.
+                </p>
+              </div>
+            )}
+            {canAccept && (
+              <AcceptancePanel
+                clientId={clientId}
+                profiles={profiles}
+                catalog={catalog}
+                session={session}
+                starting={starting}
+                canOpen={preflight.canStart || (vault?.unlocked === true && agents?.agents.some((a) => a.available) === true)}
+                onSession={setSession}
+              />
+            )}
             {canRefresh && destinations.includes("FICHA_RUC") && (
               <div>
                 <h2 style={{ fontSize: "1.05rem", marginBottom: "0.4rem" }}>Actualizar datos desde Ficha RUC</h2>

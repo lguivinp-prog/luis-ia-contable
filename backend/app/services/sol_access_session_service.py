@@ -15,7 +15,8 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core import clock
+from app.core import clock, sunat_destinations
+from app.services import sol_destination_acceptance_service as acceptance_service
 from app.models.audit_log import AuditAction
 from app.models.client import Client
 from app.models.client_sol_credential import ClientSolCredential
@@ -34,7 +35,7 @@ SESSION_TTL_SECONDS_DEFAULT = 30 * 60  # ver Domain A.1 seccion 6 -- valor defer
 HUMAN_CONTROL_TTL_SECONDS = 30 * 60
 SCOPE_LANDING = "AUTHENTICATE_TO_LANDING_ONLY"
 SCOPE_DESTINATION = "NAVIGATE_TO_DESTINATION"
-VALID_DESTINATIONS = frozenset({"MENU_SOL", "FICHA_RUC"})  # allowlist de destinos LIVE-VALIDADOS
+# Compatibilidad M2: el conjunto efectivo de destinos HABILITADOS se lee SIEMPRE del catalogo unico (nunca una copia).
 
 _TERMINAL: frozenset[str] = frozenset(SESSION_TERMINAL_STATUSES)
 _TRANSITIONS: dict[str, frozenset[str]] = {
@@ -149,6 +150,7 @@ def create_session(
     session_ttl_seconds: int = SESSION_TTL_SECONDS_DEFAULT,
     destination: str | None = None,
     extract_ficha: bool = False,
+    origin_tax_period_id: uuid.UUID | None = None,
 ) -> SolAccessSession:
     """Valida tenant/cliente/credencial antes de insertar (en vez de confiar
     unicamente en el `IntegrityError` de las FKs compuestas, que son el
@@ -163,9 +165,13 @@ def create_session(
         )
     # Allowlist cerrada: destino desconocido => FALLA CERRADO (el frontend solo envia el enum, nunca URL/selector).
     if (scope == SCOPE_DESTINATION) != (destination is not None) or (
-        destination is not None and destination not in VALID_DESTINATIONS
+        destination is not None and not sunat_destinations.is_known(destination)
     ):
         raise SolAccessSessionServiceError("SOL_DESTINATION_NOT_ALLOWED", "destino no permitido")
+    policy = sunat_destinations.policy_of(sunat_destinations.resolve(destination) or "") if destination is not None else None
+    if destination is not None and (policy is None or (not policy.enabled and not acceptance_service.is_eligible(policy.id))):
+        raise SolAccessSessionServiceError("SOL_DESTINATION_DISABLED", "destino conocido pero no validado en vivo")
+    use_acceptance = False  # se decide por PERFIL tras validar cliente y credencial (compuerta de acceso)
     if extract_ficha and destination != "FICHA_RUC":
         raise SolAccessSessionServiceError("SOL_EXTRACTION_NOT_ALLOWED", "la extraccion solo aplica a FICHA_RUC")
 
@@ -201,6 +207,22 @@ def create_session(
     ):
         raise ActiveSessionAlreadyExistsError()
 
+    if destination is not None:
+        # Compuerta por PERFIL: la estructura del portal esta validada, pero la autorizacion de una credencial no se extrapola. Un perfil sin prueba propia
+        # solo abre el destino con una autorizacion explicita del propietario (un solo uso); jamas se prueba otra credencial automaticamente.
+        gate = acceptance_service.access_gate(db, tenant_id=tenant_id, client_id=client_id, credential_id=credential_id, destination=destination)
+        if gate == acceptance_service.GATE_DISABLED:
+            raise SolAccessSessionServiceError("SOL_DESTINATION_DISABLED", "destino conocido pero no validado en vivo")
+        if gate == acceptance_service.GATE_NEEDS_GRANT:
+            if not acceptance_service.has_valid_grant(
+                db, tenant_id=tenant_id, user_id=requested_by_user_id, client_id=client_id, credential_id=credential_id, destination=destination
+            ):
+                raise SolAccessSessionServiceError(
+                    "SOL_PROFILE_NOT_PROVEN" if policy is not None and policy.enabled else "SOL_DESTINATION_DISABLED",
+                    "este perfil aun no supero la prueba real de este destino",
+                )
+            use_acceptance = True
+
     # Domain C.1, Gate 2: tiempo autoritativo de PostgreSQL, no del proceso
     # backend -- define la ventana de TTL desde el mismo reloj que luego la
     # valida (expire_session/create_job usan db_now igual).
@@ -234,6 +256,15 @@ def create_session(
             return winner
         raise IdempotencyKeyConflictError() from None
 
+    if use_acceptance:
+        try:
+            session_row.acceptance_grant_id = acceptance_service.consume(
+                db, tenant_id=tenant_id, user_id=requested_by_user_id, client_id=client_id, credential_id=credential_id,
+                destination=destination, session_id=session_row.id,
+            )
+            db.flush()
+        except acceptance_service.AcceptanceError:
+            raise SolAccessSessionServiceError("SOL_DESTINATION_DISABLED", "destino conocido pero no validado en vivo") from None
     audit_service.record(
         db,
         tenant_id=tenant_id,
@@ -244,9 +275,13 @@ def create_session(
         metadata={
             "client_id": str(client_id),
             "credential_id": str(credential_id),
+            # perfil usado (nombre interno y tipo; JAMAS el secreto): permite auditar con que credencial se abrio cada acceso
+            "credential_kind": credential.credential_kind,
+            "credential_profile": credential.profile_name,
             "scope": scope,
             "destination": destination,
             "extract_ficha": extract_ficha,
+            "acceptance_test": use_acceptance,
         },
     )
     if destination is not None:
@@ -257,7 +292,15 @@ def create_session(
             action=AuditAction.SUNAT_DESTINATION_REQUESTED,
             entity_type="sol_access_session",
             entity_id=session_row.id,
-            metadata={"destination": destination, "extract_ficha": extract_ficha},
+            metadata={
+                "destination": destination,
+                "extract_ficha": extract_ficha,
+                "credential_id": str(credential_id),
+                "credential_profile": credential.profile_name,
+                # evento de ACCESO: no es evidencia de cumplimiento tributario ni cambia ningun estado del periodo
+                "origin": "COCKPIT_WORKSPACE" if origin_tax_period_id else "CLIENT_CENTER",
+                **({"tax_period_id": str(origin_tax_period_id)} if origin_tax_period_id else {}),
+            },
         )
     return session_row
 

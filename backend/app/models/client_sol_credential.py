@@ -100,10 +100,15 @@ class ClientSolCredential(Base, UUIDPrimaryKeyMixin, TimestampMixin):
             "OR (status <> 'DISABLED' AND disabled_at IS NULL AND disabled_by IS NULL)",
             name="ck_client_sol_credentials_disabled_coherence",
         ),
-        # A lo sumo una credencial no-DISABLED por tenant/cliente.
+        CheckConstraint("length(btrim(profile_name)) > 0", name="ck_client_sol_credentials_profile_name_not_blank"),
+        # M3 (migracion 0023): varios perfiles por cliente. Nombre de perfil unico entre los no-DISABLED y a lo sumo UNA credencial principal.
         Index(
-            "ux_client_sol_credentials_active_per_client", "tenant_id", "client_id",
+            "ux_client_sol_credentials_active_profile", "tenant_id", "client_id", sa.text("lower(profile_name)"),
             unique=True, postgresql_where=sa.text("status <> 'DISABLED'"),
+        ),
+        Index(
+            "ux_client_sol_credentials_one_primary", "tenant_id", "client_id",
+            unique=True, postgresql_where=sa.text("status <> 'DISABLED' AND credential_kind <> 'SECONDARY'"),
         ),
     )
 
@@ -111,6 +116,11 @@ class ClientSolCredential(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     client_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     vault_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     credential_kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    # nombre INTERNO del perfil (no es secreto). Por defecto segun el tipo (mismo criterio que la migracion 0023) si el codigo no lo informa.
+    profile_name: Mapped[str] = mapped_column(
+        String(60), nullable=False,
+        default=lambda ctx: "Credencial secundaria" if ctx.get_current_parameters().get("credential_kind") == "SECONDARY" else "Credencial principal",
+    )
     sol_username_encrypted: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     sol_password_encrypted: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     crypto_format_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)

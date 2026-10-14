@@ -376,6 +376,9 @@ CASES = [
         "contador_client",
         "asistente_client",
     ),
+    # ---- Producto M3: aceptacion real controlada (solo administrador) ----
+    ("sol_acceptance:manage", "GET", f"/api/v1/sol-access/clients/{DUMMY_ID}/acceptances", None, "auth_client", "contador_client"),
+    ("sol_acceptance:manage", "POST", "/api/v1/sol-access/acceptances", {}, "auth_client", "contador_client"),
     # ---- Producto M2: destinos de SOL, Ficha RUC y alta asistida (composicion de permisos EXISTENTES) ----
     ("sol_session:read", "GET", "/api/v1/sol-access/destinations", None, "contador_client", "asistente_client"),
     ("client:read", "GET", f"/api/v1/clients/{DUMMY_ID}/ficha-ruc/snapshots", None, "asistente_client", None),
@@ -419,7 +422,7 @@ def test_permission_matrix(
         )
 
 
-def test_matrix_covers_all_57_permissions() -> None:
+def test_matrix_covers_all_58_permissions() -> None:
     """Fase 5, Bloque 5.1 (ver ADR-0068): agrega los 9 permisos sol_vault:*/
     sol_credential:* (42 -> 51). Fase 5, Bloque 5.2 (ver
     docs/phase5/block5_2/): agrega 5 permisos sol_session:*/sol_agent:*

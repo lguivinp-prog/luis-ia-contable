@@ -149,6 +149,11 @@ class FakeSolPortal:
 
     def _entry_html(self) -> str:
         s = self.scenario
+        if s.startswith("m3_public"):
+            from tests.e3_portal import m3_fixtures
+
+            variant, _inherited = m3_fixtures.variant_of(s)
+            return m3_fixtures.public_entry_html(variant or "public", f"window.open('{self._login_target()}', '_blank');")
         heading = {"heading_changed": "Mis tramites y servicios"}.get(s, "Mis tramites y consultas")
         h2 = "" if s == "no_heading" else f"<h2>{heading}</h2>"
         link = "" if s == "no_entry_link" else '<a href="javascript:openLogin()">Ingresar</a>'
@@ -212,12 +217,23 @@ function doLogin() {{
 }}
 </script></body></html>"""
 
+    def _auth_scenario(self) -> str:
+        """Escenario que gobierna el transito POSTERIOR al envio: para `m3_<variante>__<m2_auth_*|unexpected_landing>` hereda el comportamiento del M2
+        (pagina «Bienvenidos a SUNAT» lenta, detenida, con popup...), de modo que la entrada PUBLICA se prueba contra las mismas transiciones reales."""
+        if self.scenario.startswith("m3_"):
+            from tests.e3_portal import m3_fixtures
+
+            _variant, inherited = m3_fixtures.variant_of(self.scenario)
+            if inherited.startswith("m2_auth_") or inherited == "unexpected_landing":
+                return inherited
+        return self.scenario
+
     def _welcome_html(self) -> str:
         """Pagina de transito de autenticacion POSTERIOR al envio («Bienvenidos a SUNAT»): ruta y titulo distintos del login, sin
         formulario. Variantes (`m2_auth_*`): welcome_redirect / welcome_slow (redirigen solas al menu), welcome_chain (via el salto del host
         de aterrizaje), welcome_stuck (se queda), welcome_empty (sin ningun control), welcome_challenge (widget de verificacion humana que
         el humano libera), welcome_popup (abre otra ventana)."""
-        s = self.scenario
+        s = self._auth_scenario()
         landing = self.url("menu", AUTH_HOP_PATH)
         script = ""
         body = "<p>Bienvenidos (fixture)</p>"
@@ -245,7 +261,7 @@ function doLogin() {{
         return f"<html><head><title>Bienvenidos a SUNAT</title></head><body>{body}<script>{script}</script></body></html>"
 
     def _landing_html(self) -> str:
-        if self.scenario.startswith("m2_"):
+        if self.scenario.startswith(("m2_", "m3_")):
             return m2_shell.shell_html(self.scenario, self.url("ficha", m2_shell.FICHA_PATH))
         title = "Otra aplicacion" if self.scenario == "bad_landing" else "SUNAT - Menú SOL"
         login_form = (
@@ -259,6 +275,12 @@ function doLogin() {{
 <iframe src="about:blank" style="display:none"></iframe><iframe srcdoc="<p>x</p>" style="display:none"></iframe>
 </body></html>"""
 
+    def _post_login_target(self) -> str:
+        """A donde lleva el salto posterior al login: el Menu SOL (Tramites y Consultas) o, en los escenarios publicos, la PLATAFORMA (salvo `wronglanding`)."""
+        if self.scenario.startswith("m3_public") and not self.scenario.startswith("m3_public_wronglanding"):
+            return self.url("menu", "/cl-ti-itmenu2/MenuInternetPlataforma.htm")
+        return self.landing_url
+
     # --- ruteo ---
 
     def _route_get(self, h, host: str, path: str) -> None:
@@ -268,9 +290,9 @@ function doLogin() {{
             h._send(200, self._entry_html())
         elif host == "entry.localhost" and path == "/frame_host":
             h._send(200, f"<html><head><title>x</title></head><body><iframe src='{self.url('auth', LOGIN_PATH)}'></iframe></body></html>")
-        elif host == "auth.localhost" and path == WELCOME_PATH and self.scenario == "m2_auth_welcome_server_error":
+        elif host == "auth.localhost" and path == WELCOME_PATH and self._auth_scenario() == "m2_auth_welcome_server_error":
             h._send(500, "<html><head><title>Error</title></head><body><h1>Error interno (fixture)</h1></body></html>")
-        elif host == "auth.localhost" and path.startswith(WELCOME_PATH) and self.scenario.startswith("m2_auth_"):
+        elif host == "auth.localhost" and path.startswith(WELCOME_PATH) and self._auth_scenario().startswith("m2_auth_"):
             h._send(200, self._welcome_html())
         elif host == "auth.localhost" and path == "/auth_app.js":
             h._send(404, "not found", "text/plain")  # recurso JS del proveedor que no carga
@@ -286,11 +308,21 @@ function doLogin() {{
         elif path == "/challenge_status":
             h._send(200, "released" if self.challenge_released.is_set() else "pending", "text/plain")
         elif host == "menu.localhost" and path == AUTH_HOP_PATH:
-            h._send(302, "", headers={"Location": self.landing_url})
+            h._send(302, "", headers={"Location": self._post_login_target()})
+        elif host == "menu.localhost" and path == "/cl-ti-itmenu2/MenuInternetPlataforma.htm":
+            from tests.e3_portal import m3_fixtures
+
+            variant, _inherited = m3_fixtures.variant_of(self.scenario)
+            h._send(200, m3_fixtures.platform_html(variant or ""))
         elif host == "menu.localhost" and path in {LANDING_PATH, WRONG_APP_LANDING_PATH}:
             h._send(200, self._landing_html())
         elif host == "ficha.localhost" and path.startswith("/ol-ti-itmoddatruc/"):
             h._send(200, m2_shell.ficha_html(self.scenario))
+        elif host == "ficha.localhost" and path.startswith(("/destino-", "/otra-ruta/", "/destino-extra/", "/app/")):
+            from tests.e3_portal import m3_fixtures
+
+            variant, _inherited = m3_fixtures.variant_of(self.scenario)
+            h._send(200, m3_fixtures.destination_html(variant or "", path))
         elif host == "menu.localhost" and path in {"/cl-ti-itmenu/SaltoLogin.htm", "/otra/ruta/Salto.htm"} and self.scenario.startswith("m2_login_hop"):
             s = self.scenario
             login_url = self.url("auth", LOGIN_PATH)
@@ -331,17 +363,17 @@ function doLogin() {{
             if self.scenario == "challenge_never":
                 self.challenge_released.clear()
             h._send(200, self._login_html(challenge=True))
-        elif self.scenario == "m2_auth_welcome_drop":
+        elif self._auth_scenario() == "m2_auth_welcome_drop":
             import socket
 
             h.close_connection = True
             h.connection.shutdown(socket.SHUT_RDWR)  # interrupcion de conexion durante el envio
-        elif self.scenario == "m2_auth_welcome_sensitive":
+        elif self._auth_scenario() == "m2_auth_welcome_sensitive":
             # ruta, query y fragmento con identificadores SINTETICOS sensibles: nada de esto puede llegar a la traza
             h._send(302, "", headers={"Location": self.url("auth", WELCOME_PATH) + "/20123456786/JUAN-PEREZ?code=CODE-SECRET-123&state=STATE-SECRET-456#access_token=TOKEN-SECRET-789"})
-        elif self.scenario.startswith("m2_auth_"):
+        elif self._auth_scenario().startswith("m2_auth_"):
             h._send(302, "", headers={"Location": self.url("auth", WELCOME_PATH)})  # el envio llega a la pagina «Bienvenidos a SUNAT»
-        elif self.scenario == "unexpected_landing":
+        elif self._auth_scenario() == "unexpected_landing":
             h._send(302, "", headers={"Location": self.url("evil", "/x")})
         else:
             target = self.url("menu", WRONG_APP_LANDING_PATH if self.scenario == "bad_landing_path" else AUTH_HOP_PATH)

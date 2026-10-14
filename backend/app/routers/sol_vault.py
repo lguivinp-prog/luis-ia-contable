@@ -3,9 +3,11 @@ ADR-0071). Rutas estaticas antes de dinamicas. Ninguna ruta de este router
 devuelve una contrasena en claro, un ciphertext, un salt, una clave
 envuelta, ni el handle interno de `VaultUnlockRegistry`."""
 
+import logging
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_current_session, verify_csrf
@@ -88,6 +90,7 @@ def _credential_out(credential) -> SolCredentialStatusOut:
         id=credential.id,
         client_id=credential.client_id,
         credential_kind=credential.credential_kind,
+        profile_name=credential.profile_name,
         status=credential.status,
         last_validation_result=credential.last_validation_result,
         last_validated_at=credential.last_validated_at,
@@ -131,8 +134,30 @@ _SERVICE_ERROR_STATUS = {
     "SOL_VAULT_SLOT_NOT_FOUND": status.HTTP_404_NOT_FOUND,
     "SOL_CREDENTIAL_NOT_FOUND": status.HTTP_404_NOT_FOUND,
     "SOL_CREDENTIAL_ALREADY_DISABLED": status.HTTP_409_CONFLICT,
+    "SOL_CREDENTIAL_PROFILE_NAME_TAKEN": status.HTTP_409_CONFLICT,
+    "SOL_PRIMARY_CREDENTIAL_ALREADY_EXISTS": status.HTTP_409_CONFLICT,
     "SOL_CREDENTIAL_AUTHORIZATION_EXPIRED": status.HTTP_422_UNPROCESSABLE_ENTITY,
+    "SOL_CREDENTIAL_FIELD_TOO_LONG": status.HTTP_422_UNPROCESSABLE_ENTITY,
 }
+
+# Restricciones de base de datos -> codigo normalizado. Una carrera (doble clic / reintento) NO debe terminar en un 500 opaco.
+_CREDENTIAL_CONSTRAINT_CODES = {
+    "ux_client_sol_credentials_active_profile": ("SOL_CREDENTIAL_PROFILE_NAME_TAKEN", status.HTTP_409_CONFLICT),
+    "ux_client_sol_credentials_one_primary": ("SOL_PRIMARY_CREDENTIAL_ALREADY_EXISTS", status.HTTP_409_CONFLICT),
+}
+
+
+def _handle_database_error(db: Session, exc: Exception) -> HTTPException:
+    """Traduce un fallo de base de datos al guardar una credencial a una respuesta controlada. No incluye SQL, parametros ni cifrado; la transaccion se
+    revierte entera (no queda ningun perfil a medias)."""
+    db.rollback()
+    constraint = getattr(getattr(getattr(exc, "orig", None), "diag", None), "constraint_name", None)
+    if constraint in _CREDENTIAL_CONSTRAINT_CODES:
+        code, http_status = _CREDENTIAL_CONSTRAINT_CODES[constraint]
+        return HTTPException(status_code=http_status, detail={"code": code})
+    kind = type(getattr(exc, "orig", exc)).__name__
+    logging.getLogger("app.sol_vault").error("credential_store_failed", extra={"error_kind": kind})
+    return HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail={"code": "SOL_CREDENTIAL_STORE_FAILED"})
 
 
 def _handle_service_error(db: Session, exc: svc.SolVaultServiceError) -> HTTPException:
@@ -581,6 +606,16 @@ def _require_client(db: Session, tenant_id: uuid.UUID, client_id: uuid.UUID):
     return client
 
 
+def _single_credential_or_409(db: Session, tenant_id: uuid.UUID, client_id: uuid.UUID):
+    """Rutas M2 sin `credential_id`: solo valen con UN perfil. Con varios se exige seleccion explicita (jamas se elige uno por el usuario)."""
+    found = client_sol_credential_service.list_credentials(db, tenant_id=tenant_id, client_id=client_id)
+    if not found:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={"code": "SOL_CREDENTIAL_NOT_FOUND"})
+    if len(found) > 1:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail={"code": "SOL_CREDENTIAL_SELECTION_REQUIRED"})
+    return found[0]
+
+
 @credential_router.get("/{client_id}/sol-credential/status", response_model=SolCredentialStatusOut | None)
 def get_credential_status(
     client_id: uuid.UUID,
@@ -596,6 +631,7 @@ def get_credential_status(
     return _credential_out(credential) if credential is not None else None
 
 
+@credential_router.post("/{client_id}/sol-credentials", response_model=SolCredentialStatusOut)
 @credential_router.post("/{client_id}/sol-credential", response_model=SolCredentialStatusOut)
 def create_credential(
     client_id: uuid.UUID,
@@ -619,6 +655,7 @@ def create_credential(
             actor=current_user,
             app_session_id=session.id,
             credential_kind=payload.credential_kind,
+            profile_name=payload.profile_name,
             sol_username=payload.sol_username,
             sol_password=payload.sol_password,
             authorization_basis=payload.authorization_basis,
@@ -626,13 +663,15 @@ def create_credential(
             authorization_reference=payload.authorization_reference,
             authorized_scope_description=payload.authorized_scope_description,
         )
+        db.commit()
     except client_sol_credential_service.CredentialServiceError as exc:
         raise _handle_service_error(db, exc) from exc
     except svc.SolVaultServiceError as exc:
         raise _handle_service_error(db, exc) from exc
     except (VaultLockedError, VaultUnlockExpiredError, VaultOperationNotAuthorizedError) as exc:
         raise _handle_registry_error(db, exc) from exc
-    db.commit()
+    except DBAPIError as exc:
+        raise _handle_database_error(db, exc) from exc
     return _credential_out(credential)
 
 
@@ -649,13 +688,7 @@ def update_credential(
     _no_store(response)
     _require_client(db, current_user.tenant_id, client_id)
     vault_id = _require_active_vault(db, current_user.tenant_id)
-    existing = client_sol_credential_service.get_credential_status(
-        db, tenant_id=current_user.tenant_id, client_id=client_id
-    )
-    if existing is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail={"code": "SOL_CREDENTIAL_NOT_FOUND"}
-        )
+    existing = _single_credential_or_409(db, current_user.tenant_id, client_id)
     try:
         credential = client_sol_credential_service.update_credential(
             db,
@@ -667,6 +700,7 @@ def update_credential(
             actor=current_user,
             app_session_id=session.id,
             expected_version=payload.expected_version,
+            profile_name=payload.profile_name,
             sol_username=payload.sol_username,
             sol_password=payload.sol_password,
             authorization_basis=payload.authorization_basis,
@@ -680,7 +714,12 @@ def update_credential(
         raise _handle_service_error(db, exc) from exc
     except (VaultLockedError, VaultUnlockExpiredError, VaultOperationNotAuthorizedError) as exc:
         raise _handle_registry_error(db, exc) from exc
-    db.commit()
+    except DBAPIError as exc:
+        raise _handle_database_error(db, exc) from exc
+    try:
+        db.commit()
+    except DBAPIError as exc:
+        raise _handle_database_error(db, exc) from exc
     return _credential_out(credential)
 
 
@@ -695,13 +734,7 @@ def disable_credential(
 ) -> SolCredentialStatusOut:
     _no_store(response)
     _require_client(db, current_user.tenant_id, client_id)
-    existing = client_sol_credential_service.get_credential_status(
-        db, tenant_id=current_user.tenant_id, client_id=client_id
-    )
-    if existing is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail={"code": "SOL_CREDENTIAL_NOT_FOUND"}
-        )
+    existing = _single_credential_or_409(db, current_user.tenant_id, client_id)
     try:
         credential = client_sol_credential_service.disable_credential(
             db,
@@ -709,6 +742,91 @@ def disable_credential(
             client_id=client_id,
             credential_id=existing.id,
             actor=current_user,
+            expected_version=payload.expected_version,
+        )
+    except client_sol_credential_service.CredentialServiceError as exc:
+        raise _handle_service_error(db, exc) from exc
+    db.commit()
+    return _credential_out(credential)
+
+
+# --- M3: perfiles de credencial (varias credenciales cifradas por cliente; seleccion EXPLICITA por id) ---
+
+
+@credential_router.get("/{client_id}/sol-credentials", response_model=list[SolCredentialStatusOut])
+def list_credential_profiles(
+    client_id: uuid.UUID,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(Permission.SOL_CREDENTIAL_READ)),
+) -> list[SolCredentialStatusOut]:
+    _no_store(response)
+    _require_client(db, current_user.tenant_id, client_id)
+    return [_credential_out(c) for c in client_sol_credential_service.list_credentials(db, tenant_id=current_user.tenant_id, client_id=client_id)]
+
+
+def _profile_or_404(db: Session, tenant_id: uuid.UUID, client_id: uuid.UUID, credential_id: uuid.UUID):
+    for c in client_sol_credential_service.list_credentials(db, tenant_id=tenant_id, client_id=client_id):
+        if c.id == credential_id:
+            return c
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={"code": "SOL_CREDENTIAL_NOT_FOUND"})
+
+
+@credential_router.put("/{client_id}/sol-credentials/{credential_id}", response_model=SolCredentialStatusOut)
+def update_credential_profile(
+    client_id: uuid.UUID,
+    credential_id: uuid.UUID,
+    payload: UpdateSolCredentialRequest,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(Permission.SOL_CREDENTIAL_UPDATE)),
+    session: AppSession = Depends(get_current_session),
+    _csrf: None = Depends(verify_csrf),
+) -> SolCredentialStatusOut:
+    _no_store(response)
+    _require_client(db, current_user.tenant_id, client_id)
+    vault_id = _require_active_vault(db, current_user.tenant_id)
+    _profile_or_404(db, current_user.tenant_id, client_id, credential_id)
+    try:
+        credential = client_sol_credential_service.update_credential(
+            db, vault_unlock_registry, tenant_id=current_user.tenant_id, vault_id=vault_id, client_id=client_id, credential_id=credential_id,
+            actor=current_user, app_session_id=session.id, expected_version=payload.expected_version, profile_name=payload.profile_name,
+            sol_username=payload.sol_username, sol_password=payload.sol_password, authorization_basis=payload.authorization_basis,
+            authorization_expires_at=payload.authorization_expires_at, authorization_reference=payload.authorization_reference,
+            authorized_scope_description=payload.authorized_scope_description,
+        )
+    except client_sol_credential_service.CredentialServiceError as exc:
+        raise _handle_service_error(db, exc) from exc
+    except svc.SolVaultServiceError as exc:
+        raise _handle_service_error(db, exc) from exc
+    except (VaultLockedError, VaultUnlockExpiredError, VaultOperationNotAuthorizedError) as exc:
+        raise _handle_registry_error(db, exc) from exc
+    except DBAPIError as exc:
+        raise _handle_database_error(db, exc) from exc
+    try:
+        db.commit()
+    except DBAPIError as exc:
+        raise _handle_database_error(db, exc) from exc
+    return _credential_out(credential)
+
+
+@credential_router.post("/{client_id}/sol-credentials/{credential_id}/disable", response_model=SolCredentialStatusOut)
+def disable_credential_profile(
+    client_id: uuid.UUID,
+    credential_id: uuid.UUID,
+    payload: DisableSolCredentialRequest,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(Permission.SOL_CREDENTIAL_DISABLE)),
+    _csrf: None = Depends(verify_csrf),
+) -> SolCredentialStatusOut:
+    """Deja de usar UN perfil sin tocar los demas (los otros perfiles conservan su cifrado, estado y version)."""
+    _no_store(response)
+    _require_client(db, current_user.tenant_id, client_id)
+    _profile_or_404(db, current_user.tenant_id, client_id, credential_id)
+    try:
+        credential = client_sol_credential_service.disable_credential(
+            db, tenant_id=current_user.tenant_id, client_id=client_id, credential_id=credential_id, actor=current_user,
             expected_version=payload.expected_version,
         )
     except client_sol_credential_service.CredentialServiceError as exc:

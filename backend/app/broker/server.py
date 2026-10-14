@@ -754,6 +754,7 @@ class _BrokerHttpHandler(BaseHTTPRequestHandler):
             expires_at=job.expires_at,
             destination=session_row.destination if session_row is not None else None,
             extract_ficha=bool(session_row.extract_ficha) if session_row is not None else False,
+            acceptance=bool(session_row.acceptance_grant_id) if session_row is not None else False,
         )
         return 200, response.model_dump(mode="json")
 

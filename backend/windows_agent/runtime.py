@@ -88,7 +88,7 @@ class AgentRuntime:
         self._cancelled_jobs: set[uuid.UUID] = set()
         self._job_sessions: dict[uuid.UUID, uuid.UUID] = {}
         # M2: (destino aprobado por el servidor, extraer Ficha) por job reclamado. Nunca URL/selector.
-        self._job_destinations: dict[uuid.UUID, tuple[str | None, bool]] = {}
+        self._job_destinations: dict[uuid.UUID, tuple[str | None, bool, bool]] = {}
 
     def _default_client_factory(self, ssl_context: ssl.SSLContext) -> OperationalBrokerClient:
         return OperationalBrokerClient(
@@ -253,7 +253,7 @@ class AgentRuntime:
         session_raw = job_info.get("session_id")
         if session_raw is not None:
             self._job_sessions[job_id] = uuid.UUID(str(session_raw))
-        self._job_destinations[job_id] = (job_info.get("destination"), bool(job_info.get("extract_ficha")))
+        self._job_destinations[job_id] = (job_info.get("destination"), bool(job_info.get("extract_ficha")), bool(job_info.get("acceptance")))
         log_event(self._logger, "job_claimed", job_id=str(job_id))
         # DELIBERADAMENTE nada mas aqui -- ver el docstring del modulo.
         return job_id
@@ -329,7 +329,7 @@ class AgentRuntime:
         credential_provider = lambda: client.fetch_credential_for_job(  # noqa: E731
             connection_id=self._connection_id or "", job_id=job_id
         )
-        destination, extract_ficha = self._job_destinations.pop(job_id, (None, False))
+        destination, extract_ficha, acceptance = self._job_destinations.pop(job_id, (None, False, False))
         if destination is None:
             result = run_authentication(
                 executor, credential_provider, preauth_ready=lambda: self._send_status(job_id, "PREAUTH_READY")
@@ -341,6 +341,7 @@ class AgentRuntime:
                 lambda: self._send_status(job_id, "PREAUTH_READY"),
                 destination=destination,
                 extract_ficha=extract_ficha,
+                acceptance=acceptance,
                 report_ficha=lambda payload: self._report_ficha(job_id, payload),
                 report_human_control=lambda: self._send_status(job_id, "HUMAN_CONTROL"),
             )

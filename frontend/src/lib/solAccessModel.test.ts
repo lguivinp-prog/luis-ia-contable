@@ -186,11 +186,13 @@ describe("M2: control humano y destinos", () => {
     expect(describeSession(session("SUCCEEDED")).description).toBe("Autenticación completada hasta el menú SOL.");
   });
 
-  it("solo se muestran destinos que el servidor habilita Y que la UI conoce (nunca SIRE ni afines)", () => {
+  it("solo se muestran destinos que el servidor habilita Y que la UI conoce (nunca Buzón ni identificadores ajenos)", () => {
     expect(visibleDestinations(["MENU_SOL", "FICHA_RUC"])).toEqual(["MENU_SOL", "FICHA_RUC"]);
-    expect(visibleDestinations(["SIRE", "DECLARACIONES_Y_PAGOS", "DECLARA_FACIL", "TRAMITES_Y_CONSULTAS", "FICHA_RUC"])).toEqual(["FICHA_RUC"]);
+    expect(visibleDestinations(["BUZON_SUNAT", "https://x", "SIRE", "FICHA_RUC"])).toEqual(["SIRE", "FICHA_RUC"]);
     expect(visibleDestinations(null)).toEqual([]);
-    expect(Object.keys(DESTINATION_LABEL)).toEqual(["MENU_SOL", "FICHA_RUC"]);
+    expect(Object.keys(DESTINATION_LABEL)).toEqual([
+      "MENU_SOL", "FICHA_RUC", "SIRE", "SIRE_RVIE", "SIRE_RCE", "SIRE_GENERACION_REGISTROS", "DECLARACIONES_Y_PAGOS", "DECLARA_FACIL", "TRAMITES_Y_CONSULTAS",
+    ]);
   });
 });
 

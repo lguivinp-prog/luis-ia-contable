@@ -2,6 +2,7 @@
 
 // Cuerpos de las pestanas del workspace cliente/periodo. Reutilizan los paneles existentes (documentos, impuestos y
 // pagos, presentacion, cierre, honorarios, SOL supervisado, borradores de WhatsApp); no agregan logica de negocio.
+import { SunatDestinationsPanel } from "@/components/sunat/SunatDestinationsPanel";
 import Link from "next/link";
 import { type ReactNode, useEffect, useState } from "react";
 
@@ -129,7 +130,7 @@ function NotGeneratedNotice({ workspace }: { workspace: Workspace }) {
   );
 }
 
-export function SummarySection({ workspace, clientId }: SectionProps) {
+export function SummarySection({ workspace, clientId, periodId }: SectionProps) {
   const row = workspace.summary;
   const ops = workspace.operations;
   const tax = taxLabel(row);
@@ -137,6 +138,7 @@ export function SummarySection({ workspace, clientId }: SectionProps) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
       <NotGeneratedNotice workspace={workspace} />
+      <SunatDestinationsPanel clientId={clientId} originTaxPeriodId={periodId || undefined} />
       <Card title="Estado del periodo">
         <div style={{ display: "flex", gap: "1.25rem", flexWrap: "wrap" }}>
           <Fact label="Fase">
@@ -266,11 +268,12 @@ export function DocumentsSection({ workspace, onChanged }: SectionProps) {
   );
 }
 
-export function SireSection({ workspace, onChanged }: SectionProps) {
+export function SireSection({ workspace, onChanged, clientId, periodId }: SectionProps) {
   const row = workspace.summary;
   const sire = sireDeclarations(workspace.declarations);
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+      <SunatDestinationsPanel clientId={clientId} originTaxPeriodId={periodId || undefined} title="Acceso a SIRE y otras herramientas de SUNAT" />
       <Card title="Estado SIRE">
         <div style={{ display: "flex", gap: "1.25rem", flexWrap: "wrap" }}>
           <Fact label="SIRE (global)">

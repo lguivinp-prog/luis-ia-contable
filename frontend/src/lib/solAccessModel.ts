@@ -1,7 +1,8 @@
 // Modelo PURO de vista del acceso SOL supervisado (Fase 5, Bloque 5.2, Domain F). Sin JSX ni red, para probarse con
 // vitest (entorno Node). El backend es la UNICA autoridad del estado: aqui solo se traduce el estado ya autoritativo a
 // texto y a que controles mostrar. Nunca se infiere exito de un HTTP 200, un temporizador ni del estado del job.
-import type { SolAccessSessionOut, SolAgentsOut, SolDestination, SolSessionStatus } from "@/lib/types/solAccess";
+import type {
+  SolDestinationPermission, SolDestinationInfo, SolAccessSessionOut, SolAgentsOut, SolDestination, SolSessionStatus } from "@/lib/types/solAccess";
 import type { SolCredentialStatusOut, SolVaultStatusOut } from "@/lib/types/solVault";
 
 export type StateTone = "neutral" | "progress" | "attention" | "success" | "danger";
@@ -98,6 +99,13 @@ export const CANCELLABLE_STATUSES: readonly SolSessionStatus[] = [
 export const DESTINATION_LABEL: Record<SolDestination, string> = {
   MENU_SOL: "Menú SOL",
   FICHA_RUC: "Ficha RUC",
+  SIRE: "SIRE",
+  SIRE_RVIE: "SIRE · Registro de Ventas (RVIE)",
+  SIRE_RCE: "SIRE · Registro de Compras (RCE)",
+  SIRE_GENERACION_REGISTROS: "SIRE · Generación de Registros Electrónicos",
+  DECLARACIONES_Y_PAGOS: "Declaraciones y Pagos",
+  DECLARA_FACIL: "Declara Fácil",
+  TRAMITES_Y_CONSULTAS: "Trámites y Consultas",
 };
 
 export function isKnownDestination(value: string): value is SolDestination {
@@ -211,7 +219,7 @@ const REASON_MESSAGES: Record<string, string> = {
   AUTH_FAILED: "SUNAT no aceptó la autenticación. Revisa la credencial antes de intentar otra vez.",
   HUMAN_CHALLENGE_TIMEOUT: "La verificación en el navegador no se completó a tiempo.",
   WRONG_TAXPAYER_CONTEXT: "El contribuyente mostrado no coincide con el esperado.",
-  PORTAL_CHANGED: "El portal cambió respecto de lo esperado; se detuvo por seguridad.",
+  PORTAL_CHANGED: "SUNAT mostró una pantalla distinta de la esperada y Luis IA se detuvo por seguridad (no implica que SUNAT haya cambiado su portal; mira el diagnóstico).",
   BROWSER_CLOSED: "El navegador se cerró antes de terminar.",
   CANCELLED_BY_USER: "La sesión fue cancelada.",
   CLEANUP_FAILED: "No se pudo cerrar limpiamente el navegador local.",
@@ -242,6 +250,18 @@ const DIAGNOSTIC_MESSAGES: Record<string, string> = {
   NAVIGATION_TIMEOUT: "SUNAT tardó demasiado en responder durante la navegación.",
   LOGIN_SURFACE_NOT_REACHED: "No se llegó a la pantalla de ingreso de SUNAT (aún no se pidió ninguna clave).",
   LANDING_BEFORE_AUTHENTICATION: "SUNAT mostró un menú ya autenticado antes de ingresar la clave; se detuvo por seguridad.",
+  DESTINATION_NOT_VALIDATED:
+    "Este destino de SUNAT todavía no está validado con evidencia real, por eso Luis IA no lo abre automáticamente. Usa «Abrir Menú SOL» y navega tú dentro de tus permisos.",
+  DESTINATION_ENTRY_NOT_FOUND:
+    "El destino no aparece en el menú de esta cuenta SOL. Puede que la clave no tenga permiso para él o que SUNAT haya cambiado el menú; Luis IA no puede distinguirlo sin evidencia. Usa «Abrir Menú SOL».",
+  DESTINATION_MENU_STRUCTURE_MISMATCH:
+    "La ruta del menú hacia el destino ya no coincide con la validada (SUNAT pudo cambiar el menú). No se hizo ningún clic fuera de lo autorizado. Usa «Abrir Menú SOL».",
+  DESTINATION_IDENTITY_MISMATCH:
+    "Luis IA llegó a una pantalla que no se identifica como el destino pedido y se detuvo. Usa «Abrir Menú SOL» y revisa el navegador.",
+  DESTINATION_FRAME_NOT_VALIDATED:
+    "El contenido del destino no cumplió la identidad estructural esperada y no se entregó como válido. No se ejecutó ninguna acción en SUNAT.",
+  DESTINATION_PAGE_NOT_VALIDATED:
+    "SUNAT abrió una ventana que no coincide con el destino autorizado (o abrió más de una), por eso Luis IA se detuvo. No se ejecutó ninguna acción.",
   AUTH_NAVIGATION_STALLED:
     "La ventana de autenticación de SUNAT (por ejemplo «Bienvenidos a SUNAT») no terminó de avanzar y no mostraba ninguna verificación que puedas resolver. Luis IA cerró la sesión; la clave ya se había enviado una vez y no se reutiliza. Inicia una nueva sesión supervisada cuando quieras.",
   LANDING_TRANSIT_UNRESOLVED: "SUNAT pasó por una pantalla intermedia que no llegó al formulario de ingreso (aún no se pidió ninguna clave).",
@@ -308,6 +328,11 @@ const START_ERROR_MESSAGES: Record<string, string> = {
   SOL_AGENT_UNAVAILABLE: "No hay un agente local disponible. Inicia el agente e inténtalo otra vez.",
   SOL_VAULT_LOCKED: "La bóveda está bloqueada. Desbloquéala primero.",
   SOL_CREDENTIAL_NOT_CONFIGURED: "Este cliente no tiene una credencial SOL utilizable.",
+  SOL_CREDENTIAL_SELECTION_REQUIRED: "Este cliente tiene varios perfiles de credencial: elige con cuál se abrirá el acceso.",
+  SOL_PROFILE_NOT_PROVEN:
+    "Este perfil de credencial aún no superó la prueba real de este destino (la autorización de una credencial no se extiende a otras). El propietario puede autorizar una prueba desde el Centro SUNAT; Luis IA no probará otra credencial por su cuenta.",
+  SOL_DESTINATION_DISABLED: "Este destino no está habilitado: ábrelo manualmente desde el Menú SOL.",
+  SOL_CREDENTIAL_NOT_FOUND: "El perfil de credencial elegido ya no está disponible. Elige otro desde la lista.",
   SOL_SESSION_ALREADY_ACTIVE: "Ya hay una sesión de acceso en curso para este cliente.",
   SOL_SESSION_IDEMPOTENCY_CONFLICT: "No se pudo iniciar: la solicitud entró en conflicto. Recarga la página.",
   SOL_SESSION_NOT_STARTABLE: "No se pudo iniciar la sesión en este momento. Inténtalo otra vez.",
@@ -346,6 +371,10 @@ const DEFINITIVE_START_REJECTIONS = new Set([
   "SOL_AGENT_UNAVAILABLE",
   "SOL_VAULT_LOCKED",
   "SOL_CREDENTIAL_NOT_CONFIGURED",
+  "SOL_CREDENTIAL_SELECTION_REQUIRED",
+  "SOL_PROFILE_NOT_PROVEN",
+  "SOL_DESTINATION_DISABLED",
+  "SOL_CREDENTIAL_NOT_FOUND",
   "SOL_SESSION_ALREADY_ACTIVE",
   "SOL_BROKER_UNAVAILABLE",
   "PERMISSION_DENIED",
@@ -410,12 +439,15 @@ export interface PreflightInput {
   vault: SolVaultStatusOut | null;
   agents: SolAgentsOut | null;
   session: SolAccessSessionOut | null;
+  /** M3: el cliente tiene VARIOS perfiles y el usuario aun no eligio uno (nunca se elige por el usuario). */
+  selectionRequired?: boolean;
 }
 
 const USABLE_CREDENTIAL_STATUSES = new Set(["NEEDS_VALIDATION", "ACTIVE"]);
 
 export function evaluatePreflight(input: PreflightInput): { checks: PreflightCheck[]; canStart: boolean } {
   const { canStart, credential, vault, agents, session } = input;
+  const selectionRequired = input.selectionRequired === true && credential == null;
   const credentialOk = credential != null && USABLE_CREDENTIAL_STATUSES.has(credential.status);
   const vaultOk = vault != null && vault.initialized && vault.status === "ACTIVE" && vault.unlocked;
   const agentOk = agents != null && agents.broker_enabled && agents.agents.some((a) => a.available);
@@ -433,7 +465,9 @@ export function evaluatePreflight(input: PreflightInput): { checks: PreflightChe
       label: "Credencial SOL configurada",
       ok: credentialOk,
       detail:
-        credential == null
+        selectionRequired
+          ? "Elige con qué credencial se abrirá el acceso: este cliente tiene varios perfiles."
+          : credential == null
           ? "Este cliente no tiene credencial SOL."
           : credentialOk
             ? "Configurada."
@@ -481,4 +515,197 @@ export function evaluatePreflight(input: PreflightInput): { checks: PreflightChe
 
 export function describeConnectionTrouble(consecutiveFailures: number): string | null {
   return consecutiveFailures >= 1 ? "Reintentando conectar con el servidor para actualizar el estado…" : null;
+}
+
+
+// --- M3: estado de cada destino en la UI (catalogo del backend + sesion actual) ---
+
+export type DestinationUiKey =
+  | "AVAILABLE"
+  | "NOT_VALIDATED"
+  | "IN_PROGRESS"
+  | "NEEDS_HUMAN"
+  | "HANDED_OVER"
+  | "FINISHED"
+  | "FAILED"
+  | "NOT_AUTHORIZED"
+  | "NEEDS_PROOF"
+  | "CANCELLED";
+
+export interface DestinationUiState {
+  key: DestinationUiKey;
+  label: string;
+  hint: string;
+  canOpen: boolean; // solo un destino HABILITADO, sin otra sesion activa, puede ofrecerse como accion
+}
+
+const NOT_VALIDATED_HINT =
+  "Aún no está validado con evidencia real, por eso Luis IA no lo abre automáticamente. Usa «Abrir Menú SOL» y navega tú dentro de tus permisos.";
+const ARRIVAL_ONLY_HINT =
+  "Se observó cómo se ve la pantalla de llegada, pero falta confirmar cómo llegar hasta ella desde el menú. Por ahora no se abre automáticamente: usa «Abrir Menú SOL» y navega tú dentro de tus permisos.";
+const RECON_COMPLETE_HINT =
+  "El reconocimiento real ya identificó la ruta de menú y la pantalla de llegada, pero aún falta aceptar la apertura automática en vivo con una credencial autorizada. Por ahora usa «Abrir Menú SOL» y navega tú dentro de tus permisos.";
+const OPEN_ONLY_HINT =
+  "Solo se prevé la apertura supervisada de la pantalla inicial; cargar, generar, presentar, enviar, declarar, pagar o rectificar siempre queda en tus manos. Aunque la ruta ya está reconocida, el acceso se mantiene manual hasta aceptar su apertura en vivo.";
+
+function notValidatedHint(info: Pick<SolDestinationInfo, "evidence" | "open_only">): string {
+  if (info.open_only) return OPEN_ONLY_HINT;
+  if (info.evidence === "RECON_COMPLETE") return RECON_COMPLETE_HINT;
+  return info.evidence === "ARRIVAL_ONLY" ? ARRIVAL_ONLY_HINT : NOT_VALIDATED_HINT;
+}
+
+// Un destino no habilitado jamas ofrece accion. "No autorizado" solo se muestra cuando el backend lo COMPRUEBA (codigo dedicado); la
+// ausencia de la entrada en el menu NO basta para afirmarlo (puede ser un cambio del portal): se informa como fallo con su diagnostico.
+export function destinationUiState(
+  info: Pick<SolDestinationInfo, "id" | "enabled"> & Partial<Pick<SolDestinationInfo, "evidence" | "open_only" | "requires_profile_proof">>,
+  session: Pick<SolAccessSessionOut, "status" | "destination" | "diagnostic_code" | "is_terminal"> | null | undefined,
+  permission?: Pick<SolDestinationPermission, "available" | "proven"> | null,
+): DestinationUiState {
+  if (!info.enabled) return { key: "NOT_VALIDATED", label: "No validado", hint: notValidatedHint(info), canOpen: false };
+  const active = session != null && !isTerminalSession(session);
+  const activeHere = active && session?.destination === info.id;
+  // La estructura del portal esta validada, pero la autorizacion de una credencial NO se extrapola: el perfil elegido necesita su propia prueba real.
+  if (info.requires_profile_proof && permission && permission.available === false && !activeHere) {
+    return {
+      key: "NEEDS_PROOF",
+      label: "Requiere prueba con este perfil",
+      hint: "La estructura de este destino está validada, pero este perfil aún no superó su propia prueba real. El propietario puede autorizarla desde el Centro SUNAT; Luis IA no prueba otra credencial por su cuenta.",
+      canOpen: false,
+    };
+  }
+  if (session && session.destination === info.id) {
+    const s = session.status;
+    if (s === "WAITING_FOR_USER") return { key: "NEEDS_HUMAN", label: "Requiere tu intervención", hint: "Resuelve el aviso o la verificación en el navegador local.", canOpen: false };
+    if (s === "HUMAN_CONTROL") return { key: "HANDED_OVER", label: "Navegador entregado", hint: "La automatización terminó: el control es tuyo.", canOpen: false };
+    if (active) return { key: "IN_PROGRESS", label: "Sesión en curso", hint: "Luis IA está autenticando y navegando.", canOpen: false };
+    if (s === "SUCCEEDED") return { key: "FINISHED", label: "Finalizado", hint: "El navegador local ya se cerró.", canOpen: true };
+    if (s === "CANCELLED") return { key: "CANCELLED", label: "Cancelado", hint: "", canOpen: true };
+    if (session.diagnostic_code === "DESTINATION_NOT_AUTHORIZED") {
+      return { key: "NOT_AUTHORIZED", label: "No autorizado para esta cuenta", hint: "La cuenta SOL no tiene permiso para este destino.", canOpen: true };
+    }
+    return { key: "FAILED", label: "Fallido", hint: "Revisa el diagnóstico de la sesión. Puedes usar «Abrir Menú SOL».", canOpen: true };
+  }
+  return active
+    ? { key: "AVAILABLE", label: "Disponible (otra sesión activa)", hint: "Espera a que termine la sesión en curso: no se duplican autenticaciones.", canOpen: false }
+    : { key: "AVAILABLE", label: "Disponible y validado", hint: "", canOpen: true };
+}
+
+
+// --- M3: perfiles de credencial y cuatro estados que nunca son equivalentes ---
+
+/** Elegible para iniciar un acceso (estado utilizable). Un perfil no utilizable JAMAS se sustituye por otro. */
+export function usableProfiles<T extends { status: string }>(profiles: T[]): T[] {
+  return profiles.filter((p) => USABLE_CREDENTIAL_STATUSES.has(p.status));
+}
+
+/** Con un solo perfil se usa ese (compatibilidad M2); con varios el usuario DEBE elegir: devuelve el elegido o null. */
+export function resolveSelectedProfile<T extends { id: string }>(profiles: T[], chosenId: string | null): T | null {
+  if (profiles.length === 1) return profiles[0];
+  return profiles.find((p) => p.id === chosenId) ?? null;
+}
+
+export function selectionRequiredFor(profiles: { id: string }[], chosenId: string | null): boolean {
+  return profiles.length > 1 && !profiles.some((p) => p.id === chosenId);
+}
+
+const PERMITTED_LABEL: Record<string, string> = {
+  UNKNOWN: "sin observar con este perfil",
+  OBSERVED_ALLOWED: "observado: el portal lo permitió",
+  OBSERVED_NOT_IN_MENU: "observado: no aparece en el menú de este perfil",
+};
+const RECOGNIZED_LABEL: Record<string, string> = {
+  COMPLETE: "ruta y llegada reconocidas",
+  RECON_COMPLETE: "ruta y llegada reconocidas con evidencia real (falta la aceptación en vivo)",
+  LIVE_ACCEPTED: "ruta y llegada reconocidas y aceptadas en vivo por el propietario",
+  ARRIVAL_ONLY: "solo la llegada reconocida (falta la entrada)",
+  ALIAS: "es el mismo destino que otro",
+  CONTAINED: "está dentro de otro destino",
+  NONE: "sin reconocimiento",
+};
+
+/** Texto de los CUATRO estados de un destino para un perfil: reconocido / habilitado / permitido / completado. */
+export function describeDestinationStates(p: { recognized: string; enabled: boolean; permitted: string; completed: boolean; proven?: boolean }): string {
+  return [
+    `Reconocido: ${RECOGNIZED_LABEL[p.recognized] ?? p.recognized}`,
+    `Habilitado en Luis IA: ${p.enabled ? "sí" : "no"}`,
+    ...(p.proven === undefined ? [] : [`Probado con este perfil: ${p.proven ? "sí" : "no"}`]),
+    `Permitido para este perfil: ${PERMITTED_LABEL[p.permitted] ?? p.permitted}`,
+    `Acceso completado: ${p.completed ? "sí" : "no"}`,
+  ].join(" · ");
+}
+
+// --- M3: aceptacion real controlada ---
+/** Texto del historial de una prueba segun la FASE que calcula el servidor (autorizacion / consumo / fallo / llegada real / confirmacion humana). */
+export function acceptanceStatusLabel(row: { phase: string; result?: "PASS" | "FAIL" | null; result_source?: "OWNER" | "SYSTEM" | null }): string {
+  switch (row.phase) {
+    case "AUTHORIZED":
+      return "autorizada, aún sin usar";
+    case "REVOKED":
+      return "revocada";
+    case "EXPIRED":
+      return "vencida";
+    case "CONSUMED_RUNNING":
+      return "usada · sesión en curso";
+    case "SESSION_FAILED":
+      return "usada · la sesión falló antes de llegar al destino";
+    case "ARRIVAL_AWAITING_CONFIRMATION":
+      return "usada · llegada validada por el agente · falta tu confirmación";
+    case "CONFIRMED_PASS":
+      return "usada · llegada validada · confirmada como correcta por el propietario";
+    case "CONFIRMED_FAIL":
+      return row.result_source === "SYSTEM" ? "usada · falló antes de llegar al destino (registrado por el sistema)" : "usada · el propietario indicó que no coincide";
+    default:
+      return row.phase;
+  }
+}
+
+/** SOLO una llegada realmente validada y entregada al propietario puede recibir una confirmacion (positiva o negativa). */
+export function canConfirmAcceptance(row: { phase: string }): boolean {
+  return row.phase === "ARRIVAL_AWAITING_CONFIRMATION";
+}
+
+/** SOLO una llegada realmente validada y entregada al propietario puede recibir una confirmacion (positiva o negativa). */
+export type ProofHeadlineKey = "VALIDATED" | "AWAITING" | "PENDING" | "FAILED";
+
+export interface ProofRowLite {
+  id: string;
+  destination: string;
+  credential_id: string;
+  phase: string;
+  created_at: string;
+  result_source?: "OWNER" | "SYSTEM" | null;
+  diagnostic_code?: string | null;
+}
+
+const PHASE_TO_HEADLINE: Record<string, ProofHeadlineKey | undefined> = {
+  AUTHORIZED: "PENDING",
+  CONSUMED_RUNNING: "PENDING",
+  ARRIVAL_AWAITING_CONFIRMATION: "AWAITING",
+  CONFIRMED_PASS: "VALIDATED",
+  SESSION_FAILED: "FAILED",
+  CONFIRMED_FAIL: "FAILED",
+};
+
+/**
+ * Resultado VIGENTE de un destino para un perfil: el de la ultima prueba (la mas reciente que no este revocada ni vencida). Un intento fallido anterior
+ * queda en el historial pero JAMAS tapa un exito posterior; un fallo posterior a un exito sigue visible.
+ */
+export function proofHeadline<T extends ProofRowLite>(rows: T[], destination: string, credentialId: string): { key: ProofHeadlineKey; row: T } | null {
+  const relevant = rows
+    .filter((r) => r.destination === destination && r.credential_id === credentialId && PHASE_TO_HEADLINE[r.phase] !== undefined)
+    .sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0));
+  const latest = relevant[0];
+  return latest ? { key: PHASE_TO_HEADLINE[latest.phase] as ProofHeadlineKey, row: latest } : null;
+}
+
+/** Pares (destino, perfil) cuyo resultado vigente es un fallo: unicos que justifican una alerta roja en la vista principal. */
+export function currentFailures<T extends ProofRowLite>(rows: T[]): T[] {
+  const keys = new Set(rows.map((r) => `${r.destination}|${r.credential_id}`));
+  const out: T[] = [];
+  for (const key of keys) {
+    const [destination, credentialId] = key.split("|");
+    const head = proofHeadline(rows, destination, credentialId);
+    if (head && head.key === "FAILED") out.push(head.row);
+  }
+  return out;
 }

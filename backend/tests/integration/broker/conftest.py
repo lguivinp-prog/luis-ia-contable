@@ -27,6 +27,7 @@ from app.models.client import Client
 from app.models.client_sol_credential import ClientSolCredential
 from app.models.session import Session as AppSession
 from app.models.sol_agent_access import SolAccessSession, SolAgent, SolAgentJob, SolAgentPairing
+from app.models.sol_destination_acceptance import SolDestinationAcceptance
 from app.models.sol_vault import SolVault, SolVaultDataKey, SolVaultKeySlot
 from app.models.tenant import Tenant
 from app.models.user import User
@@ -183,6 +184,7 @@ def cleanup_tenant(session_factory, tenant_id: uuid.UUID) -> None:
         session.execute(delete(SolAgentJob).where(SolAgentJob.tenant_id == tenant_id))
         session.execute(delete(SolAgentPairing).where(SolAgentPairing.tenant_id == tenant_id))
         session.execute(delete(SolAccessSession).where(SolAccessSession.tenant_id == tenant_id))
+        session.execute(delete(SolDestinationAcceptance).where(SolDestinationAcceptance.tenant_id == tenant_id))
         session.execute(delete(SolAgent).where(SolAgent.tenant_id == tenant_id))
         session.execute(delete(ClientSolCredential).where(ClientSolCredential.tenant_id == tenant_id))
         session.execute(delete(Client).where(Client.tenant_id == tenant_id))

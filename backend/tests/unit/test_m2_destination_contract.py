@@ -131,15 +131,22 @@ def test_ficha_frame_identity_is_positive_only_with_origin_markers_and_tables():
         assert not dc.check_ficha_ruc_frame(bad).ok
 
 
-def test_destination_allowlist_is_closed_and_unvalidated_destinations_do_not_exist():
-    assert dc.DESTINATION_VALUES == ("MENU_SOL", "FICHA_RUC")
-    for unvalidated in ("SIRE", "DECLARACIONES_Y_PAGOS", "DECLARA_FACIL", "TRAMITES_Y_CONSULTAS", "BUZON", "https://x"):
+def test_destination_allowlist_is_closed_and_only_validated_destinations_are_enabled():
+    # M3: RVIE, RCE y Declaraciones y Pagos (aceptados en vivo) se suman a los de M2; Generacion, SIRE historico y Declara Facil siguen deshabilitados;
+    # cualquier otra cosa (Buzon, URLs) sigue siendo desconocida.
+    assert dc.DESTINATION_VALUES[:2] == ("MENU_SOL", "FICHA_RUC")
+    assert {c.id for c in dc.CONTRACTS.values() if c.enabled and c.alias_of is None} == {"MENU_SOL", "FICHA_RUC", "SIRE_RVIE", "SIRE_RCE", "DECLARACIONES_Y_PAGOS"}  # TRAMITES_Y_CONSULTAS es alias de MENU_SOL
+    for unknown in ("BUZON", "BUZON_SUNAT", "https://x", "sire", ""):
         with pytest.raises(ValueError):
-            dc.Destination(unvalidated)
+            dc.Destination(unknown)
+        with pytest.raises(ValueError):
+            dc.get_contract(unknown)
 
 
 def test_click_budget_per_destination():
-    assert dc.MAX_CLICKS_BY_DESTINATION == {dc.Destination.MENU_SOL: 0, dc.Destination.FICHA_RUC: 4}
+    assert dc.MAX_CLICKS_BY_DESTINATION == {
+        dc.Destination.MENU_SOL: 0, dc.Destination.FICHA_RUC: 4, dc.Destination.SIRE_RVIE: 4, dc.Destination.SIRE_RCE: 4, dc.Destination.DECLARACIONES_Y_PAGOS: 0,
+    }  # RVIE/RCE: 3 cabeceras + la hoja; Declaraciones y Pagos: el clic de la tarjeta ocurre antes del login
 
 
 def test_contract_module_never_mentions_consequential_actions_or_buzon():

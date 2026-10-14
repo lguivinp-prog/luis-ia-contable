@@ -27,6 +27,11 @@ NAV_LABELS: dict[str, tuple[str, ...]] = {
     "MENU_SOL": ("menú sol", "menu sol"),
     "FICHA_RUC": ("ficha ruc",),
     "SIRE": ("sire",),
+    # M3 (correccion de alcance): las tres aplicaciones SIRE. Solo sirven para ETIQUETAR la entrada de menu observada; si el texto real difiere no se
+    # registra etiqueta (nunca se guarda texto arbitrario) y el analizador lo informa como entrada no observada.
+    "SIRE_RVIE": ("registro de ventas e ingresos electrónico", "registro de ventas e ingresos electronico", "registro de ventas e ingresos", "registro de ventas", "rvie"),
+    "SIRE_RCE": ("registro de compras electrónico", "registro de compras electronico", "registro de compras", "rce"),
+    "SIRE_GENERACION_REGISTROS": ("generación de registros electrónicos", "generacion de registros electronicos", "generación de registros", "generacion de registros"),
     "DECLARACIONES_Y_PAGOS": ("declaraciones y pagos",),
     "DECLARA_FACIL": ("declara fácil", "declara facil"),
     "TRAMITES_Y_CONSULTAS": ("trámites y consultas", "tramites y consultas", "mis trámites y consultas", "mis tramites y consultas"),
@@ -156,6 +161,7 @@ def sanitize_node(raw: object) -> dict | None:
         "parent_tag": raw.get("parent_tag") if raw.get("parent_tag") in ALLOWED_TAGS else None,
         "parent_id": safe_token(raw.get("parent_id")),
         "has_onclick": bool(raw.get("has_onclick")),
+        "ancestor_cuerpos": raw["ancestor_cuerpos"] if isinstance(raw.get("ancestor_cuerpos"), int) and 0 <= raw["ancestor_cuerpos"] < 10 else None,
     }
     return node
 
@@ -195,3 +201,148 @@ def dumps(snapshots: list[dict]) -> str:
     text = json.dumps(snapshots, ensure_ascii=False, indent=1)
     assert_clean(text)
     return text
+
+
+# ======================================================================================================================
+# M3 v2 -- checkpoints PRE (menu expandido, antes del clic) y LLEGADA. Sigue siendo ESTRUCTURA: sin HTML, sin texto libre.
+# ======================================================================================================================
+SANITIZER_VERSION_V2 = 2
+
+# Etiquetas de RUTA de menu (clave canonica -> formas normalizadas). Igualdad EXACTA tras normalizar; si no coincide NO se guarda el texto: solo una
+# HUELLA (`digest`, 12 letras, sin digitos) del texto normalizado de las hojas/cabeceras de MENU, que permite reconocer duplicados e identidad sin
+# almacenar texto. Las rutas son las que el propietario observo en el portal.
+ROUTE_LABELS: dict[str, tuple[str, ...]] = {
+    "SIRE_ROOT": ("sistema integrado de registros electrónicos", "sistema integrado de registros electronicos", "sire"),
+    "SIRE_RVIE_REGISTRO": ("registro de ventas e ingresos electrónico", "registro de ventas e ingresos electronico"),
+    "SIRE_RVIE_GESTION": ("gestión de ventas e ingresos electrónicos", "gestion de ventas e ingresos electronicos"),
+    "SIRE_RCE_REGISTRO": ("registro de compras electrónico", "registro de compras electronico"),
+    "SIRE_RCE_GESTION": ("gestión de compras", "gestion de compras"),
+    "SIRE_GENERACION_REGISTROS": ("generación de registros electrónicos", "generacion de registros electronicos"),
+    "DECLARACIONES_Y_PAGOS": ("declaraciones y pagos",),
+    "DECLARA_FACIL": ("declara fácil", "declara facil"),
+    "TRAMITES_Y_CONSULTAS": ("trámites y consultas", "tramites y consultas", "mis trámites y consultas", "mis tramites y consultas"),
+    "EMPRESAS": ("empresas",),
+    # Pagina PUBLICA de SUNAT: tarjetas de entrada (el encabezado es texto publico, no datos del contribuyente)
+    "MIS_DECLARACIONES_Y_PAGOS": ("mis declaraciones y pagos",),
+}
+_ROUTE_BY_TEXT = {form: key for key, forms in ROUTE_LABELS.items() for form in forms}
+ROUTE_TEXT_FORMS: list[str] = sorted(_ROUTE_BY_TEXT)
+MENU_LEVELS = range(1, 8)
+MAX_MENU_NODES = 1500
+MAX_DIGEST_SOURCE = 120
+
+
+def route_key(text: str | None) -> str | None:
+    return _ROUTE_BY_TEXT.get(normalize_text(text or ""))
+
+
+def safe_digest(value: object) -> str | None:
+    """Huella de 12 LETRAS (sin digitos: no dispara los detectores de fuga) calculada en el navegador; aqui solo se valida su forma."""
+    return value if isinstance(value, str) and re.fullmatch(r"[g-v]{12}", value) else None
+
+
+def digest_of(text: str) -> str:
+    """FNV-1a de 64 bits sobre los codigos de caracter del texto normalizado (mismo algoritmo que el extractor JS) -> 12 letras."""
+    h = 0xCBF29CE484222325
+    for ch in normalize_text(text)[:MAX_DIGEST_SOURCE]:
+        h = ((h ^ ord(ch)) * 0x100000001B3) & 0xFFFFFFFFFFFFFFFF
+    return "".join(chr(ord("g") + ((h >> (60 - 4 * i)) & 0xF)) for i in range(12))
+
+
+def _bounded_int(value: object, hi: int) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) and 0 <= value < hi else None
+
+
+def sanitize_menu_node(raw: object) -> dict | None:
+    """Nodo de MENU (`li.nivelN > span.spanNivelDescripcion`): jerarquia, visibilidad, relacion con el elemento accionable. Sin texto."""
+    if not isinstance(raw, dict):
+        return None
+    level = _bounded_int(raw.get("level"), 10)
+    if level is None or level not in MENU_LEVELS:
+        return None
+    action = raw.get("actionable") if isinstance(raw.get("actionable"), dict) else {}
+    kind = action.get("kind") if action.get("kind") in {"script", "path", "onclick", "pointer", "none"} else "none"
+    ancestors = []
+    for token in (raw.get("ancestors") if isinstance(raw.get("ancestors"), list) else [])[:8]:
+        tok = safe_token(token)
+        if tok is not None:
+            ancestors.append(tok)
+    return {
+        "li_id": safe_token(raw.get("li_id")),
+        "level": level,
+        "is_leaf": bool(raw.get("is_leaf")),
+        "label": route_key(raw.get("text_probe")) if isinstance(raw.get("text_probe"), str) else None,
+        "digest": safe_digest(raw.get("digest")),
+        "visible": bool(raw.get("visible")),
+        "chain_visible": bool(raw.get("chain_visible")),
+        "ancestors": ancestors,
+        "cuerpos": _bounded_int(raw.get("cuerpos"), 10),
+        "dup_index": _bounded_int(raw.get("dup_index"), 50),
+        "dup_count": _bounded_int(raw.get("dup_count"), 50),
+        "container_id": safe_token(raw.get("container_id")),
+        "actionable": {"tag": action.get("tag") if action.get("tag") in ALLOWED_TAGS else None, "id": safe_token(action.get("id")),
+                       "kind": kind, "visible": bool(action.get("visible"))},
+    }
+
+
+def sanitize_view_v2(view: object) -> dict:
+    base = sanitize_frame_view(view)
+    if base.get("error") or not isinstance(view, dict):
+        return {"error": True}
+    menu = []
+    for raw in list(view.get("menu_nodes") or [])[:MAX_MENU_NODES]:
+        node = sanitize_menu_node(raw)
+        if node is not None:
+            menu.append(node)
+    counts_raw = view.get("counts") if isinstance(view.get("counts"), dict) else {}
+    counts = {k: (_bounded_int(counts_raw.get(k), 100000) or 0) for k in ("file_inputs", "forms", "tables_visible", "iframes", "password_controls_visible", "buttons_visible")}
+    base["focused"] = bool(view.get("focused"))
+    base["cards"] = [c for c in (sanitize_card(x) for x in list(view.get("cards") or [])[:12]) if c is not None]
+    base["menu_nodes"] = menu
+    base["menu_truncated"] = bool(view.get("menu_truncated"))
+    base["counts"] = counts
+    return base
+
+
+def sanitize_card(raw: object) -> dict | None:
+    """Tarjeta de la pagina PUBLICA: encabezados (clave canonica o huella), el control INGRESAR y la cadena de contenedores. Sin texto libre."""
+    if not isinstance(raw, dict):
+        return None
+    headings = []
+    for h in (raw.get("headings") if isinstance(raw.get("headings"), list) else [])[:3]:
+        if isinstance(h, dict) and h.get("tag") in {"h1", "h2", "h3", "h4"}:
+            headings.append({"tag": h["tag"], "label": route_key(h.get("text_probe")) if isinstance(h.get("text_probe"), str) else None,
+                             "digest": safe_digest(h.get("digest")), "visible": bool(h.get("visible"))})
+    ing = raw.get("ingresar") if isinstance(raw.get("ingresar"), dict) else {}
+    chain = []
+    for c in (raw.get("chain") if isinstance(raw.get("chain"), list) else [])[:5]:
+        if isinstance(c, dict) and c.get("tag") in ALLOWED_TAGS:
+            chain.append({"tag": c["tag"], "id": safe_token(c.get("id")), "classes": safe_classes(c.get("classes"))})
+    return {
+        "headings": headings, "index": _bounded_int(raw.get("index"), 100), "visible": bool(raw.get("visible")),
+        "ingresar": {"tag": ing.get("tag") if ing.get("tag") in ALLOWED_TAGS else None, "id": safe_token(ing.get("id")), "classes": safe_classes(ing.get("classes")),
+                     "visible": bool(ing.get("visible")), "parent_tag": ing.get("parent_tag") if ing.get("parent_tag") in ALLOWED_TAGS else None},
+        "chain": chain,
+    }
+
+
+def sanitize_network(raw: object) -> dict:
+    """Solo METODO + host permitido + ruta normalizada + tipo de recurso; nunca cuerpo, cabeceras ni query. Lo no-GET se detalla (maximo 30)."""
+    out = {"total": 0, "by_method": {}, "non_get": []}
+    if not isinstance(raw, list):
+        return out
+    seen = set()
+    for item in raw[:5000]:
+        if not isinstance(item, dict):
+            continue
+        method = item.get("method") if item.get("method") in {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"} else "OTHER"
+        out["total"] += 1
+        out["by_method"][method] = out["by_method"].get(method, 0) + 1
+        if method in {"POST", "PUT", "PATCH", "DELETE", "OTHER"}:
+            url = safe_url(item.get("url"))
+            rtype = item.get("resource_type") if item.get("resource_type") in {"document", "xhr", "fetch", "script", "stylesheet", "image", "font", "other"} else "other"
+            key = (method, url["host"], url["path"], rtype)
+            if key not in seen and len(out["non_get"]) < 30:
+                seen.add(key)
+                out["non_get"].append({"method": method, "host": url["host"], "path": url["path"], "resource_type": rtype})
+    return out

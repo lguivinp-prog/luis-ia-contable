@@ -3,7 +3,7 @@
 import { SecureForm } from "@/components/ui/SecureForm";
 import { DeliberateInput } from "@/components/ui/DeliberateInput";
 import { useParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -11,12 +11,12 @@ import { Select } from "@/components/ui/Select";
 import { SOL_CREDENTIAL_STATUS_SEMAPHORE, StatusSemaphore } from "@/components/ui/StatusSemaphore";
 import { useCurrentUser } from "@/lib/currentUserContext";
 import {
-  createClientSolCredential,
-  disableClientSolCredential,
-  fetchClientSolCredentialStatus,
-  updateClientSolCredential,
+  createClientSolCredentialProfile,
+  disableClientSolCredentialProfile,
+  fetchClientSolCredentials,
+  updateClientSolCredentialProfile,
 } from "@/lib/solVault";
-import { describeSolVaultError } from "@/lib/solVaultErrors";
+import { CREDENTIAL_FIELD_LIMITS, describeSolVaultError, findPersistedProfile, validateCredentialForm } from "@/lib/solVaultErrors";
 import {
   canCreateSolCredential,
   canDisableSolCredential,
@@ -37,6 +37,8 @@ const CREDENTIAL_KIND_LABELS: Record<string, string> = {
   PRIMARY_EXCEPTIONAL: "Principal (excepción autorizada)",
 };
 
+// Un cliente puede tener varios perfiles (una principal y una o varias secundarias con autorizaciones distintas). Cada perfil se cifra por
+// separado en la bóveda; el nombre del perfil es solo una etiqueta INTERNA: los permisos reales los comprueba el portal, no el nombre.
 export default function ClientSolCredentialPage() {
   const params = useParams<{ id: string }>();
   const clientId = params.id;
@@ -46,7 +48,8 @@ export default function ClientSolCredentialPage() {
   const canUpdate = canUpdateSolCredential(user);
   const canDisable = canDisableSolCredential(user);
 
-  const [credential, setCredential] = useState<SolCredentialStatusOut | null>(null);
+  const [profiles, setProfiles] = useState<SolCredentialStatusOut[]>([]);
+  const [editingId, setEditingId] = useState<string | null>(null); // null => registrar un perfil NUEVO
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
@@ -56,8 +59,7 @@ export default function ClientSolCredentialPage() {
     setLoading(true);
     setError(null);
     try {
-      const data = await fetchClientSolCredentialStatus(clientId);
-      setCredential(data);
+      setProfiles(await fetchClientSolCredentials(clientId));
     } catch {
       setError("No se pudo cargar el estado de la credencial SOL.");
     } finally {
@@ -69,8 +71,10 @@ export default function ClientSolCredentialPage() {
     void Promise.resolve().then(() => reload());
   }, [reload]);
 
-  // --- alta / actualizacion (mismo formulario: crea si no existe, actualiza si existe) ---
+  const editing = profiles.find((p) => p.id === editingId) ?? null;
+
   const [credentialKind, setCredentialKind] = useState<SolCredentialKind>("SECONDARY");
+  const [profileName, setProfileName] = useState("");
   const [solUsername, setSolUsername] = useState("");
   const [solPassword, setSolPassword] = useState("");
   const [authorizationBasis, setAuthorizationBasis] = useState("");
@@ -79,6 +83,7 @@ export default function ClientSolCredentialPage() {
   const [authorizedScopeDescription, setAuthorizedScopeDescription] = useState("");
 
   function resetForm() {
+    setProfileName("");
     setSolUsername("");
     setSolPassword("");
     setAuthorizationBasis("");
@@ -87,13 +92,26 @@ export default function ClientSolCredentialPage() {
     setAuthorizedScopeDescription("");
   }
 
+  // Un solo envio a la vez (doble clic / Enter repetido): `working` se actualiza de forma asincrona, la referencia no.
+  const submitting = useRef(false);
+
   async function handleCreate(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (submitting.current) return;
     setError(null);
+    setBanner(null);
+    const invalid = validateCredentialForm({ profileName, authorizationBasis, authorizationReference, authorizedScopeDescription });
+    if (invalid) {
+      setError(invalid);
+      return;
+    }
+    submitting.current = true;
     setWorking(true);
+    const before = profiles;
     try {
-      const created = await createClientSolCredential(clientId, {
+      await createClientSolCredentialProfile(clientId, {
         credential_kind: credentialKind,
+        profile_name: profileName.trim() || null,
         sol_username: solUsername,
         sol_password: solPassword,
         authorization_basis: authorizationBasis,
@@ -101,36 +119,51 @@ export default function ClientSolCredentialPage() {
         authorization_reference: authorizationReference || null,
         authorized_scope_description: authorizedScopeDescription || null,
       });
-      setCredential(created);
       resetForm();
       setBanner("Credencial guardada. Quedó pendiente de validación.");
+      await reload();
     } catch (err) {
-      setError(describeSolVaultError((err as { detail?: unknown } | undefined)?.detail));
+      // Un fallo no oculta una operacion ya confirmada: se relee la lista y, si el perfil aparece, NO se pide reenviar.
+      let fresh = before;
+      try {
+        fresh = await fetchClientSolCredentials(clientId);
+        setProfiles(fresh);
+      } catch {
+        /* se conserva el mensaje del fallo original */
+      }
+      const saved = findPersistedProfile(before, fresh, credentialKind, profileName);
+      if (saved) {
+        resetForm();
+        setBanner(`La credencial «${saved.profile_name ?? "perfil"}» ya estaba guardada (quedó pendiente de validación). No hace falta repetir el registro.`);
+      } else {
+        setError(describeSolVaultError((err as { detail?: unknown } | undefined)?.detail));
+      }
     } finally {
       setWorking(false);
+      submitting.current = false;
     }
   }
 
   async function handleUpdate(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!credential) return;
+    if (!editing) return;
     setError(null);
     setWorking(true);
     try {
-      const updated = await updateClientSolCredential(clientId, {
-        expected_version: credential.version,
+      await updateClientSolCredentialProfile(clientId, editing.id, {
+        expected_version: editing.version,
+        profile_name: profileName.trim() || undefined,
         sol_username: solUsername || undefined,
         sol_password: solPassword || undefined,
         authorization_basis: authorizationBasis || undefined,
-        authorization_expires_at: authorizationExpiresAt
-          ? new Date(authorizationExpiresAt).toISOString()
-          : undefined,
+        authorization_expires_at: authorizationExpiresAt ? new Date(authorizationExpiresAt).toISOString() : undefined,
         authorization_reference: authorizationReference || undefined,
         authorized_scope_description: authorizedScopeDescription || undefined,
       });
-      setCredential(updated);
       resetForm();
+      setEditingId(null);
       setBanner("Credencial actualizada. Quedó pendiente de validación.");
+      await reload();
     } catch (err) {
       setError(describeSolVaultError((err as { detail?: unknown } | undefined)?.detail));
     } finally {
@@ -138,16 +171,16 @@ export default function ClientSolCredentialPage() {
     }
   }
 
-  async function handleDisable() {
-    if (!credential) return;
-    const confirmed = window.confirm("¿Confirmas deshabilitar esta credencial SOL?");
+  async function handleDisable(profile: SolCredentialStatusOut) {
+    const confirmed = window.confirm(`¿Confirmas dejar de usar el perfil «${profile.profile_name ?? "credencial"}»? Los demás perfiles no se tocan.`);
     if (!confirmed) return;
     setError(null);
     setWorking(true);
     try {
-      const disabled = await disableClientSolCredential(clientId, credential.version);
-      setCredential(disabled);
-      setBanner("Credencial deshabilitada.");
+      await disableClientSolCredentialProfile(clientId, profile.id, profile.version);
+      if (editingId === profile.id) setEditingId(null);
+      setBanner("Perfil deshabilitado. Los demás perfiles siguen intactos.");
+      await reload();
     } catch (err) {
       setError(describeSolVaultError((err as { detail?: unknown } | undefined)?.detail));
     } finally {
@@ -170,6 +203,10 @@ export default function ClientSolCredentialPage() {
         <p style={{ color: "var(--muted)", marginTop: "0.35rem" }}>
           Luis IA Contable nunca muestra nuevamente una contraseña SOL guardada.
         </p>
+        <p style={{ color: "var(--muted)", marginTop: "0.35rem", fontSize: "0.9rem" }}>
+          Puedes registrar una credencial principal y una o varias secundarias con autorizaciones distintas. El nombre del perfil es solo una etiqueta
+          interna: lo que cada credencial puede abrir lo comprueba el portal en cada acceso, nunca se supone. Escribe las claves únicamente en este formulario seguro.
+        </p>
       </div>
 
       {banner && <div className="simulated-banner">{banner}</div>}
@@ -179,55 +216,61 @@ export default function ClientSolCredentialPage() {
         </div>
       )}
 
-      {credential ? (
-        <section className="surface-card" style={{ padding: "1.25rem" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.75rem" }}>
-            <strong>Estado:</strong>
-            <StatusSemaphore status={credential.status} map={SOL_CREDENTIAL_STATUS_SEMAPHORE} />
-            <span style={{ color: "var(--muted)" }}>
-              {CREDENTIAL_KIND_LABELS[credential.credential_kind] ?? credential.credential_kind}
-            </span>
-          </div>
-          <p style={{ marginBottom: "0.35rem" }}>
-            <strong>Motivo de autorización:</strong> {credential.authorization_basis}
-          </p>
-          {credential.authorization_expires_at && (
-            <p style={{ marginBottom: "0.35rem" }}>
-              <strong>Autorización vence:</strong>{" "}
-              {new Date(credential.authorization_expires_at).toLocaleString("es-PE")}
-            </p>
-          )}
-          {credential.authorization_reference && (
-            <p style={{ marginBottom: "0.35rem" }}>
-              <strong>Referencia:</strong> {credential.authorization_reference}
-            </p>
-          )}
-          {credential.status === "NEEDS_VALIDATION" && (
-            <p style={{ marginTop: "0.75rem", fontWeight: 600 }}>
-              La credencial quedará pendiente de validación hasta comprobarla mediante un acceso supervisado
-              posterior.
-            </p>
-          )}
-          {canDisable && credential.status !== "DISABLED" && (
-            <Button type="button" variant="danger" onClick={handleDisable} disabled={working} style={{ marginTop: "0.75rem" }}>
-              Deshabilitar credencial
-            </Button>
-          )}
-        </section>
-      ) : (
+      {profiles.length === 0 ? (
         <p style={{ color: "var(--muted)" }}>Este cliente no tiene una credencial SOL registrada.</p>
+      ) : (
+        profiles.map((credential) => (
+          <section key={credential.id} className="surface-card" style={{ padding: "1.25rem" }} data-testid={`profile-${credential.id}`}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.75rem", flexWrap: "wrap" }}>
+              <strong>{credential.profile_name ?? "Credencial"}</strong>
+              <StatusSemaphore status={credential.status} map={SOL_CREDENTIAL_STATUS_SEMAPHORE} />
+              <span style={{ color: "var(--muted)" }}>{CREDENTIAL_KIND_LABELS[credential.credential_kind] ?? credential.credential_kind}</span>
+            </div>
+            <p style={{ marginBottom: "0.35rem" }}>
+              <strong>Motivo de autorización:</strong> {credential.authorization_basis}
+            </p>
+            {credential.authorization_expires_at && (
+              <p style={{ marginBottom: "0.35rem" }}>
+                <strong>Autorización vence:</strong> {new Date(credential.authorization_expires_at).toLocaleString("es-PE")}
+              </p>
+            )}
+            {credential.authorization_reference && (
+              <p style={{ marginBottom: "0.35rem" }}>
+                <strong>Referencia:</strong> {credential.authorization_reference}
+              </p>
+            )}
+            {credential.status === "NEEDS_VALIDATION" && (
+              <p style={{ marginTop: "0.75rem", fontWeight: 600 }}>
+                La credencial quedará pendiente de validación hasta comprobarla mediante un acceso supervisado
+                posterior.
+              </p>
+            )}
+            <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap", marginTop: "0.75rem" }}>
+              {canUpdate && (
+                <Button type="button" variant="secondary" onClick={() => { setEditingId(credential.id); resetForm(); setProfileName(credential.profile_name ?? ""); }} disabled={working}>
+                  Editar este perfil
+                </Button>
+              )}
+              {canDisable && (
+                <Button type="button" variant="danger" onClick={() => void handleDisable(credential)} disabled={working}>
+                  Dejar de usar este perfil
+                </Button>
+              )}
+            </div>
+          </section>
+        ))
       )}
 
-      {((!credential && canCreate) || (credential && credential.status !== "DISABLED" && canUpdate)) && (
+      {((!editing && canCreate) || (editing && canUpdate)) && (
         <section className="surface-card" style={{ padding: "1.25rem" }}>
           <h2 style={{ fontSize: "1.05rem", marginBottom: "0.75rem" }}>
-            {credential ? "Actualizar credencial" : "Registrar credencial SOL"}
+            {editing ? `Actualizar «${editing.profile_name ?? "credencial"}»` : profiles.length > 0 ? "Agregar otro perfil de credencial" : "Registrar credencial SOL"}
           </h2>
           <SecureForm
-            onSubmit={credential ? handleUpdate : handleCreate}
+            onSubmit={editing ? handleUpdate : handleCreate}
             style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}
           >
-            {!credential && (
+            {!editing && (
               <Select
                 label="Tipo de credencial"
                 options={CREDENTIAL_KIND_OPTIONS}
@@ -235,13 +278,20 @@ export default function ClientSolCredentialPage() {
                 onChange={(e) => setCredentialKind(e.target.value as SolCredentialKind)}
               />
             )}
+            <Input
+              label="Nombre interno del perfil (no es secreto)"
+              maxLength={CREDENTIAL_FIELD_LIMITS.profile_name}
+              value={profileName}
+              onChange={(e) => setProfileName(e.target.value)}
+              placeholder={editing ? undefined : "Ej.: Contador delegado"}
+            />
             <DeliberateInput
               label="Usuario SOL"
-              required={!credential}
+              required={!editing}
               value={solUsername}
               onChange={(e) => setSolUsername(e.target.value)}
               hint={
-                credential ? (
+                editing ? (
                   <span style={{ fontSize: "0.85rem", color: "var(--muted)" }}>
                     Déjalo en blanco para no cambiarlo.
                   </span>
@@ -250,11 +300,11 @@ export default function ClientSolCredentialPage() {
             />
             <DeliberateInput secret
               label="Contraseña SOL"
-              required={!credential}
+              required={!editing}
               value={solPassword}
               onChange={(e) => setSolPassword(e.target.value)}
               hint={
-                credential ? (
+                editing ? (
                   <span style={{ fontSize: "0.85rem", color: "var(--muted)" }}>
                     Déjala en blanco para no cambiarla.
                   </span>
@@ -262,10 +312,16 @@ export default function ClientSolCredentialPage() {
               }
             />
             <Input
-              label="Motivo de autorización"
-              required={!credential}
+              label="Motivo de autorización (breve, hasta 60 caracteres)"
+              required={!editing}
+              maxLength={CREDENTIAL_FIELD_LIMITS.authorization_basis}
               value={authorizationBasis}
               onChange={(e) => setAuthorizationBasis(e.target.value)}
+              hint={
+                <span style={{ fontSize: "0.8rem", color: "var(--muted)" }}>
+                  {authorizationBasis.length}/{CREDENTIAL_FIELD_LIMITS.authorization_basis} · El detalle va en «Descripción del alcance autorizado».
+                </span>
+              }
             />
             <Input
               label="La autorización vence (opcional)"
@@ -275,17 +331,26 @@ export default function ClientSolCredentialPage() {
             />
             <Input
               label="Referencia de la autorización (opcional)"
+              maxLength={CREDENTIAL_FIELD_LIMITS.authorization_reference}
               value={authorizationReference}
               onChange={(e) => setAuthorizationReference(e.target.value)}
             />
             <Input
               label="Descripción del alcance autorizado (opcional)"
+              maxLength={CREDENTIAL_FIELD_LIMITS.authorized_scope_description}
               value={authorizedScopeDescription}
               onChange={(e) => setAuthorizedScopeDescription(e.target.value)}
             />
-            <Button type="submit" disabled={working}>
-              {credential ? "Guardar cambios" : "Registrar credencial"}
-            </Button>
+            <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap" }}>
+              <Button type="submit" disabled={working}>
+                {editing ? "Guardar cambios" : "Registrar credencial"}
+              </Button>
+              {editing && (
+                <Button type="button" variant="secondary" onClick={() => { setEditingId(null); resetForm(); }} disabled={working}>
+                  Cancelar edición
+                </Button>
+              )}
+            </div>
           </SecureForm>
         </section>
       )}

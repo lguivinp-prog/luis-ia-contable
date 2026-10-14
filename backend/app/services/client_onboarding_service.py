@@ -163,8 +163,7 @@ def cancel_onboarding(
     session = repo.get_latest_session_for_client(db, tenant_id=tenant_id, client_id=onboarding.client_id)
     if session is not None and session.status not in {"SUCCEEDED", "PARTIAL_FAILURE", "FAILED", "CANCELLED", "EXPIRED"}:
         session_service.cancel_session(db, tenant_id=tenant_id, session_id=session.id, actor_user_id=user.id)
-    credential = vault_repo.get_active_credential_for_client(db, tenant_id=tenant_id, client_id=onboarding.client_id)
-    if credential is not None and credential.status != "DISABLED":
+    for credential in vault_repo.list_active_credentials_for_client(db, tenant_id=tenant_id, client_id=onboarding.client_id):
         credential_service.disable_credential(
             db, tenant_id=tenant_id, client_id=onboarding.client_id, credential_id=credential.id, actor=user,
             expected_version=credential.version,

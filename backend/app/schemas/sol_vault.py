@@ -8,7 +8,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 _MIN_VAULT_PASSWORD_LENGTH = 14
 _MAX_VAULT_PASSWORD_LENGTH = 256
@@ -98,12 +98,14 @@ class RevokeSlotRequest(BaseModel):
 class CreateSolCredentialRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     credential_kind: str
-    sol_username: str
-    sol_password: str
-    authorization_basis: str
+    # Limites = columnas reales (`client_sol_credentials`): un valor mas largo se rechaza con 422 ANTES de tocar la boveda (jamas un 500 de base de datos).
+    profile_name: str | None = Field(default=None, max_length=60)  # nombre INTERNO del perfil (M3); por defecto segun el tipo
+    sol_username: str = Field(max_length=200)
+    sol_password: str = Field(max_length=200)
+    authorization_basis: str = Field(max_length=60)  # motivo BREVE; la explicacion larga va en `authorized_scope_description`
     authorization_expires_at: datetime | None = None
-    authorization_reference: str | None = None
-    authorized_scope_description: str | None = None
+    authorization_reference: str | None = Field(default=None, max_length=255)
+    authorized_scope_description: str | None = Field(default=None, max_length=2000)
 
     @field_validator("sol_username", "sol_password", "authorization_basis")
     @classmethod
@@ -116,12 +118,13 @@ class CreateSolCredentialRequest(BaseModel):
 class UpdateSolCredentialRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     expected_version: int
-    sol_username: str | None = None
-    sol_password: str | None = None
-    authorization_basis: str | None = None
+    profile_name: str | None = Field(default=None, max_length=60)
+    sol_username: str | None = Field(default=None, max_length=200)
+    sol_password: str | None = Field(default=None, max_length=200)
+    authorization_basis: str | None = Field(default=None, max_length=60)
     authorization_expires_at: datetime | None = None
-    authorization_reference: str | None = None
-    authorized_scope_description: str | None = None
+    authorization_reference: str | None = Field(default=None, max_length=255)
+    authorized_scope_description: str | None = Field(default=None, max_length=2000)
 
 
 class DisableSolCredentialRequest(BaseModel):
@@ -202,6 +205,7 @@ class SolCredentialStatusOut(BaseModel):
     id: UUID
     client_id: UUID
     credential_kind: str
+    profile_name: str = ""
     status: str
     last_validation_result: str | None
     last_validated_at: datetime | None

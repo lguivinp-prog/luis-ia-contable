@@ -191,6 +191,15 @@ def ficha_html(scenario: str) -> str:
 
 
 def shell_html(scenario: str, ficha_url: str) -> str:
+    from urllib.parse import urlsplit
+
+    from tests.e3_portal import m3_fixtures
+
+    m3_variant, scenario = m3_fixtures.variant_of(scenario)  # `m3_<variante>[__<escenario m2>]`: el shell hereda el escenario M2
+    parts = urlsplit(ficha_url)
+    origin = f"{parts.scheme}://{parts.netloc}"
+    m3_script = m3_fixtures.menu_script(m3_variant, origin) if m3_variant else ""
+    m3_home = m3_fixtures.home_link_html(m3_variant, origin) if m3_variant else ""
     no_marker = scenario == "m2_no_marker"
     lookalike = scenario == "m2_lookalike"
     login_like = scenario == "m2_login_like_shell"
@@ -207,7 +216,7 @@ def shell_html(scenario: str, ficha_url: str) -> str:
         "<div id='divContainerMenu' class='container'><div id='divTodasOpciones' class='row'>"
         "<ul id='ulMenuRoot' class='ulMenu'></ul>"
         "<div id='divOpcionesDerecha'><a href='/declaraciones'><div class='divIconosTitulo'>Declaraciones y Pagos</div></a>"
-        "<a href='/sire'><div class='divIconosTitulo'>SIRE</div></a><a href='/buzon'>Buzón</a></div></div></div>"
+        "<a href='/sire'><div class='divIconosTitulo'>SIRE</div></a><a href='/buzon'>Buzón</a>" + m3_home + "</div></div></div>"
     )
     password = "<input id='txtContrasena' type='password'>" if login_like else ""
     notice = ""
@@ -290,4 +299,4 @@ def shell_html(scenario: str, ficha_url: str) -> str:
     }});
   }}
 }})();
-</script></body></html>"""
+</script>{m3_script}</body></html>"""

@@ -32,7 +32,7 @@ class Run:
                  cancel_after_hc: bool = False, hc_ok: bool = True, ficha_ok_if_ruc: str | None = m2_shell.FICHA_RUC,
                  hc_timeout: float = 20.0, dismiss_notice: bool = False, cancel_while_waiting: bool = False,
                  human_wait: float = 30.0, on_tick=None, destination_wait: float = 8.0, hop_delay_ms: int | None = None,
-                 hop_grace: float = 2.0, attempts: int = 2, dismiss_times: int = 1, auth_nav: float = 6.0) -> None:
+                 hop_grace: float = 2.0, attempts: int = 2, dismiss_times: int = 1, auth_nav: float = 6.0, acceptance: bool = False) -> None:
         self.portal = FakeSolPortal().start()
         if hop_delay_ms is not None:
             self.portal.hop_delay_ms = hop_delay_ms
@@ -93,7 +93,7 @@ class Run:
         try:
             self.result = run_destination_session(
                 ex, self.provider, None, destination=destination, extract_ficha=extract, report_ficha=report_ficha,
-                report_human_control=report_hc, human_control_timeout_seconds=hc_timeout, navigator_wait_seconds=destination_wait,
+                report_human_control=report_hc, human_control_timeout_seconds=hc_timeout, navigator_wait_seconds=destination_wait, acceptance=acceptance,
                 ficha_frame_hosts=FICHA_HOSTS, ficha_frame_scheme="http",
             )
         finally:
@@ -198,7 +198,7 @@ def scenario_partial_ficha_omits_missing_sections_and_flags_malformed_values() -
 
 
 def scenario_unknown_destination_and_misplaced_extraction_fail_closed_before_the_browser() -> None:
-    for destination, extract in (("SIRE", False), ("DECLARACIONES_Y_PAGOS", False), ("https://evil.example", False),
+    for destination, extract in (("SIRE", False), ("SIRE_GENERACION_REGISTROS", False), ("DECLARA_FACIL", False), ("https://evil.example", False),
                                  ("MENU_SOL", True)):
         run = Run("m2_success", destination, extract)
         assert run.result.outcome is AuthOutcome.PORTAL_CHANGED, destination

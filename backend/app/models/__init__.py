@@ -46,6 +46,7 @@ from app.models.professional_fee import (
 )
 from app.models.security_event import SecurityEvent
 from app.models.session import Session
+from app.models.sol_destination_acceptance import SolDestinationAcceptance
 from app.models.sol_agent_access import (
     SolAccessSession,
     SolAgent,
@@ -112,6 +113,7 @@ __all__ = [
     "SecurityEvent",
     "Session",
     "SolAccessSession",
+    "SolDestinationAcceptance",
     "SolAgent",
     "SolAgentJob",
     "SolAgentPairing",

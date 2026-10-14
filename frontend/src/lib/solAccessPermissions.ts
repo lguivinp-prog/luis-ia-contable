@@ -19,3 +19,8 @@ export function canCancelSolSession(user: User | null | undefined): boolean {
 export function canViewSolAgents(user: User | null | undefined): boolean {
   return hasPermission(user, "sol_agent:read");
 }
+
+// Aceptacion real controlada de destinos (M3): SOLO el propietario/administrador. El backend lo vuelve a exigir.
+export function canManageAcceptance(user: User | null | undefined): boolean {
+  return hasPermission(user, "sol_acceptance:manage");
+}

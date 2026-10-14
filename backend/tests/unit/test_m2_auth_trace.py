@@ -55,3 +55,34 @@ def test_document_state_is_reduced_to_numbers_and_booleans():
     assert state["ready_state"] == "unknown" and state["webdriver_flag"] is True and state["body_children"] == -1
     assert state["scripts_external"] == -1 and state["resources_loaded"] == 5 and state["history_length"] == 3
 
+
+
+def test_stall_reason_after_submission_ignores_everything_that_happened_on_the_public_entry_page():
+    """Incidencia real de Declaraciones y Pagos: dos `fetch` fallidos y errores de script de la pagina PUBLICA (antes del login) se tomaron como causa de una
+    ventana de autenticacion que en realidad estaba estable. Despues del envio solo cuentan los contadores `post:`."""
+    complete = {"ready_state": "complete"}
+    noisy = {"failed:fetch:entry": 2, "js_errors": 5, "console_error": 3, "document:2xx:auth": 2, "post:document:2xx:auth": 2}
+    assert at.stall_reason({**_summary(noisy), "submitted": True}, complete) == "STABLE_DOCUMENT_NO_CONTINUATION"
+    assert at.stall_reason(_summary(noisy), complete) == "RESOURCE_LOAD_FAILED"  # sin fase (comportamiento previo) el ruido previo si contaba
+    real = {**noisy, "post:failed:script:other": 1}
+    assert at.stall_reason({**_summary(real), "submitted": True}, complete) == "RESOURCE_LOAD_FAILED"  # una causa POSTERIOR al envio se sigue distinguiendo
+
+
+def test_trace_counts_both_globally_and_per_phase():
+    trace = at.AuthTrace(contract=None, clock=lambda: 0.0, host_of=lambda url: ("https", "x"))
+    trace._bump("js_errors")
+    trace.mark_submitted()
+    trace._bump("js_errors")
+    trace._bump("failed:fetch:auth")
+    counters = trace.summary()["counters"]
+    assert counters["js_errors"] == 2 and counters["post:js_errors"] == 1 and counters["post:failed:fetch:auth"] == 1 and trace.summary()["submitted"] is True
+
+
+def test_document_state_keeps_only_categories_and_allowlisted_query_key_names():
+    raw = {"ready_state": "complete", "title": "Bienvenidos a SUNAT", "pathname": "/v1/clientessol/12345678901/oauth2/loginMenuSol", "headings": 1,
+           "query_keys": ["error", "code", "20123456789", "zzz_secret"], "has_hash": True, "opener_closed": False}
+    doc = at.sanitize_document_state(raw)
+    assert doc["title_key"] == "welcome" and doc["query_keys"] == ["code", "error"] and doc["query_other_keys"] == 2
+    assert doc["route"][:3] == ["v1", "clientessol", "{num<=16}"] and "20123456789" not in repr(doc) and "zzz_secret" not in repr(doc) and "Bienvenidos" not in repr(doc)
+    assert at.sanitize_document_state({"ready_state": "complete", "title": ""})["title_key"] == "empty"
+    assert at.sanitize_document_state({"ready_state": "complete", "title": "SUNAT - Menú SOL"})["title_key"] == "menu_sol"

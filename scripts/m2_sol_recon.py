@@ -45,6 +45,9 @@ OWNER_LABELS = (
     "MENU_SOL",
     "FICHA_RUC",
     "SIRE",
+    "SIRE_RVIE",
+    "SIRE_RCE",
+    "SIRE_GENERACION_REGISTROS",
     "DECLARACIONES_Y_PAGOS",
     "DECLARA_FACIL",
     "TRAMITES_Y_CONSULTAS",
@@ -128,6 +131,8 @@ _EXTRACT_JS = r"""
       sibling_index: par ? Array.prototype.indexOf.call(par.children, el) : 0,
       parent_tag: par ? par.tagName.toLowerCase() : null, parent_id: par ? (par.id || null) : null,
       has_onclick: el.hasAttribute('onclick'),
+      // M3: profundidad de MENU (solo un entero): cuantos `li.liCuerpo` contienen a este elemento. No lee texto ni valores.
+      ancestor_cuerpos: (() => { let n = 0; for (let p = el.parentElement; p; p = p.parentElement) { if (p.tagName === 'LI' && p.classList.contains('liCuerpo')) n++; } return n; })(),
     });
   }
   return { title: document.title, nodes: out, truncated: scanned > 6000 || out.length >= 800 };

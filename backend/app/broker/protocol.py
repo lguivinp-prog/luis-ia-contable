@@ -74,6 +74,8 @@ class JobAvailableResponse(_StrictModel):
     # M2: destino aprobado por el SERVIDOR (enum cerrado) y si debe extraerse la Ficha. Nunca URL/selector.
     destination: str | None = None
     extract_ficha: bool = False
+    # M3: la sesion consumio una autorizacion de aceptacion real (el agente la acepta SOLO para contratos RECON_COMPLETE no solo-apertura)
+    acceptance: bool = False
 
 
 class JobClaimRequest(_StrictModel):
@@ -145,6 +147,12 @@ DIAGNOSTIC_CODES = frozenset(
     "LANDING_PAGE_NOT_FOUND",
     "LANDING_TRANSIT_UNRESOLVED",
     "AUTH_NAVIGATION_STALLED",
+    "DESTINATION_NOT_VALIDATED",
+    "DESTINATION_ENTRY_NOT_FOUND",
+    "DESTINATION_MENU_STRUCTURE_MISMATCH",
+    "DESTINATION_IDENTITY_MISMATCH",
+    "DESTINATION_FRAME_NOT_VALIDATED",
+    "DESTINATION_PAGE_NOT_VALIDATED",
     "LOGIN_CHANGED_BEFORE_SUBMIT",
     "LOGIN_CONTROL_MISMATCH",
     "LOGIN_MODE_CONTROLS_MISSING",

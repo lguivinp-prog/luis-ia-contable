@@ -398,7 +398,7 @@ def test_no_secret_in_any_api_response_or_session_schema(world, running_broker):
         "id", "client_id", "scope", "status", "terminal_reason_code", "operation_result", "created_at", "started_at",
         "waiting_for_user_at", "completed_at", "expires_at", "version", "is_terminal",
         # M2: solo metadatos seguros (destino del enum cerrado, bandera de extraccion, instante del control humano)
-        "destination", "extract_ficha", "human_control_at", "diagnostic_code"}  # + codigo de diagnostico (lista cerrada, solo FAILED)
+        "destination", "extract_ficha", "human_control_at", "diagnostic_code", "credential_id", "acceptance_test"}  # + codigo de diagnostico (lista cerrada, solo FAILED)
 
 
 def test_session_creation_requires_csrf_and_authentication(world, running_broker):

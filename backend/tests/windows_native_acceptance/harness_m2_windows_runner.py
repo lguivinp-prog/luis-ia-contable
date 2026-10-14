@@ -22,7 +22,7 @@ _browsers = BACKEND.parent / ".pw-browsers-win-e2"
 if _browsers.is_dir():
     os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", str(_browsers))
 
-from tests.e3_portal import m2_scenarios  # noqa: E402
+from tests.e3_portal import m2_scenarios, m3_scenarios  # noqa: E402
 
 START = time.time()
 BROWSERS = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "")
@@ -39,7 +39,7 @@ def chromium_processes() -> list[str]:
 
 def main() -> int:
     failures = []
-    for scenario in m2_scenarios.ALL_M2_SCENARIOS:
+    for scenario in m2_scenarios.ALL_M2_SCENARIOS + m3_scenarios.ALL_M3_SCENARIOS:
         try:
             scenario()
             print(f"PASS  {scenario.__name__}")
@@ -54,7 +54,10 @@ def main() -> int:
                  if p.stat().st_mtime >= START - 1 and p.suffix.lower() in {".png", ".webm", ".zip", ".har"}]
     print(f"ORPHAN_CHROMIUM_PROCESSES={len(orphans)}")
     print(f"BROWSER_ARTIFACT_FILES={len(artifacts)}")
-    print(f"M2_SCENARIOS={len(m2_scenarios.ALL_M2_SCENARIOS) - len(failures)}/{len(m2_scenarios.ALL_M2_SCENARIOS)} PASS")
+    total = len(m2_scenarios.ALL_M2_SCENARIOS) + len(m3_scenarios.ALL_M3_SCENARIOS)
+    print(f"M2_SCENARIOS={len(m2_scenarios.ALL_M2_SCENARIOS) - len([f for f in failures if f in {x.__name__ for x in m2_scenarios.ALL_M2_SCENARIOS}])}/{len(m2_scenarios.ALL_M2_SCENARIOS)} PASS")
+    print(f"M3_SCENARIOS={len(m3_scenarios.ALL_M3_SCENARIOS) - len([f for f in failures if f in {x.__name__ for x in m3_scenarios.ALL_M3_SCENARIOS}])}/{len(m3_scenarios.ALL_M3_SCENARIOS)} PASS (fixtures sinteticos: NO validan SUNAT real)")
+    print(f"ALL_SCENARIOS={total - len(failures)}/{total} PASS")
     return 0 if not failures and not orphans and not artifacts else 1
 
 

@@ -72,6 +72,8 @@ class Permission(str, enum.Enum):
     SOL_SESSION_CANCEL = "sol_session:cancel"
     SOL_AGENT_READ = "sol_agent:read"
     SOL_AGENT_MANAGE = "sol_agent:manage"
+    # ---- M3: aceptacion real controlada de destinos SOL aun no habilitados (SOLO propietario/administrador) ----
+    SOL_ACCEPTANCE_MANAGE = "sol_acceptance:manage"
     # ---- Producto M1: estados operativos manuales del cockpit (admin + contador; nunca asistente) ----
     COCKPIT_UPDATE = "cockpit:update"
 

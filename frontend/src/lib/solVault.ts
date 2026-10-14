@@ -131,3 +131,34 @@ export function disableClientSolCredential(
     expected_version: expectedVersion,
   });
 }
+
+// --- M3: perfiles de credencial (varias credenciales cifradas por cliente; la seleccion es SIEMPRE explicita por id) ---
+
+export function fetchClientSolCredentials(clientId: string): Promise<SolCredentialStatusOut[]> {
+  return apiClient.get<SolCredentialStatusOut[]>(`/clients/${clientId}/sol-credentials`);
+}
+
+export function createClientSolCredentialProfile(
+  clientId: string,
+  payload: CreateSolCredentialPayload,
+): Promise<SolCredentialStatusOut> {
+  return apiClient.post<SolCredentialStatusOut>(`/clients/${clientId}/sol-credentials`, payload);
+}
+
+export function updateClientSolCredentialProfile(
+  clientId: string,
+  credentialId: string,
+  payload: UpdateSolCredentialPayload,
+): Promise<SolCredentialStatusOut> {
+  return apiClient.put<SolCredentialStatusOut>(`/clients/${clientId}/sol-credentials/${credentialId}`, payload);
+}
+
+export function disableClientSolCredentialProfile(
+  clientId: string,
+  credentialId: string,
+  expectedVersion: number,
+): Promise<SolCredentialStatusOut> {
+  return apiClient.post<SolCredentialStatusOut>(`/clients/${clientId}/sol-credentials/${credentialId}/disable`, {
+    expected_version: expectedVersion,
+  });
+}

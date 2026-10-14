@@ -80,7 +80,10 @@ def test_client_sol_credentials_constraints_and_indexes_exist(db_session):
     assert "ck_client_sol_credentials_status" in constraints
     assert "ck_client_sol_credentials_disabled_coherence" in constraints
     assert "fk_client_sol_credentials_data_key_version" in constraints
-    assert "ux_client_sol_credentials_active_per_client" in indexes
+    # M3 (0023): varios perfiles por cliente; el indice por cliente fue reemplazado por nombre de perfil + una sola principal
+    assert "ux_client_sol_credentials_active_per_client" not in indexes
+    assert "ux_client_sol_credentials_active_profile" in indexes and "ux_client_sol_credentials_one_primary" in indexes
+    assert "ck_client_sol_credentials_profile_name_not_blank" in constraints
 
 
 def test_no_previous_table_was_dropped_by_the_new_migration(db_session):

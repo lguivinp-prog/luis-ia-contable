@@ -27,6 +27,7 @@ Invariantes (cada una con prueba):
 from __future__ import annotations
 
 import json
+import dataclasses
 import re
 import time
 from dataclasses import replace
@@ -142,6 +143,7 @@ class SupervisedAuthExecutor:
         pre_credential_attempts: int = 2,
         landing_hop_grace_seconds: float = 15.0,
         auth_navigation_timeout_seconds: float = 60.0,
+        login_ready_wait_seconds: float = 5.0,
         is_cancelled: Callable[[], bool] = lambda: False,
         tick: Callable[[], None] = lambda: None,
         on_state: Callable[[AuthOutcome], None] = lambda state: None,
@@ -159,6 +161,8 @@ class SupervisedAuthExecutor:
         self._attempts = max(1, pre_credential_attempts)
         self._hop_grace = landing_hop_grace_seconds
         self._auth_nav_timeout = auth_navigation_timeout_seconds
+        self._ready_wait = login_ready_wait_seconds
+        self._submit_state: dict | None = None
         self._transit_observation: dict | None = None
         self._trace: auth_trace.AuthTrace | None = None
         self._auth_document: dict | None = None
@@ -472,6 +476,8 @@ class SupervisedAuthExecutor:
             return {}
         summary = self._trace.summary()
         out: dict = {"auth_trace": summary}
+        if self._submit_state is not None:
+            out["submit_state"] = dict(self._submit_state)
         document = self._auth_document
         try:
             for page in self._pages():
@@ -537,6 +543,20 @@ class SupervisedAuthExecutor:
         if len(self._timeline) < 40:
             self._timeline.append({"t_ms": int((now - self._timeline_t0) * 1000), **entry})
 
+    # --- M3: entrada publica por TARJETA (p. ej. «Mis Declaraciones y Pagos»), configurada por el CONTRATO del destino, nunca por el frontend ---
+
+    def configure_public_entry(self, *, heading_text: str, landing_path_prefix: str) -> None:
+        """Cambia SOLO el encabezado de la tarjeta de entrada y el prefijo de ruta del landing (la plataforma `/cl-ti-itmenu2/`). Debe llamarse ANTES de
+        abrir el navegador: tras `_launch` el contrato queda fijo (jamas se reconfigura una sesion en curso)."""
+        if self._pw is not None or self._browser is not None or self._submissions:
+            raise RuntimeError("entry can only be configured before the browser starts")
+        if not heading_text.strip() or not landing_path_prefix.startswith("/") or not landing_path_prefix.endswith("/"):
+            raise ValueError("invalid public entry configuration")
+        self._contract = dataclasses.replace(
+            self._contract, entry_heading_text=heading_text, entry_link_strategy="card_container", landing_path_prefix=landing_path_prefix,
+            landing_observed_path=None,
+        )
+
     # --- fase 1: abrir la entrada e identificar el login (SIN credenciales) ---
 
     def open_and_identify_login(self) -> AuthResult | None:
@@ -596,6 +616,13 @@ class SupervisedAuthExecutor:
         heading = page.get_by_role("heading", name=re.compile(rf"^\s*{re.escape(c.entry_heading_text)}\s*$", re.I))
         if heading.count() != 1:
             return None
+        if c.entry_link_strategy == "card_container":
+            # ancestro MAS CERCANO del encabezado que contiene algun enlace «Ingresar» (insensible a mayusculas; el texto en mayusculas es CSS)
+            container = heading.locator("xpath=ancestor::*[.//a[translate(normalize-space(.), 'INGRESAR', 'ingresar') = 'ingresar']][1]")
+            if container.count() != 1:
+                return None
+            links = container.get_by_role("link", name=re.compile(rf"^\s*{re.escape(c.entry_link_text)}\s*$", re.I))
+            return links if links.count() == 1 else None  # 0 o varios => ambiguo: falla cerrado
         link = heading.locator("xpath=following-sibling::*[1]").get_by_role("link", name=c.entry_link_text, exact=True)
         return link if link.count() == 1 else None
 
@@ -681,6 +708,24 @@ class SupervisedAuthExecutor:
 
     # --- fase 2: llenar y enviar UNA vez ---
 
+    def _wait_login_document_ready(self, page) -> dict:
+        """Espera acotada a `document.readyState == 'complete'` de la pagina de login ANTES de escribir la credencial. Registra el estado observado y el
+        tiempo esperado (solo un enum y un numero). Nunca falla la sesion: si vence el plazo continua con el flujo de siempre."""
+        started = self._clock()
+        state = "unknown"
+        while True:
+            try:
+                state = page.evaluate("document.readyState")
+            except Exception:  # noqa: BLE001 -- pagina en navegacion
+                state = "unavailable"
+                break
+            if state == "complete" or self._clock() - started >= self._ready_wait:
+                break
+            self._pump(self._poll)
+        if state not in {"loading", "interactive", "complete", "unavailable"}:
+            state = "unknown"
+        return {"ready_state": state, "waited_ms": int((self._clock() - started) * 1000)}
+
     def submit_credentials(self, credential: CredentialMaterial) -> AuthResult | None:
         """Llena SOLO los campos requeridos y envia. Suelta las referencias a
         la credencial inmediatamente despues del envio. None => enviado."""
@@ -699,6 +744,9 @@ class SupervisedAuthExecutor:
                 credential._clear()
                 return make_result(AuthOutcome.PORTAL_CHANGED, detail="login surface changed before submit")
             page = pages[surface.page_index]
+            # un usuario no envia el formulario antes de que la pagina termine de cargar: el login real inicializa sus scripts en `load`. Espera ACOTADA;
+            # vencida, se envia como antes (la compuerta nunca bloquea la sesion ni reenvia nada).
+            self._submit_state = self._wait_login_document_ready(page)
             # sin variables locales con secretos: se leen en la propia llamada
             check, _detail = check_login_controls(self._login_snapshot(page), c)
             if check is not LoginCheck.READY:  # revalidacion previa a escribir (nunca activa el modo aqui)
@@ -709,9 +757,14 @@ class SupervisedAuthExecutor:
             page.locator(f"#{c.password_field.element_id}").fill(credential.sol_password)
             self._submissions = 1  # se marca ANTES del clic: aunque el clic falle, no hay reenvio
             credential._clear()
+            if self._trace is not None:
+                self._trace.mark_submitted()
             self._count_click()
             page.locator(f"#{c.submit_button.element_id}").click()
             self._last_action = "CREDENTIAL_SUBMITTED"
+        except _Cancelled:
+            credential._clear()
+            return make_result(AuthOutcome.CANCELLED, submissions=self._submissions)
         except _BrowserGone:
             credential._clear()
             return make_result(AuthOutcome.BROWSER_FAILURE, submissions=self._submissions)

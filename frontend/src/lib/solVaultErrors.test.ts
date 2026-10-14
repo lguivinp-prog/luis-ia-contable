@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { describeSolVaultError, extractErrorCode, SOL_VAULT_ERROR_MESSAGES } from "@/lib/solVaultErrors";
+import { describeSolVaultError, extractErrorCode, findPersistedProfile, SOL_VAULT_ERROR_MESSAGES, validateCredentialForm } from "@/lib/solVaultErrors";
 
 describe("extractErrorCode", () => {
   it("extrae el codigo de un detail-string plano", () => {
@@ -48,5 +48,38 @@ describe("describeSolVaultError", () => {
     // interpola texto libre recibido en el detail del error.
     const detail = { code: "SOL_VAULT_BAD_PASSWORD", extra: "contrasena-ficticia-filtrada" };
     expect(describeSolVaultError(detail)).not.toContain("contrasena-ficticia-filtrada");
+  });
+});
+
+describe("registro de perfiles SOL: validacion previa y fallos ambiguos", () => {
+  const ok = { profileName: "SOL Principal", authorizationBasis: "Autorizado por el titular", authorizationReference: "", authorizedScopeDescription: "" };
+
+  it("acepta valores dentro de los limites reales y rechaza el motivo largo con un mensaje util (la causa real de la incidencia)", () => {
+    expect(validateCredentialForm(ok)).toBeNull();
+    const long = validateCredentialForm({ ...ok, authorizationBasis: "x".repeat(130) });
+    expect(long).toContain("hasta 60 caracteres");
+    expect(long).toContain("Descripción del alcance");
+    expect(validateCredentialForm({ ...ok, profileName: "y".repeat(61) })).toContain("nombre interno");
+  });
+
+  it("interpreta el 422 de FastAPI sin reproducir el valor enviado", () => {
+    const detail = [{ loc: ["body", "authorization_basis"], type: "string_too_long", ctx: { max_length: 60 }, input: "[redacted]" }];
+    const message = describeSolVaultError(detail);
+    expect(message).toContain("motivo de autorización");
+    expect(message).toContain("60");
+    expect(describeSolVaultError([{ loc: ["body", "otra"], type: "x" }])).toContain("Revisa los datos");
+  });
+
+  it("los codigos nuevos tienen mensaje propio (no el generico)", () => {
+    expect(describeSolVaultError({ code: "SOL_CREDENTIAL_STORE_FAILED" })).toContain("No se modificó ningún perfil existente");
+    expect(describeSolVaultError({ code: "SOL_CREDENTIAL_FIELD_TOO_LONG" })).toContain("demasiado largo");
+  });
+
+  it("tras un fallo ambiguo detecta un perfil nuevo ya guardado y no lo confunde con la secundaria existente", () => {
+    const secondary = { id: "s1", credential_kind: "SECONDARY", profile_name: "Credencial secundaria" };
+    const primary = { id: "p1", credential_kind: "PRIMARY_OWN_RUC", profile_name: "SOL Principal" };
+    expect(findPersistedProfile([secondary], [secondary, primary], "PRIMARY_OWN_RUC", "sol principal")?.id).toBe("p1");
+    expect(findPersistedProfile([secondary], [secondary], "PRIMARY_OWN_RUC", "SOL Principal")).toBeNull();
+    expect(findPersistedProfile([secondary, primary], [secondary, primary], "PRIMARY_OWN_RUC", "")).toBeNull();
   });
 });

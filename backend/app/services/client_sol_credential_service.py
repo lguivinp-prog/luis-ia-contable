@@ -59,6 +59,37 @@ class CredentialAlreadyDisabledError(CredentialServiceError):
         super().__init__("SOL_CREDENTIAL_ALREADY_DISABLED")
 
 
+class ProfileNameTakenError(CredentialServiceError):
+    def __init__(self) -> None:
+        super().__init__("SOL_CREDENTIAL_PROFILE_NAME_TAKEN")
+
+
+class PrimaryCredentialAlreadyExistsError(CredentialServiceError):
+    def __init__(self) -> None:
+        super().__init__("SOL_PRIMARY_CREDENTIAL_ALREADY_EXISTS")
+
+
+DEFAULT_PROFILE_NAME = {"SECONDARY": "Credencial secundaria", "PRIMARY_OWN_RUC": "Credencial principal", "PRIMARY_EXCEPTIONAL": "Credencial principal"}
+
+
+class FieldTooLongError(CredentialServiceError):
+    """Defensa en profundidad si otro llamador omite el esquema: nunca se llega al INSERT con un valor que la columna no admite."""
+
+    def __init__(self) -> None:
+        super().__init__("SOL_CREDENTIAL_FIELD_TOO_LONG")
+
+
+# Longitudes reales de las columnas (`client_sol_credentials`).
+FIELD_LIMITS = {"profile_name": 60, "authorization_basis": 60, "authorization_reference": 255}
+
+
+def _check_field_lengths(**values: str | None) -> None:
+    for field, limit in FIELD_LIMITS.items():
+        value = values.get(field)
+        if value is not None and len(value) > limit:
+            raise FieldTooLongError()
+
+
 class AuthorizationAlreadyExpiredError(CredentialServiceError):
     """La autorizacion (nueva o existente) esta vencida -- nunca se usa
     (crea/actualiza) una credencial en base a una autorizacion vencida sin
@@ -72,6 +103,10 @@ def get_credential_status(
     db: Session, *, tenant_id: uuid.UUID, client_id: uuid.UUID
 ) -> ClientSolCredential | None:
     return repo.get_active_credential_for_client(db, tenant_id=tenant_id, client_id=client_id)
+
+
+def list_credentials(db: Session, *, tenant_id: uuid.UUID, client_id: uuid.UUID) -> list[ClientSolCredential]:
+    return repo.list_active_credentials_for_client(db, tenant_id=tenant_id, client_id=client_id)
 
 
 def _unwrap_credential_dek(db: Session, *, tenant_id: uuid.UUID, vault_id: uuid.UUID, vault_root_key: bytes):
@@ -102,10 +137,18 @@ def create_credential(
     authorization_expires_at=None,
     authorization_reference: str | None = None,
     authorized_scope_description: str | None = None,
+    profile_name: str | None = None,
 ) -> ClientSolCredential:
     now = clock.utcnow()
+    _check_field_lengths(profile_name=profile_name, authorization_basis=authorization_basis, authorization_reference=authorization_reference)
     if authorization_expires_at is not None and authorization_expires_at <= now:
         raise AuthorizationAlreadyExpiredError()
+    name = (profile_name or DEFAULT_PROFILE_NAME.get(credential_kind, "Credencial")).strip()[:60]
+    existing = repo.list_active_credentials_for_client(db, tenant_id=tenant_id, client_id=client_id)
+    if any(c.profile_name.strip().lower() == name.lower() for c in existing):
+        raise ProfileNameTakenError()
+    if credential_kind != "SECONDARY" and any(c.credential_kind != "SECONDARY" for c in existing):
+        raise PrimaryCredentialAlreadyExistsError()
 
     entry = registry.resolve(
         db,
@@ -151,6 +194,7 @@ def create_credential(
         client_id=client_id,
         vault_id=vault_id,
         credential_kind=credential_kind,
+        profile_name=name,
         sol_username_encrypted=crypto.encrypt_credential_field(sol_username, credential_dek, username_aad),
         sol_password_encrypted=crypto.encrypt_credential_field(sol_password, credential_dek, password_aad),
         data_key_version=data_key_row.data_key_version,
@@ -171,7 +215,7 @@ def create_credential(
         action=AuditAction.SOL_CREDENTIAL_CREATE,
         entity_type="client_sol_credential",
         entity_id=credential_id,
-        metadata={"client_id": str(client_id)},
+        metadata={"client_id": str(client_id), "credential_kind": credential_kind, "profile_name": name},
     )
     return credential
 
@@ -193,8 +237,10 @@ def update_credential(
     authorization_expires_at=None,
     authorization_reference: str | None = None,
     authorized_scope_description: str | None = None,
+    profile_name: str | None = None,
 ) -> ClientSolCredential:
     now = clock.utcnow()
+    _check_field_lengths(profile_name=profile_name, authorization_basis=authorization_basis, authorization_reference=authorization_reference)
     entry = registry.resolve(
         db,
         tenant_id=tenant_id,
@@ -261,6 +307,13 @@ def update_credential(
     if authorized_scope_description is not None:
         credential.authorized_scope_description = authorized_scope_description
         credential.last_scope_reviewed_at = now
+
+    if profile_name is not None:
+        new_name = profile_name.strip()[:60]
+        others = [c for c in repo.list_active_credentials_for_client(db, tenant_id=tenant_id, client_id=client_id) if c.id != credential_id]
+        if not new_name or any(c.profile_name.strip().lower() == new_name.lower() for c in others):
+            raise ProfileNameTakenError()
+        credential.profile_name = new_name
 
     credential.updated_by = actor.id
     credential.version += 1

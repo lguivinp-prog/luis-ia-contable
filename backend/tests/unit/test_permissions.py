@@ -13,10 +13,10 @@ class _FakeUser:
         self.role = role
 
 
-def test_permission_enum_has_57_values() -> None:
+def test_permission_enum_has_58_values() -> None:
     """Fase 5, Bloque 5.2 (ver docs/phase5/block5_2/BLOCK5_2_RBAC_MATRIX.md):
     agrega los 5 permisos sol_session:*/sol_agent:* (51 -> 56). Producto M1: +cockpit:update (56 -> 57)."""
-    assert len(list(Permission)) == 57
+    assert len(list(Permission)) == 58  # M3: +sol_acceptance:manage (57 -> 58)
 
 
 def test_admin_has_every_permission() -> None:

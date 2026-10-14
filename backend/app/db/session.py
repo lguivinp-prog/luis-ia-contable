@@ -7,7 +7,8 @@ from app.core.config import get_settings
 
 settings = get_settings()
 
-engine = create_engine(settings.database_url, pool_pre_ping=True, future=True)
+# `hide_parameters`: una excepcion de base de datos jamas vuelca los valores enlazados (cifrado, nombres de perfil, motivos) a los registros.
+engine = create_engine(settings.database_url, pool_pre_ping=True, future=True, hide_parameters=True)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
 
 

@@ -1,4 +1,4 @@
-import type { SelectHTMLAttributes } from "react";
+import { useId, type SelectHTMLAttributes } from "react";
 
 interface Option {
   value: string;
@@ -12,7 +12,8 @@ interface SelectFieldProps extends SelectHTMLAttributes<HTMLSelectElement> {
 }
 
 export function Select({ label, options, placeholder, id, className, ...props }: SelectFieldProps) {
-  const selectId = id ?? props.name;
+  const generatedId = useId();
+  const selectId = id ?? props.name ?? generatedId; // la etiqueta SIEMPRE queda asociada al campo (accesibilidad)
   return (
     <div className="field">
       <label htmlFor={selectId}>{label}</label>

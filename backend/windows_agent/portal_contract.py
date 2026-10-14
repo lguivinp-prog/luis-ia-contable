@@ -132,6 +132,9 @@ class PortalContract:
     # CSS) y el enlace dentro del contenedor hermano SIGUIENTE a ese encabezado.
     entry_heading_text: str
     entry_link_text: str
+    # Estrategia para localizar el enlace de entrada: "sibling" (Tramites y consultas: contenedor hermano SIGUIENTE del encabezado, observado en LIVE-A1) |
+    # "card_container" (M3, tarjeta publica «Mis Declaraciones y Pagos»: el ancestro MAS CERCANO del encabezado que contiene un enlace «Ingresar», con
+    # EXACTAMENTE uno; la misma regla con la que el reconocimiento identifico la tarjeta, sin suponer la relacion de hermanos).
     # Controles de login (por id; ver FieldSpec).
     ruc_field: FieldSpec
     username_field: FieldSpec
@@ -148,6 +151,7 @@ class PortalContract:
     # en vivo). Vacio => una pagina de login que persiste tras el envio se trata como
     # WAITING_FOR_USER (supervision humana), nunca como exito ni como reenvio.
     invalid_credentials_texts: tuple[str, ...] = ()
+    entry_link_strategy: str = "sibling"  # ver el comentario de arriba: "sibling" (Tramites y consultas) | "card_container" (tarjeta publica M3)
     # Hechos OBSERVADOS en LIVE-B (documentales: el reconocimiento sigue siendo por prefijo+titulo, ver el docstring).
     landing_observed_path: str | None = None
     landing_observed_title: str | None = None

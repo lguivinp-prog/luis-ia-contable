@@ -190,7 +190,8 @@ def test_executor_has_a_single_evaluate_call_three_fills_and_three_clicks():
     code = _executor_code()
     # dos lecturas de SOLO LECTURA con scripts CONSTANTES: la instantanea de ids del login/shell y la lectura estructural de avisos
     # intermedios (`interstitial.INTERSTITIAL_JS`, vocabulario cerrado); ninguna recibe datos del llamador ni modifica la pagina.
-    assert code.count(".evaluate(") == 2 and "_LOGIN_SNAPSHOT_JS" in code and "interstitial.INTERSTITIAL_JS" in code
+    # + (M3) la compuerta de carga del login: `page.evaluate("document.readyState")`, cadena CONSTANTE de solo lectura (el estado del documento).
+    assert code.count(".evaluate(") == 3 and "_LOGIN_SNAPSHOT_JS" in code and "interstitial.INTERSTITIAL_JS" in code
     assert code.count(".fill(") == 3
     # entrada, activacion RUC (max 1), enviar + (M2) `guarded_click`: el UNICO clic post-aterrizaje, sujeto al presupuesto
     # de navegacion del destino (0 por defecto, congelado tras validar el destino).

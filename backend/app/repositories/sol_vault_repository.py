@@ -164,16 +164,26 @@ def get_invitation_for_update(
     ).scalar_one_or_none()
 
 
-def get_active_credential_for_client(
+def list_active_credentials_for_client(
     db: Session, *, tenant_id: uuid.UUID, client_id: uuid.UUID
-) -> ClientSolCredential | None:
-    return db.execute(
+) -> list[ClientSolCredential]:
+    """Perfiles NO deshabilitados del cliente (M3: puede haber varios), del mas antiguo al mas reciente."""
+    return list(db.execute(
         select(ClientSolCredential).where(
             ClientSolCredential.tenant_id == tenant_id,
             ClientSolCredential.client_id == client_id,
             ClientSolCredential.status != "DISABLED",
-        )
-    ).scalar_one_or_none()
+        ).order_by(ClientSolCredential.created_at, ClientSolCredential.id)
+    ).scalars())
+
+
+def get_active_credential_for_client(
+    db: Session, *, tenant_id: uuid.UUID, client_id: uuid.UUID
+) -> ClientSolCredential | None:
+    """Compatibilidad M2: el perfil mas antiguo (la credencial original). NUNCA se usa para elegir con que credencial se abre un destino:
+    la sesion exige seleccion explicita cuando hay mas de un perfil."""
+    found = list_active_credentials_for_client(db, tenant_id=tenant_id, client_id=client_id)
+    return found[0] if found else None
 
 
 def get_credential_for_update(

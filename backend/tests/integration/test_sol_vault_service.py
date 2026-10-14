@@ -715,7 +715,7 @@ def test_disable_credential(db_session, registry, actor, make_client):
     )
 
 
-def test_only_one_non_disabled_credential_per_client(db_session, registry, actor, make_client):
+def test_profiles_are_unique_by_name_and_only_one_primary_per_client(db_session, registry, actor, make_client):
     result = _init(db_session, registry, actor)
     svc.confirm_recovery(
         db_session, tenant_id=actor["tenant_id"], vault_id=result.vault.id, recovery_code=result.recovery_code
@@ -734,23 +734,20 @@ def test_only_one_non_disabled_credential_per_client(db_session, registry, actor
         sol_password="clave-sol-ficticia",
         authorization_basis="autorizacion ficticia",
     )
-    from sqlalchemy.exc import IntegrityError
-
-    with pytest.raises(IntegrityError):
-        client_sol_credential_service.create_credential(
-            db_session,
-            registry,
-            tenant_id=actor["tenant_id"],
-            vault_id=result.vault.id,
-            client_id=client.id,
-            actor=actor["user"],
-            app_session_id=actor["app_session_id"],
-            credential_kind="SECONDARY",
-            sol_username="usuario-sol-ficticio-2",
-            sol_password="clave-sol-ficticia-2",
-            authorization_basis="autorizacion ficticia",
+    # M3 (migracion 0023): ya NO hay una sola credencial por cliente, sino un perfil por NOMBRE (y a lo sumo una principal).
+    def _create(kind, name, user):
+        return client_sol_credential_service.create_credential(
+            db_session, registry, tenant_id=actor["tenant_id"], vault_id=result.vault.id, client_id=client.id, actor=actor["user"],
+            app_session_id=actor["app_session_id"], credential_kind=kind, profile_name=name, sol_username=user,
+            sol_password="clave-sol-ficticia-2", authorization_basis="autorizacion ficticia",
         )
-        db_session.flush()
+
+    with pytest.raises(client_sol_credential_service.ProfileNameTakenError):
+        _create("SECONDARY", None, "usuario-sol-ficticio-2")  # mismo nombre por defecto => rechazado
+    assert _create("SECONDARY", "Otra secundaria", "usuario-sol-ficticio-3").profile_name == "Otra secundaria"
+    assert _create("PRIMARY_OWN_RUC", "Principal", "usuario-sol-ficticio-4").credential_kind == "PRIMARY_OWN_RUC"
+    with pytest.raises(client_sol_credential_service.PrimaryCredentialAlreadyExistsError):
+        _create("PRIMARY_EXCEPTIONAL", "Otra principal", "usuario-sol-ficticio-5")
 
 
 # --- rotacion funcional (2 usuarios, N credenciales) ---

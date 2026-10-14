@@ -161,8 +161,9 @@ def test_landing_only_sessions_cannot_enter_human_control(world, running_broker)
 
 
 @pytest.mark.parametrize("payload", [
-    {"destination": "SIRE"}, {"destination": "DECLARACIONES_Y_PAGOS"}, {"destination": "DECLARA_FACIL"},
-    {"destination": "TRAMITES_Y_CONSULTAS"}, {"destination": "https://evil.example/x"}, {"destination": "BUZON"},
+    {"destination": "SIRE"}, {"destination": "SIRE_RVIE"}, {"destination": "SIRE_RCE"}, {"destination": "SIRE_GENERACION_REGISTROS"},
+    {"destination": "DECLARACIONES_Y_PAGOS"}, {"destination": "DECLARA_FACIL"},  # TRAMITES_Y_CONSULTAS es alias de MENU_SOL (ver test M3 de catalogo)
+    {"destination": "https://evil.example/x"}, {"destination": "BUZON"},
     {"destination": "MENU_SOL", "url": "https://x"}, {"destination": "MENU_SOL", "selector": "#a"}, {"destination": "MENU_SOL", "script": "1"},
 ])
 def test_destination_allowlist_rejects_everything_outside_the_closed_enum(world, running_broker, payload):
@@ -179,7 +180,8 @@ def test_extraction_is_only_allowed_for_ficha_ruc_and_requires_client_write(worl
     w = build()
     assert start_destination(w, w["client_id"], "MENU_SOL", extract=True).status_code in {403, 422}
     assert start_destination(w, w["client_id"], None, extract=True).status_code in {403, 422}
-    assert w["api"].get("/api/v1/sol-access/destinations").json() == {"destinations": ["MENU_SOL", "FICHA_RUC"]}
+    assert w["api"].get("/api/v1/sol-access/destinations").json()["destinations"] == [
+        "MENU_SOL", "FICHA_RUC", "SIRE_RVIE", "SIRE_RCE", "DECLARACIONES_Y_PAGOS"]  # M3 anade `catalog` y los destinos aceptados en vivo
 
 
 def test_idempotent_start_with_different_destination_conflicts(world, running_broker):

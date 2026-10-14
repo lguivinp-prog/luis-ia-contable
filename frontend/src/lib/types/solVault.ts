@@ -73,6 +73,7 @@ export interface SolCredentialStatusOut {
   id: string;
   client_id: string;
   credential_kind: SolCredentialKind;
+  profile_name?: string; // nombre INTERNO del perfil (no es secreto)
   status: SolCredentialStatus;
   last_validation_result: string | null;
   last_validated_at: string | null;
@@ -89,6 +90,7 @@ export interface SolCredentialStatusOut {
 
 export interface CreateSolCredentialPayload {
   credential_kind: SolCredentialKind;
+  profile_name?: string | null;
   sol_username: string;
   sol_password: string;
   authorization_basis: string;
@@ -99,6 +101,7 @@ export interface CreateSolCredentialPayload {
 
 export interface UpdateSolCredentialPayload {
   expected_version: number;
+  profile_name?: string;
   sol_username?: string;
   sol_password?: string;
   authorization_basis?: string;

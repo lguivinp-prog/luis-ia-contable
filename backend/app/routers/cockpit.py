@@ -111,7 +111,8 @@ def client_period_workspace(
     workspace.operations = _operations_out(db, current_user.tenant_id, state)
     workspace.can_update_operations = has_permission(current_user, Permission.COCKPIT_UPDATE)
     if has_permission(current_user, Permission.SOL_CREDENTIAL_READ) and has_permission(current_user, Permission.SOL_SESSION_READ):
-        credential = vault_repo.get_active_credential_for_client(db, tenant_id=current_user.tenant_id, client_id=client_id)
+        profiles = vault_repo.list_active_credentials_for_client(db, tenant_id=current_user.tenant_id, client_id=client_id)
+        credential = profiles[0] if profiles else None  # estado del perfil mas antiguo; el detalle por perfil vive en el Centro SUNAT
         latest = sol_repo.get_latest_session_for_client(db, tenant_id=current_user.tenant_id, client_id=client_id)
         workspace.sol_access = SolAccessCapabilityOut(
             credential_configured=credential is not None,

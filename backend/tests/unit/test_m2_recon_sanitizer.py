@@ -177,8 +177,8 @@ def test_status_messages_and_explicit_timeouts_exist():
 
 
 def test_owner_labels_are_the_fixed_enum():
-    assert _recon().OWNER_LABELS == ("AUTHENTICATED_SHELL", "MENU_SOL", "FICHA_RUC", "SIRE", "DECLARACIONES_Y_PAGOS",
-                                     "DECLARA_FACIL", "TRAMITES_Y_CONSULTAS")
+    assert _recon().OWNER_LABELS == ("AUTHENTICATED_SHELL", "MENU_SOL", "FICHA_RUC", "SIRE", "SIRE_RVIE", "SIRE_RCE",
+                                     "SIRE_GENERACION_REGISTROS", "DECLARACIONES_Y_PAGOS", "DECLARA_FACIL", "TRAMITES_Y_CONSULTAS")
 
 
 def test_classify_pages_is_structural_and_independent_of_page_order():

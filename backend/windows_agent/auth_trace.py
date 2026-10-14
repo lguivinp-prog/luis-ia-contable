@@ -24,6 +24,10 @@ _SEGMENT_OK = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,23}$")
 _ERR_TOKEN = re.compile(r"(ERR_[A-Z0-9_]{2,40})")
 _CAPTCHA_HINT = re.compile(r"recaptcha|hcaptcha|captcha", re.I)
 _ERROR_NAME = re.compile(r"^[A-Za-z]{3,30}$")
+# Nombres (JAMAS valores) de parametros de query que se pueden registrar; el resto solo se cuenta.
+ALLOWED_QUERY_KEYS = frozenset({"error", "error_description", "code", "state", "session_state", "redirect_uri", "client_id", "scope", "message", "status",
+                                "response_type", "nonce", "lang"})
+_TITLE_KEYS = (("welcome", re.compile(r"bienvenid", re.I)), ("menu_sol", re.compile(r"men[uú]\s*sol", re.I)), ("login", re.compile(r"iniciar|login|ingres|clave\s*sol", re.I)))
 
 
 # Segmentos de ruta EXPLICITAMENTE permitidos: nombres de ruta propios del portal (contrato) y palabras genericas de un flujo OAuth/login. Un
@@ -97,6 +101,7 @@ class AuthTrace:
         self.pending_since: float | None = None
         self.last_document: dict | None = None
         self.crashed: set[int] = set()  # Pages cuyo proceso de renderizado se cerro (evento `crash`)
+        self.submitted = False  # la credencial ya se envio: los contadores posteriores se duplican con el prefijo `post:`
 
     # --- clasificacion saneada ---
 
@@ -137,6 +142,16 @@ class AuthTrace:
             self.pending_since = self._clock()
         elif self.pending_documents == 0:
             self.pending_since = None
+
+    def mark_submitted(self) -> None:
+        """A partir de aqui cada contador se duplica con el prefijo `post:`: la deduccion del motivo de un estancamiento usa SOLO lo ocurrido despues del
+        envio (un fallo de la pagina publica de entrada, anterior al login, no explica una ventana de autenticacion detenida)."""
+        self.submitted = True
+
+    def _bump(self, key: str) -> None:
+        self.counters[key] += 1
+        if self.submitted:
+            self.counters["post:" + key] += 1
 
     def _event(self, kind: str, **fields) -> None:
         if len(self.events) < MAX_EVENTS:
@@ -179,7 +194,7 @@ class AuthTrace:
             pass
 
     def _count(self, key: str) -> None:
-        self.counters[key] += 1
+        self._bump(key)
 
     def _on_navigated(self, frame) -> None:
         try:
@@ -207,7 +222,7 @@ class AuthTrace:
             rtype = request.resource_type
             host = self.host_class(response.url)
             key = f"{rtype}:{status_class(response.status)}:{host}"
-            self.counters[key] += 1
+            self._bump(key)
             if rtype == "document" and request.frame.parent_frame is None:
                 self._mark_pending(-1)
                 self.last_document = {"host": host, "status": response.status, "route": path_shape(urlsplit(response.url).path)}
@@ -222,7 +237,7 @@ class AuthTrace:
             token = _ERR_TOKEN.search(request.failure or "")
             rtype = request.resource_type
             host = self.host_class(request.url)
-            self.counters[f"failed:{rtype}:{host}"] += 1
+            self._bump(f"failed:{rtype}:{host}")
             if rtype == "document" and request.frame.parent_frame is None:
                 self._mark_pending(-1)
             self._event("req_failed", type=rtype, host=host, error=token.group(1) if token else "UNKNOWN")
@@ -232,7 +247,7 @@ class AuthTrace:
     def _on_page_error(self, error) -> None:
         try:
             name = getattr(error, "name", "") or ""
-            self.counters["js_errors"] += 1
+            self._bump("js_errors")
             self._event("js_error", name=name if _ERROR_NAME.match(name) else "Error")
         except Exception:  # noqa: BLE001
             pass
@@ -241,23 +256,23 @@ class AuthTrace:
         try:
             kind = message.type if message.type in {"error", "warning"} else None
             if kind:
-                self.counters[f"console_{kind}"] += 1  # SOLO el contador: el texto de consola nunca se lee
+                self._bump(f"console_{kind}")  # SOLO el contador: el texto de consola nunca se lee
         except Exception:  # noqa: BLE001
             pass
 
     def _on_dialog(self, dialog) -> None:
         try:
             kind = dialog.type if dialog.type in {"alert", "confirm", "prompt", "beforeunload"} else "other"
-            self.counters[f"dialog_{kind}"] += 1  # el mensaje nunca se lee; Playwright mantiene su comportamiento por defecto
+            self._bump(f"dialog_{kind}")  # el mensaje nunca se lee; Playwright mantiene su comportamiento por defecto
         except Exception:  # noqa: BLE001
             pass
 
     # --- resumen ---
 
     def summary(self) -> dict:
-        counters = dict(sorted(self.counters.items())[:80])
+        counters = dict(sorted(self.counters.items())[:140])
         return scrub({"events": list(self.events), "counters": counters, "pending_documents": self.pending_documents,
-                      "last_document": self.last_document})
+                      "last_document": self.last_document, "submitted": self.submitted})
 
 
 # Lectura de SOLO LECTURA del estado del documento de la pagina de autenticacion (numeros y booleanos).
@@ -267,6 +282,9 @@ DOCUMENT_STATE_JS = r"""
   const scripts = Array.from(document.scripts || []);
   return {
     ready_state: document.readyState, webdriver_flag: navigator.webdriver === true, has_opener: window.opener !== null,
+    title: String(document.title || '').slice(0, 120), pathname: String(location.pathname || '').slice(0, 200),
+    query_keys: Array.from(new URLSearchParams(location.search).keys()).slice(0, 16), has_hash: location.hash.length > 1,
+    headings: document.querySelectorAll('h1,h2,h3').length, opener_closed: window.opener ? window.opener.closed === true : null,
     history_length: history.length, body_children: document.body ? document.body.children.length : -1,
     scripts_total: scripts.length, scripts_external: scripts.filter(s => s.src).length,
     resources_loaded: entries.length, visible_area: Math.round(Math.min(100, (document.documentElement.scrollHeight * document.documentElement.scrollWidth) / Math.max(1, innerWidth * innerHeight) * 100)),
@@ -289,6 +307,19 @@ def sanitize_document_state(raw: dict) -> dict:
         return int(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else -1
 
     ready = raw.get("ready_state")
+    title = str(raw.get("title") or "")
+    title_key = "empty" if not title.strip() else next((key for key, rx in _TITLE_KEYS if rx.search(title)), "other")
+    keys = [k for k in (raw.get("query_keys") or []) if isinstance(k, str)]
+    return {
+        "title_key": title_key, "route": path_shape(str(raw.get("pathname") or "")),
+        "query_keys": sorted({k for k in keys if k in ALLOWED_QUERY_KEYS}), "query_other_keys": len([k for k in keys if k not in ALLOWED_QUERY_KEYS]),
+        "has_hash": bool(raw.get("has_hash")), "headings": num("headings"),
+        "opener_closed": raw.get("opener_closed") if isinstance(raw.get("opener_closed"), bool) else None,
+        **_document_core(raw, ready, num),
+    }
+
+
+def _document_core(raw: dict, ready, num) -> dict:
     return {
         "ready_state": ready if ready in {"loading", "interactive", "complete"} else "unknown",
         "webdriver_flag": bool(raw.get("webdriver_flag")), "has_opener": bool(raw.get("has_opener")),
@@ -300,6 +331,9 @@ def sanitize_document_state(raw: dict) -> dict:
 def stall_reason(summary: dict, document: dict | None) -> str:
     """Motivo de una autenticacion detenida, deducido SOLO de la traza (nunca se afirma que SUNAT fallo sin evidencia)."""
     counters = summary.get("counters", {})
+    if summary.get("submitted"):
+        # SOLO lo ocurrido despues del envio de la credencial (la pagina publica de entrada y el login previo no explican la ventana detenida)
+        counters = {key[5:]: value for key, value in counters.items() if key.startswith("post:")}
     last = summary.get("last_document") or {}
     if (last.get("status") or 0) >= 500:
         return "SERVER_ERROR_DOCUMENT"

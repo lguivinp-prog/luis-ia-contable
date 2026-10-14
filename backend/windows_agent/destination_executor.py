@@ -35,6 +35,7 @@ from windows_agent.browser_executor import (
 from windows_agent.logging_setup import log_event
 from windows_agent.portal_contract import AuthOutcome, AuthResult
 from windows_agent.portal_identity import SurfaceKind
+from windows_agent.portal_identity import _host as _host_of
 
 _FICHA_FRAME_JS = r"""
 (ids) => {
@@ -43,6 +44,18 @@ _FICHA_FRAME_JS = r"""
   const counts = {};
   for (const id of ids) counts[id] = document.querySelectorAll('[id="' + id + '"]').length;
   const tables = Array.from(document.querySelectorAll('table.form-table')).filter(visible).length;
+  return { counts, tables };
+}
+"""
+
+# Vista de un frame de llegada de un contrato (M3): ids unicos + tablas visibles segun el selector del CONTRATO (constante cerrada, nunca del portal).
+_ARRIVAL_FRAME_JS = r"""
+([ids, tableSelector]) => {
+  const visible = (t) => { const r = t.getBoundingClientRect(); const s = getComputedStyle(t);
+    return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden'; };
+  const counts = {};
+  for (const id of ids) counts[id] = document.querySelectorAll('[id="' + id + '"]').length;
+  const tables = Array.from(document.querySelectorAll(tableSelector)).filter(visible).length;
   return { counts, tables };
 }
 """
@@ -125,6 +138,9 @@ _FICHA_ROWS_JS = r"""
 _NAV_LEVEL_CUERPO = "xpath=ancestor::li[contains(concat(' ', normalize-space(@class), ' '), ' liCuerpo ')]"
 
 
+_SETTLE_SECONDS = 0.6  # margen de asentamiento tras validar una llegada en Page nueva (ventanas adicionales del mismo clic)
+
+
 def _pump(executor: SupervisedAuthExecutor, seconds: float) -> None:
     """Espera ENTREGANDO los eventos de Playwright (paginas, frames, cierres). Con la API sincrona `time.sleep` NO los
     procesa: `page.frames`/`frame.url`/`is_closed()` quedarian obsoletos (un iframe aun sin URL, un navegador cerrado
@@ -196,46 +212,40 @@ class DestinationNavigator:
 
     # --- navegacion ---
 
-    def navigate(self, destination: dc.Destination, page) -> str | None:
-        """None => destino alcanzado y validado. str => detalle del fallo (PORTAL_CHANGED)."""
-        if destination is dc.Destination.MENU_SOL:
+    def navigate(self, destination, page) -> str | None:
+        """None => destino alcanzado y validado. str => detalle del fallo (PORTAL_CHANGED). `destination`: contrato (o su id)."""
+        contract = destination if isinstance(destination, dc.DestinationContract) else dc.get_contract(str(destination))
+        if contract.alias_of is not None:
+            contract = dc.get_contract(contract.alias_of)
+        if contract.id == "MENU_SOL":
             result = self._wait_check(page, dc.check_menu_sol_destination)
             return None if result.ok else result.detail
-        return self._navigate_ficha(page)
+        if contract.id == "FICHA_RUC":
+            return self._navigate_ficha(page)
+        return self._navigate_contract(contract, page)
 
-    def _navigate_ficha(self, page) -> str | None:
+    # --- recorrido de clics con espera humana ante avisos (compartido por la Ficha y los destinos de contrato) ---
+
+    def _click_path(self, page, steps: list, *, missing_header: str) -> str | None:
+        """`steps`: proveedores que devuelven el Locator a pulsar en ese paso (del nivel mas externo a la hoja). Antes de cada clic hay una
+        comprobacion de accionabilidad SIN efectos; si un aviso/modal de SUNAT cubre el menu NUNCA se pulsa nada en el: se informa "esperando al
+        usuario", el navegador sigue abierto y se reintenta el MISMO paso cuando el humano lo resuelva (presupuesto de clics intacto)."""
         ex = self._ex
-        target = page.locator("li.nivel4 > span.spanNivelDescripcion").filter(
-            has_text=re.compile(r"^\s*Ficha RUC\s*$", re.IGNORECASE)
-        )
-        if target.count() != 1:
-            return "ficha menu entry not found or ambiguous"
-        cuerpos = target.locator("xpath=..").locator(_NAV_LEVEL_CUERPO)
-        levels = cuerpos.count()
-        if levels < 1 or levels > dc.FICHA_MAX_NAV_CLICKS - 1:
-            return "ficha menu depth does not match the contract"
-        # Un aviso/modal de SUNAT puede cubrir el menu (p. ej. confirmacion de datos de contacto). NUNCA se pulsa nada en el
-        # aviso: se comprueba la accionabilidad SIN efectos, se informa "esperando al usuario", el navegador sigue abierto y se
-        # reintenta el MISMO paso cuando el humano lo resuelva (presupuesto de clics intacto). Sin salida -> fallo controlado.
         step = 0
         human_deadline = ex._clock() + ex.human_wait_seconds
         was_blocked = False
         last_category_at = -1e9
-        while step <= levels:
+        while step < len(steps):
             if was_blocked:
                 # Tras una intervencion humana: la sesion y el shell autenticado deben seguir siendo los validados antes de continuar.
                 recheck = dc.check_shell_marker(ex.id_snapshot(page, dc.SHELL_SNAPSHOT_IDS))
                 if not recheck.ok:
                     return recheck.detail or "shell marker missing or ambiguous"
             try:
-                if step < levels:  # del nivel mas externo al mas interno (orden de documento)
-                    header = cuerpos.nth(step).locator("xpath=preceding-sibling::li[1]")
-                    if header.count() != 1:
-                        return "ficha menu header not found"
-                    caption = header.locator("span.spanNivelDescripcion")
-                    ex.guarded_click(caption.first if caption.count() > 0 else header)
-                else:
-                    ex.guarded_click(target)
+                locator = steps[step]()
+                if locator is None:
+                    return missing_header
+                ex.guarded_click(locator)
                 diagnostics.note_action(ex, f"MENU_CLICK_{step + 1}")
                 step += 1
             except _AutomationStopped:
@@ -251,11 +261,182 @@ class DestinationNavigator:
                     return "navigation blocked by an intermediate screen"
                 ex._checkpoint()
                 _pump(ex, max(ex._poll, 0.5))
+        return None
+
+    def _navigate_ficha(self, page) -> str | None:
+        target = page.locator("li.nivel4 > span.spanNivelDescripcion").filter(
+            has_text=re.compile(r"^\s*Ficha RUC\s*$", re.IGNORECASE)
+        )
+        if target.count() != 1:
+            return "ficha menu entry not found or ambiguous"
+        cuerpos = target.locator("xpath=..").locator(_NAV_LEVEL_CUERPO)
+        levels = cuerpos.count()
+        if levels < 1 or levels > dc.FICHA_MAX_NAV_CLICKS - 1:
+            return "ficha menu depth does not match the contract"
+
+        def header_step(index: int):
+            def provider():
+                header = cuerpos.nth(index).locator("xpath=preceding-sibling::li[1]")  # del nivel mas externo al mas interno
+                if header.count() != 1:
+                    return None
+                caption = header.locator("span.spanNivelDescripcion")
+                return caption.first if caption.count() > 0 else header
+
+            return provider
+
+        failure = self._click_path(page, [header_step(i) for i in range(levels)] + [lambda: target], missing_header="ficha menu header not found")
+        if failure is not None:
+            return failure
         top = self._wait_check(page, dc.check_ficha_ruc_top)
         if not top.ok:
             return top.detail
         frame_check = self._wait_ficha_frame(page)
         return None if frame_check.ok else frame_check.detail
+
+    # --- destinos de CONTRATO (M3): secuencia validada + identidad positiva de llegada ---
+
+    def _navigate_contract(self, contract: dc.DestinationContract, page) -> str | None:
+        """Solo para contratos `LIVE_VALIDATED` con `entry` y `arrival` declarados. Cualquier otra cosa FALLA CERRADO."""
+        entry, arrival = contract.entry, contract.arrival
+        if not contract.enabled or entry is None or arrival is None:
+            return "destination not validated"
+        if entry.kind == "PUBLIC_CARD":
+            return self._validate_public_landing(page, arrival)  # el clic de la tarjeta ya ocurrio ANTES del login; aqui solo se valida la plataforma
+        if entry.kind not in {"MENU_LEAF", "HOME_LINK"}:
+            return "destination entry kind not supported"  # fail-closed ante cualquier tipo de entrada desconocido
+        exact = re.compile(rf"^\s*{re.escape(entry.label)}\s*$", re.IGNORECASE)
+        pages_before = {id(p) for p in self._ex._pages()}
+        if entry.kind == "MENU_LEAF":
+            target = page.locator(f"li.nivel{entry.leaf_level} > span.spanNivelDescripcion").filter(has_text=exact)
+            found = target.count()
+            if found == 0:
+                return "destination entry not found"  # ausente del menu de ESTA cuenta (sin permiso o el portal cambio): no se distingue sin evidencia
+            if found != 1:
+                return "destination entry ambiguous"
+            cuerpos = target.locator("xpath=..").locator(_NAV_LEVEL_CUERPO)
+            levels = cuerpos.count()
+            if levels < entry.min_levels or levels > entry.max_levels:
+                return "destination menu depth does not match the contract"
+
+            def header_step(index: int):
+                def provider():
+                    header = cuerpos.nth(index).locator("xpath=preceding-sibling::li[1]")
+                    if header.count() != 1:
+                        return None
+                    caption = header.locator("span.spanNivelDescripcion")
+                    return caption.first if caption.count() > 0 else header
+
+                return provider
+
+            steps = [header_step(i) for i in range(levels)] + [lambda: target]
+        elif entry.kind == "HOME_LINK":
+            link = page.locator("div#divTodasOpciones a").filter(has_text=exact)
+            found = link.count()
+            if found == 0:
+                return "destination entry not found"
+            if found != 1:
+                return "destination entry ambiguous"
+            steps = [lambda: link]
+        else:
+            return "destination not validated"
+        failure = self._click_path(page, steps, missing_header="destination menu header not found")
+        if failure is not None:
+            return failure
+        if arrival.kind == "FRAME":
+            top = self._wait_check_ids(page, lambda snap: dc.check_application_top(snap, arrival), arrival)
+            if not top.ok:
+                return top.detail
+            return self._wait_arrival_frame(page, arrival)
+        return self._wait_arrival_page(pages_before, arrival)
+
+    def _validate_public_landing(self, page, arrival: dc.ArrivalSpec) -> str | None:
+        """Entrada publica: la PLATAFORMA es el landing autenticado. Identidad POSITIVA = esquema + host + ruta + ids unicos (los marcadores del shell ya se
+        validaron en `await_shell`). Ninguna otra Page del portal puede existir salvo la pagina publica de entrada. Cero clics: la automatizacion TERMINA."""
+        ex = self._ex
+        deadline = ex._clock() + self._wait
+        detail = "destination page not ready"
+        while True:
+            ex._checkpoint()
+            strangers = [p for p in ex._pages() if p is not page and _host_of(p.url)[1] not in ex._contract.entry_hosts]
+            if strangers:
+                return "unexpected page after navigation"
+            try:
+                counts = {i: len(ex.id_snapshot(page, tuple(arrival.required_once_ids)).elements.get(i, ())) for i in arrival.required_once_ids}
+                check = dc.check_arrival_page(page.url, counts, arrival)
+            except Exception:  # noqa: BLE001 -- la Page aun navega
+                check = dc.ShellCheck(False, "destination page not ready")
+            if check.ok:
+                _pump(ex, _SETTLE_SECONDS)  # asentamiento: ninguna ventana ajena puede aparecer justo despues de validar la plataforma
+                if [p for p in ex._pages() if p is not page and _host_of(p.url)[1] not in ex._contract.entry_hosts]:
+                    return "unexpected page after navigation"
+                return None
+            detail = check.detail or detail
+            if ex._clock() >= deadline:
+                return detail
+            _pump(ex, ex._poll)
+
+    def _wait_check_ids(self, page, check, arrival: dc.ArrivalSpec) -> dc.ShellCheck:
+        ex = self._ex
+        ids = tuple(dict.fromkeys(dc.SHELL_SNAPSHOT_IDS + (arrival.breadcrumb_id,)))
+        deadline = ex._clock() + self._wait
+        while True:
+            ex._checkpoint()
+            result = check(ex.id_snapshot(page, ids))
+            if result.ok or ex._clock() >= deadline:
+                return result
+            _pump(ex, ex._poll)
+
+    def _arrival_frame_view(self, frame, arrival: dc.ArrivalSpec) -> dc.FichaFrameView:
+        raw = frame.evaluate(_ARRIVAL_FRAME_JS, [list(arrival.required_once_ids), arrival.table_selector])
+        return dc.FichaFrameView(url=frame.url, once_id_counts=dict(raw["counts"]), visible_form_tables=int(raw["tables"]))
+
+    def _wait_arrival_frame(self, page, arrival: dc.ArrivalSpec) -> str | None:
+        ex = self._ex
+        deadline = ex._clock() + self._wait
+        while True:
+            ex._checkpoint()
+            matches = []
+            for frame in page.frames:
+                if frame == page.main_frame or not frame.url.startswith(arrival.scheme + "://"):
+                    continue
+                try:
+                    if dc.check_arrival_frame(self._arrival_frame_view(frame, arrival), arrival).ok:
+                        matches.append(frame)
+                except Exception:  # noqa: BLE001 -- frame en navegacion/inaccesible: no coincide
+                    continue
+            if len(matches) == 1:
+                return None
+            if ex._clock() >= deadline:
+                return "destination frame identity not validated"
+            _pump(ex, ex._poll)
+
+    def _wait_arrival_page(self, pages_before: set[int], arrival: dc.ArrivalSpec) -> str | None:
+        """Llegada en una NUEVA Page: exactamente una Page nueva, con el origen/ruta/ids del contrato. Una segunda Page inesperada falla cerrado."""
+        ex = self._ex
+        deadline = ex._clock() + self._wait
+        while True:
+            ex._checkpoint()
+            new_pages = [p for p in ex._pages() if id(p) not in pages_before]
+            if len(new_pages) > 1:
+                return "unexpected page after navigation"
+            if len(new_pages) == 1:
+                new = new_pages[0]
+                try:
+                    counts = {i: len(ex.id_snapshot(new, tuple(arrival.required_once_ids)).elements.get(i, ())) for i in arrival.required_once_ids}
+                    check = dc.check_arrival_page(new.url, counts, arrival)
+                except Exception:  # noqa: BLE001 -- Page aun navegando
+                    check = dc.ShellCheck(False, "destination page not ready")
+                if check.ok:
+                    # asentamiento: una segunda ventana abierta por el mismo clic puede llegar DESPUES de validar la primera; la ambiguedad falla cerrado
+                    _pump(ex, _SETTLE_SECONDS)
+                    if len([p for p in ex._pages() if id(p) not in pages_before]) > 1:
+                        return "unexpected page after navigation"
+                    return None
+                if ex._clock() >= deadline:
+                    return check.detail or "destination page not opened"
+            elif ex._clock() >= deadline:
+                return "destination page not opened"
+            _pump(ex, ex._poll)
 
     def _ficha_frames(self, page) -> list:
         return [f for f in page.frames if f != page.main_frame and f.url.startswith(self._ficha_scheme + "://")]
@@ -359,6 +540,7 @@ def run_destination_session(
     report_ficha: Callable[[dict], bool],
     report_human_control: Callable[[], bool],
     human_control_timeout_seconds: float = 30 * 60,
+    acceptance: bool = False,
     navigator_wait_seconds: float = 20.0,
     ficha_frame_hosts: frozenset[str] = dc.FICHA_FRAME_HOSTS,
     ficha_frame_scheme: str = "https",
@@ -366,11 +548,21 @@ def run_destination_session(
     """Frontera completa de una sesion con destino. Destino desconocido => fail closed ANTES de cualquier navegador."""
     logger = getLogger("windows_agent")
     try:
-        dest = dc.Destination(destination)
+        dest = dc.get_contract(destination)
+        if dest.alias_of is not None:  # defensa: el backend ya resuelve los alias; jamas se ejecuta un contrato propio para un alias
+            dest = dc.get_contract(dest.alias_of)
     except ValueError:
         return make_result(AuthOutcome.PORTAL_CHANGED, detail="destination not allowed")
-    if extract_ficha and dest is not dc.Destination.FICHA_RUC:
+    if not dest.enabled and acceptance and dc.acceptance_eligible(dest):
+        dest = dc.for_acceptance(dest)  # prueba real autorizada por el propietario en el backend; solo para esta sesion
+    if not dest.enabled:
+        # Conocido pero SIN evidencia estructural real: el agente se niega ANTES de abrir el navegador o pedir la credencial.
+        return diagnostics.annotate(make_result(AuthOutcome.PORTAL_CHANGED, detail="destination not validated"), observation=None)
+    if extract_ficha and not dest.extraction:
         return make_result(AuthOutcome.PORTAL_CHANGED, detail="extraction only allowed for FICHA_RUC")
+    if dest.entry is not None and dest.entry.kind == "PUBLIC_CARD" and dest.arrival is not None:
+        # Entrada publica: el contrato (no el frontend) fija la tarjeta y el landing esperados ANTES de abrir el navegador.
+        executor.configure_public_entry(heading_text=dest.entry.label, landing_path_prefix=dc.public_landing_prefix(dest.arrival))
 
     state = {"reached": False, "ficha": False, "shell": False}
     try:
@@ -418,7 +610,7 @@ def run_destination_session(
         destination_reached=state["reached"],
         ficha_reported=state["ficha"],
     )
-    log_event(logger, "destination_session_finished", destination=dest.value, outcome=result.outcome.value,
+    log_event(logger, "destination_session_finished", destination=dest.id, outcome=result.outcome.value,
               destination_clicks=result.destination_clicks, post_destination_clicks=result.post_landing_clicks)
     if not cleaned and result.outcome is AuthOutcome.AUTH_SUCCEEDED:
         return replace(make_result(AuthOutcome.BROWSER_FAILURE, detail="CLEANUP_FAILED"),
@@ -439,14 +631,14 @@ def _reach_and_hold(
             return _fail(shell.detail or "authenticated shell marker not found", submissions)
         state["shell"] = True
         diagnostics.note_action(executor, "SHELL_VALIDATED")
-        executor.arm_destination_navigation(dc.MAX_CLICKS_BY_DESTINATION[dest])
+        executor.arm_destination_navigation(dest.max_clicks)
         failure = navigator.navigate(dest, page)
         if failure is not None:
             executor.freeze_automation()
             return _fail(failure, submissions)
         state["reached"] = True
         diagnostics.note_action(executor, "DESTINATION_VALIDATED")
-        if dest is dc.Destination.FICHA_RUC and not extract_ficha:
+        if dest.id == "FICHA_RUC" and not extract_ficha:
             navigator.probe_ficha_captions(page)
         if extract_ficha:
             extraction, not_ready = navigator.extract_ficha(page)
