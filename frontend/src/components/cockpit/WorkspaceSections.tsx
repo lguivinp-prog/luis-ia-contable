@@ -2,6 +2,7 @@
 
 // Cuerpos de las pestanas del workspace cliente/periodo. Reutilizan los paneles existentes (documentos, impuestos y
 // pagos, presentacion, cierre, honorarios, SOL supervisado, borradores de WhatsApp); no agregan logica de negocio.
+import { SireControlPanel } from "@/components/sire/SireControlPanel";
 import { SunatDestinationsPanel } from "@/components/sunat/SunatDestinationsPanel";
 import Link from "next/link";
 import { type ReactNode, useEffect, useState } from "react";
@@ -274,6 +275,7 @@ export function SireSection({ workspace, onChanged, clientId, periodId }: Sectio
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
       <SunatDestinationsPanel clientId={clientId} originTaxPeriodId={periodId || undefined} title="Acceso a SIRE y otras herramientas de SUNAT" />
+      <SireControlPanel clientId={clientId} periodId={periodId} />
       <Card title="Estado SIRE">
         <div style={{ display: "flex", gap: "1.25rem", flexWrap: "wrap" }}>
           <Fact label="SIRE (global)">

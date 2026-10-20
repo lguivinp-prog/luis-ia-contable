@@ -74,6 +74,9 @@ class Permission(str, enum.Enum):
     SOL_AGENT_MANAGE = "sol_agent:manage"
     # ---- M3: aceptacion real controlada de destinos SOL aun no habilitados (SOLO propietario/administrador) ----
     SOL_ACCEPTANCE_MANAGE = "sol_acceptance:manage"
+    # ---- M4: control, conciliacion y evidencia del SIRE (lectura: asistente incluido; escritura: contador) ----
+    SIRE_CONTROL_READ = "sire_control:read"
+    SIRE_CONTROL_WRITE = "sire_control:write"
     # ---- Producto M1: estados operativos manuales del cockpit (admin + contador; nunca asistente) ----
     COCKPIT_UPDATE = "cockpit:update"
 
@@ -91,6 +94,7 @@ _READ_PERMISSIONS: frozenset[Permission] = frozenset(
         Permission.TAX_PAYMENT_READ,
         Permission.PROFESSIONAL_FEE_READ,
         Permission.DASHBOARD_READ,
+        Permission.SIRE_CONTROL_READ,
         Permission.TASK_READ,
         Permission.ALERT_READ,
         Permission.TASK_SYNC,
@@ -132,6 +136,7 @@ _CONTADOR_ONLY_ADDITIONS: frozenset[Permission] = frozenset(
         Permission.SOL_AGENT_READ,
         # ---- Producto M1: cockpit (estados manuales) ----
         Permission.COCKPIT_UPDATE,
+        Permission.SIRE_CONTROL_WRITE,
     }
 )
 

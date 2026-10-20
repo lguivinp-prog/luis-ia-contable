@@ -29,7 +29,7 @@ def _tables(url) -> set[str]:
 
 def test_single_head_is_0023_after_m3() -> None:
     script = ScriptDirectory.from_config(make_alembic_config())
-    assert script.get_heads() == ["0024"]  # M3 avanzo la cabeza; 0019 sigue encadenado a 0018
+    assert script.get_heads() == ["0025"]  # M3/M4 avanzaron la cabeza; 0019 sigue encadenado a 0018
     assert script.get_revision("0020").down_revision == "0019" and script.get_revision("0021").down_revision == "0020"
     assert script.get_revision("0019").down_revision == "0018"
 

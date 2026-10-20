@@ -26,6 +26,7 @@ from app.routers import (
     operational_tasks,
     professional_fees,
     reports,
+    sire_controls,
     sol_access,
     sol_vault,
     tax_assessments,
@@ -114,3 +115,4 @@ app.include_router(communications.router)
 app.include_router(sol_vault.router)
 app.include_router(sol_vault.credential_router)
 app.include_router(sol_access.router)
+app.include_router(sire_controls.router)

@@ -73,6 +73,9 @@ export interface CockpitRow {
   sire_status: CockpitSireStatus | null;
   sire_rvie_status: CockpitSireStatus | null;
   sire_rce_status: CockpitSireStatus | null;
+  // M4: resumen del control SIRE (cuadre + revision). No es un estado de presentacion.
+  sire_control_rvie?: string;
+  sire_control_rce?: string;
   tax_total_assessed: string | null;
   tax_total_payable: string | null;
   tax_total_paid: string;

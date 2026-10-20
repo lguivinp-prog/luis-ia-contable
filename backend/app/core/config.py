@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     # ---- Motor de cronogramas: limites de importacion CSV ----
     tax_schedule_csv_max_bytes: int = 2_000_000
     tax_schedule_csv_max_rows: int = 5000
+    # M4 -- control SIRE: limites de archivos de respaldo/importacion (CSV, XLSX, PDF, imagenes)
+    sire_file_max_bytes: int = 5_000_000
+    sire_import_max_rows: int = 20_000
 
     # ---- Ciclo operativo (Bloque 3.2): cierre con impuesto/documentos pendientes ----
     # Interruptor global deliberadamente en False por defecto (ver "Cierre

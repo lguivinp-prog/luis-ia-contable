@@ -40,6 +40,7 @@ from app.schemas.cockpit import (
 )
 from app.services import cockpit_logic as logic
 from app.services import dashboard_service
+from app.services import sire_control_service
 from app.services.declaration_risk import UPCOMING_THRESHOLD_DAYS, compute_risk_status
 
 ACTIVE_SERVICE_STATUS = "activo"
@@ -151,6 +152,7 @@ def _rows_for_clients(
     tax_aggregates = dashboard_service.build_tax_aggregates(db, tenant_id, applicable_ids)
     fee_aggregates = dashboard_service.build_fee_aggregates(db, tenant_id, [(cid, period.id) for cid in client_ids], today)
     phase = logic.monthly_phase(period.end_date, today)
+    control_codes = sire_control_service.cockpit_codes(db, tenant_id=tenant_id, period_id=period.id, client_ids=client_ids)  # M4: 3 consultas, sin crear nada
 
     rows: list[CockpitRowOut] = []
     for client in clients:
@@ -223,6 +225,8 @@ def _rows_for_clients(
                 document_status=document_status,
                 missing_documents_count=missing_documents,
                 sire_status=sire_status,
+                sire_control_rvie=control_codes.get((client.id, "RVIE"), "NO_CONTROL"),
+                sire_control_rce=control_codes.get((client.id, "RCE"), "NO_CONTROL"),
                 sire_rvie_status=component["SIRE-RVIE"],
                 sire_rce_status=component["SIRE-RCE"],
                 tax_total_assessed=assessed,

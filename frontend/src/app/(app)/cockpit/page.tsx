@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/StatusSemaphore";
 import { ApiError, apiClient } from "@/lib/apiClient";
 import { fetchMonthlyCockpit } from "@/lib/cockpit";
+import { summaryInfo } from "@/lib/sireControlModel";
 import {
   ACCOUNTING_STATUS_SEMAPHORE,
   BUZON_STATUS_SEMAPHORE,
@@ -203,7 +204,7 @@ export default function CockpitPage() {
               <table className="data-table" aria-label="Clientes del periodo">
                 <thead>
                   <tr>
-                    {["Cliente", "RUC", "Vence", "Fase", "Documentos", "SIRE", "Declaraciones", "Impuesto", "Honorarios", "Buzón", "Contabilidad", "Comunicación", "Riesgo", "Acción"].map(
+                    {["Cliente", "RUC", "Vence", "Fase", "Documentos", "SIRE", "Control SIRE", "Declaraciones", "Impuesto", "Honorarios", "Buzón", "Contabilidad", "Comunicación", "Riesgo", "Acción"].map(
                       (header) => (
                         <th key={header}>{header}</th>
                       ),
@@ -221,6 +222,24 @@ export default function CockpitPage() {
           <Pagination total={data.total} limit={LIMIT} offset={offset} onOffsetChange={setOffset} />
         </>
       )}
+    </div>
+  );
+}
+
+// Indicador RESUMIDO del control SIRE (cuadre + revision del contador). NO es un estado de presentacion y no reemplaza al estado juridico de SIRE.
+const CONTROL_TONE: Record<string, string> = { ok: "var(--success, #2e7d32)", warn: "var(--warning, #b26a00)", danger: "var(--danger, #c0392b)", info: "var(--info, #1565c0)", muted: "var(--muted)" };
+
+function SireControlSummary({ rvie, rce }: { rvie?: string; rce?: string }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "0.15rem", fontSize: "0.8rem" }}>
+      {([["RVIE", rvie], ["RCE", rce]] as const).map(([name, code]) => {
+        const info = summaryInfo(code);
+        return (
+          <span key={name} data-control-code={code ?? "NO_CONTROL"} title={info.hint} style={{ color: CONTROL_TONE[info.tone], whiteSpace: "nowrap" }}>
+            {name}: {info.label}
+          </span>
+        );
+      })}
     </div>
   );
 }
@@ -253,6 +272,9 @@ function CockpitTableRow({ row }: { row: CockpitRow }) {
         )}
       </td>
       <td>{row.sire_status ? <StatusSemaphore status={row.sire_status} map={SIRE_STATUS_SEMAPHORE} /> : "—"}</td>
+      <td data-testid={`sire-control-cell-${row.client_id}`}>
+        <SireControlSummary rvie={row.sire_control_rvie} rce={row.sire_control_rce} />
+      </td>
       <td>
         {notGenerated ? <StatusSemaphore status="PERIOD_NOT_GENERATED" map={COCKPIT_RISK_SEMAPHORE} /> : declarationsLabel(row)}
       </td>

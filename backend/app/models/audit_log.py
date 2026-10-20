@@ -141,6 +141,13 @@ class AuditAction(str, enum.Enum):
     # M2: navegacion supervisada, Ficha RUC y alta asistida (metadata sin credenciales/HTML/cookies)
     SUNAT_DESTINATION_REQUESTED = "SUNAT_DESTINATION_REQUESTED"
     # M3: aceptacion real controlada de un destino (autorizacion acotada, consumo, revocacion, resultado confirmado por el propietario)
+    # M4: control SIRE (metadata sin importes ni contenido de archivos)
+    SIRE_CONTROL_CREATED = "SIRE_CONTROL_CREATED"
+    SIRE_SOURCE_ADDED = "SIRE_SOURCE_ADDED"
+    SIRE_FILE_STORED = "SIRE_FILE_STORED"
+    SIRE_REVIEW_RECORDED = "SIRE_REVIEW_RECORDED"
+    SIRE_TOLERANCE_SET = "SIRE_TOLERANCE_SET"
+    SIRE_FILE_DOWNLOADED = "SIRE_FILE_DOWNLOADED"
     SOL_ACCEPTANCE_GRANTED = "SOL_ACCEPTANCE_GRANTED"
     SOL_ACCEPTANCE_CONSUMED = "SOL_ACCEPTANCE_CONSUMED"
     SOL_ACCEPTANCE_REVOKED = "SOL_ACCEPTANCE_REVOKED"

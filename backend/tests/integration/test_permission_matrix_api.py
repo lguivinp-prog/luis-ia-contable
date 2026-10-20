@@ -376,6 +376,9 @@ CASES = [
         "contador_client",
         "asistente_client",
     ),
+    # ---- Producto M4: control SIRE (lectura: asistente incluido; escritura: contador y administrador) ----
+    ("sire_control:read", "GET", f"/api/v1/sire-controls/by-period?client_id={DUMMY_ID}&tax_period_id={DUMMY_ID_2}", None, "asistente_client", None),
+    ("sire_control:write", "POST", "/api/v1/sire-controls/sources/manual", {}, "contador_client", "asistente_client"),
     # ---- Producto M3: aceptacion real controlada (solo administrador) ----
     ("sol_acceptance:manage", "GET", f"/api/v1/sol-access/clients/{DUMMY_ID}/acceptances", None, "auth_client", "contador_client"),
     ("sol_acceptance:manage", "POST", "/api/v1/sol-access/acceptances", {}, "auth_client", "contador_client"),
@@ -422,7 +425,7 @@ def test_permission_matrix(
         )
 
 
-def test_matrix_covers_all_58_permissions() -> None:
+def test_matrix_covers_all_60_permissions() -> None:
     """Fase 5, Bloque 5.1 (ver ADR-0068): agrega los 9 permisos sol_vault:*/
     sol_credential:* (42 -> 51). Fase 5, Bloque 5.2 (ver
     docs/phase5/block5_2/): agrega 5 permisos sol_session:*/sol_agent:*

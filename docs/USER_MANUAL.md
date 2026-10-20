@@ -292,6 +292,21 @@ hasta comprobarla mediante un acceso supervisado posterior** — esta versión g
 no verifica todavía que funcione contra SUNAT (eso corresponde a un bloque futuro, no implementado). Puedes
 deshabilitarla en cualquier momento si el cliente cambia su clave o termina la relación.
 
+## Control SIRE mensual (M4) — pestaña SIRE del workspace
+
+Abre un contribuyente (`/cockpit`), elige el período y entra a la pestaña **SIRE**. Debajo del acceso a SUNAT verás dos secciones independientes: **Registro de Ventas (RVIE)** y **Registro de Compras (RCE)**.
+
+1. **Incorpora dos fuentes** por registro: la de **SUNAT** y la de **DARWIN/CONTASIS**. Cada una se ingresa con *Ingresar datos* (cantidad de registros, base, IGV, total e identificación de la fuente; lo que no conoces se deja vacío: **desconocido no es cero**) o con *Importar archivo* (CSV o XLSX: sin macros ni fórmulas). La importación muestra una vista previa, sugiere qué columna es cada dato y te pide confirmar el mapeo y, si es ambiguo, el separador decimal.
+2. **Compara**: con una sola fuente verás «Información parcial»; con ambas, «Cuadra» o «Presenta diferencias» (diferencia = DARWIN − SUNAT). El sistema nunca corrige datos. Si defines una tolerancia, queda visible y la diferencia original se conserva.
+3. **Registra tu revisión**: *Verificado* (solo si cuadra), *Observación* o *Por regularizar* (ambas exigen texto). Si luego cambia una fuente, aparecerá **«Requiere nueva revisión»** y la revisión anterior queda en el historial.
+4. **Evidencia**: adjunta PDF, imágenes o archivos de respaldo; se guardan con su huella SHA-256, no se duplican y puedes verificar su integridad o descargarlos.
+5. **Reporte**: *Reporte de control* abre una página imprimible con fuentes, diferencias, archivos, revisión y huella. **No es una constancia ni una presentación oficial de SUNAT.**
+6. En la tabla del cockpit, la columna **Control SIRE** resume ambos registros; no reemplaza el estado de presentación.
+
+Qué significa cada dato: lo ingresado a mano figura como «ingreso manual atribuido a SUNAT» o «a DARWIN / CONTASIS» (no se coteja con un archivo); un archivo adjunto es evidencia y no se interpreta; el cuadre es solo numérico; tu revisión es profesional; y la presentación ante SUNAT solo se verifica en SUNAT. Si corriges una revisión, se crea una versión nueva y la anterior se conserva en el historial. La fase del período («Operación», «Cierre») depende del calendario y no cambia por el control SIRE.
+
+Límites: los formatos reales de exportación de SUNAT y DARWIN **no están validados** (importación CSV/XLSX: pruebas sintéticas aprobadas, compatibilidad con formatos reales pendiente); si un archivo real no se importa, usa el ingreso manual y avisa para añadir su mapeo. El asistente solo puede consultar; el contador y el administrador pueden registrar. Esta función no presenta, paga ni rectifica nada.
+
 ## Qué todavía no hace el sistema
 
 Esta versión no envía notificaciones por correo/SMS/push (las tareas y alertas solo se ven dentro de la aplicación), ni sincroniza con Google Calendar/Drive, ni tiene integraciones con Gmail/SUNAT Operaciones en Línea, ni presenta declaraciones o realiza pagos reales. La bóveda de credenciales SOL (Fase 5, Bloque 5.1) guarda y cifra credenciales, pero todavía no las valida contra SUNAT ni automatiza ningún acceso — no hay Playwright, no hay Buzón SOL, no hay sesiones de acceso SOL reales. Desde Bloque 5 los documentos sí se almacenan como archivos reales (PDF/JPG/PNG/DOCX/XLSX, con reemplazo versionado y eliminación lógica); lo que no existe todavía es restauración de una versión eliminada, previsualización embebida de Office, ni purga física automática de archivos eliminados. Las rectificatorias tributarias quedan excluidas del producto por decisión funcional del propietario (no reaparecen como pendiente). Ver [ROADMAP.md](ROADMAP.md).

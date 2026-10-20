@@ -13,10 +13,10 @@ class _FakeUser:
         self.role = role
 
 
-def test_permission_enum_has_58_values() -> None:
+def test_permission_enum_has_60_values() -> None:
     """Fase 5, Bloque 5.2 (ver docs/phase5/block5_2/BLOCK5_2_RBAC_MATRIX.md):
     agrega los 5 permisos sol_session:*/sol_agent:* (51 -> 56). Producto M1: +cockpit:update (56 -> 57)."""
-    assert len(list(Permission)) == 58  # M3: +sol_acceptance:manage (57 -> 58)
+    assert len(list(Permission)) == 60  # M3: +sol_acceptance:manage (57 -> 58); M4: +sire_control:read/write (58 -> 60)
 
 
 def test_admin_has_every_permission() -> None:
@@ -44,12 +44,15 @@ def test_contador_lacks_user_management_and_close_override() -> None:
     assert Permission.SOL_AGENT_READ in contador_permissions
     assert Permission.SOL_AGENT_MANAGE not in contador_permissions
     assert Permission.COCKPIT_UPDATE in contador_permissions
-    assert len(contador_permissions) == 49
+    assert Permission.SIRE_CONTROL_READ in contador_permissions and Permission.SIRE_CONTROL_WRITE in contador_permissions
+    assert Permission.SOL_ACCEPTANCE_MANAGE not in contador_permissions
+    assert len(contador_permissions) == 51
 
 
 def test_asistente_is_read_only_plus_document_item_write_and_reports() -> None:
     asistente_permissions = ROLE_PERMISSIONS["asistente"]
-    assert len(asistente_permissions) == 22
+    assert len(asistente_permissions) == 23  # M4: + sire_control:read (el asistente consulta, no escribe)
+    assert Permission.SIRE_CONTROL_READ in asistente_permissions and Permission.SIRE_CONTROL_WRITE not in asistente_permissions
     assert Permission.DOCUMENT_ITEM_WRITE in asistente_permissions
     assert Permission.REPORT_EXPORT in asistente_permissions
     assert Permission.DOCUMENT_MANAGE not in asistente_permissions

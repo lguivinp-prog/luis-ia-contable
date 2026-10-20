@@ -22,10 +22,10 @@ from tests.integration._sol_agent_access_helpers import (
 # ------------------------------------------------------------------------------------------------- migracion
 
 
-def test_single_head_is_0024_after_m3_and_0020_chains_from_0019():
+def test_single_head_is_0025_after_m4_and_0020_chains_from_0019():
     script = ScriptDirectory.from_config(make_alembic_config())
-    assert script.get_heads() == ["0024"]
-    assert script.get_revision("0024").down_revision == "0023"
+    assert script.get_heads() == ["0025"]
+    assert script.get_revision("0025").down_revision == "0024" and script.get_revision("0024").down_revision == "0023"
     assert script.get_revision("0020").down_revision == "0019" and script.get_revision("0021").down_revision == "0020"
     assert script.get_revision("0022").down_revision == "0021"
 

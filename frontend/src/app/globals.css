@@ -194,3 +194,11 @@ textarea {
     padding: 0.75rem;
   }
 }
+
+/* M4: el reporte de control SIRE es imprimible; los controles de navegacion no se imprimen. */
+@media print {
+  .no-print,
+  .app-nav-backdrop {
+    display: none !important;
+  }
+}

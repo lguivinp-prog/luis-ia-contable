@@ -36,6 +36,10 @@ class CockpitSummaryOut(BaseModel):
 
 
 class CockpitRowOut(BaseModel):
+    # M4: resumen del CONTROL SIRE (cuadre + revision del contador). NO es un estado de presentacion y no reemplaza a sire_*_status.
+    sire_control_rvie: str = "NO_CONTROL"
+    sire_control_rce: str = "NO_CONTROL"
+
     client_id: uuid.UUID
     business_name: str
     ruc: str
